@@ -56,6 +56,29 @@
   .canvas-inner { position:relative; min-height:100%; min-width:700px; }
   .canvas-grid { position:absolute; inset:0; background-image: linear-gradient(rgba(59,130,246,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.04) 1px, transparent 1px); background-size:40px 40px; pointer-events:none; }
 
+  /* Canvas toolbar */
+  .canvas-toolbar {
+    position:absolute; top:0; left:50%; transform:translateX(-50%); z-index:15;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:0 0 10px 10px; padding:6px 18px;
+    display:flex; align-items:center; gap:12px;
+    font-size:12px; color:var(--text2);
+    box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  }
+  .canvas-toolbar .ct-label { display:flex; align-items:center; gap:6px; }
+  .canvas-toolbar .ct-count { font-size:16px; font-weight:700; color:var(--accent); min-width:24px; text-align:center; }
+  .canvas-toolbar .ct-rec { font-size:10px; color:var(--text3); }
+  .canvas-toolbar .ct-badge { font-size:9px; padding:2px 8px; border-radius:8px; background:rgba(59,130,246,0.12); color:var(--accent); }
+  .canvas-toolbar .ct-btn {
+    width:24px; height:24px; padding:0; font-size:14px; line-height:1;
+    border-radius:4px; border:1px solid var(--border);
+    background:var(--surface2); color:var(--text2);
+    cursor:pointer; transition:all 0.15s;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .canvas-toolbar .ct-btn:hover { border-color:var(--accent); color:#fff; }
+  .canvas-toolbar .ct-btn:disabled { opacity:0.3; cursor:not-allowed; }
+
   .edges-svg { position:absolute; inset:0; z-index:2; pointer-events:none; overflow:visible; min-height:100%; }
   .edges-svg path.edge-h { fill:none; stroke:var(--text3); stroke-width:2; stroke-dasharray:6,4; transition:stroke 0.4s,stroke-dasharray 0.4s; }
   .edges-svg path.edge-h.active { stroke:var(--accent); stroke-dasharray:none; }
@@ -233,6 +256,10 @@
         <div class="demo-card" id="stepWelcome">
           <h2>👋 欢迎使用 AgentFlow</h2>
           <p class="sub">输入需求 → 编排 Agent 自动拆解 → 生成可视化工作流</p>
+          <div style="display:flex;justify-content:center;gap:8px;margin-bottom:6px;">
+            <span style="font-size:11px;background:var(--accent);color:#fff;padding:2px 8px;border-radius:99px;">⚡ 后端 GLM-5-Turbo</span>
+            <span style="font-size:11px;background:var(--purple);color:#fff;padding:2px 8px;border-radius:99px;">🤖 编排 Agent 拆解</span>
+          </div>
 
           <div class="req-hints">
             <span class="hint" onclick="setReq(this)">四旋翼无人机PID控制器</span>
@@ -242,6 +269,16 @@
           </div>
 
           <textarea id="reqInput" placeholder="描述你的需求，编排Agent会自动拆解为多个子任务...">为四旋翼无人机设计PID控制器并生成C++代码，然后编译测试</textarea>
+
+          <!-- Agent 数量调节器 --- 第一步就要有 -->
+          <div style="margin:12px 0; display:flex; align-items:center; justify-content:center; gap:10px;">
+            <span style="font-size:13px; color:var(--text2);">🤖 Agent 数量</span>
+            <button class="btn btn-sm" style="width:28px;height:28px;padding:0;font-size:16px;line-height:1;" onclick="adjustWelcomeCount(-1)">−</button>
+            <span id="welcomeCount" style="font-size:20px;font-weight:700;color:var(--accent);min-width:32px;text-align:center;">6</span>
+            <button class="btn btn-sm" style="width:28px;height:28px;padding:0;font-size:16px;line-height:1;" onclick="adjustWelcomeCount(1)">+</button>
+            <span style="font-size:10px;color:var(--text3);">（编排推荐 <span id="recCount">6</span>）</span>
+          </div>
+
           <div class="actions">
             <button class="btn btn-primary" onclick="startGenerate()">🚀 AI 自动生成工作流</button>
           </div>
@@ -253,6 +290,15 @@
           <div class="loading-bar"><div class="fill" id="loadingFill"></div></div>
           <div id="genLog"></div>
         </div>
+
+        <div class="canvas-toolbar hidden" id="canvasToolbar">
+        <span class="ct-label">🤖 Agent 数量</span>
+        <button class="ct-btn" id="ctMinus" onclick="adjustCanvasCount(-1)">−</button>
+        <span class="ct-count" id="ctCount">0</span>
+        <button class="ct-btn" id="ctPlus" onclick="adjustCanvasCount(1)">+</button>
+        <span class="ct-rec" id="ctRec">编排推荐</span>
+        <span class="ct-badge" id="ctBadge"></span>
+      </div>
 
         <div class="step-hint hidden" id="stepHint">
           <span id="stepHintText">步骤 0/4</span>
@@ -358,59 +404,145 @@ function setReq(el) {
     '自动驾驶感知模块':'开发自动驾驶感知模块：多模态融合模型训练→嵌入式部署→HIL验证',
   };
   document.getElementById('reqInput').value = map[txt] || txt;
+  updateRecCount();
 }
+
+// 根据输入文本更新推荐 Agent 数量
+function updateRecCount() {
+  const t = document.getElementById('reqInput').value.toLowerCase();
+  let rec = 6;
+  if (t.includes('pid')||t.includes('控制器')||t.includes('四旋翼')||t.includes('无人机')) rec = 6;
+  else if (t.includes('网站')||t.includes('官网')||t.includes('web')||t.includes('前端')||t.includes('后端')) rec = 7;
+  else if (t.includes('机器')||t.includes('训练')||t.includes('模型')||t.includes('ml')||t.includes('预测')) rec = 7;
+  else if (t.includes('自动')||t.includes('感知')||t.includes('驾驶')||t.includes('lidar')) rec = 8;
+  document.getElementById('recCount').textContent = rec;
+  // 如果用户当前值小于推荐值，自动设为推荐值
+  const cur = parseInt(document.getElementById('welcomeCount').textContent);
+  if (cur < rec) {
+    document.getElementById('welcomeCount').textContent = rec;
+  }
+}
+
+// 第一步欢迎页的 Agent 数量调节
+function adjustWelcomeCount(delta) {
+  const cur = parseInt(document.getElementById('welcomeCount').textContent);
+  const nxt = cur + delta;
+  if (nxt < 1 || nxt > 100) return;
+  document.getElementById('welcomeCount').textContent = nxt;
+}
+
+// 输入框内容变化时更新推荐数量
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('reqInput').addEventListener('input', updateRecCount);
+});
 
 // ═══════════════════════════════════════════════
 // STEP 1 → 2: GENERATE (编排 Agent 分析)
 // ═══════════════════════════════════════════════
 
+const API_URL = '/api/decompose';
+
 function startGenerate() {
   const val = document.getElementById('reqInput').value.trim();
   if (!val) { document.getElementById('reqInput').focus(); return; }
+  const userCount = parseInt(document.getElementById('welcomeCount').textContent) || 6;
 
   hide('stepWelcome'); show('stepGenerating'); show('stepHint');
   step = 1; updateStepUI();
 
-  // 编排 Agent 分析需求 → 匹配工作流模板
-  const template = findTemplate(val);
-
   const log = document.getElementById('genLog'); log.innerHTML = '';
   document.getElementById('loadingFill').style.width = '0%';
 
-  const N = template.nodes.length;
   const msgs = [
     [5, '📡 编排 Agent 接收需求...'],
-    [15, '🔍 语义分析: 识别关键任务领域 "'+template.name+'"'],
-    [28, '🧩 任务拆解: '+N+' 个子任务'],
-    [40, '🔗 依赖分析: 构建 DAG 拓扑排序'],
-    [52, '📦 匹配 Agent 类型: '+template.nodes.map(n=>n.label).join(', ')],
-    [65, '🎯 生成 PromptTask (YAML 模板渲染)'],
-    [78, '🔌 连接数据流: '+(N-1)+' 条边'],
-    [90, '✅ 工作流 DAG 构建完毕 ('+N+' nodes)'],
+    [15, '🔍 发送到 GLM-5-Turbo 分析...'],
+    [28, '🧩 LLM 正在拆解任务...'],
+    [40, '🔗 解析返回的 JSON 结构...'],
+    [52, '📦 构建工作流节点...'],
+    [65, '🎯 生成 PromptTask...'],
+    [78, '🔌 连接数据流...'],
+    [90, '✅ 工作流 DAG 构建完毕'],
     [100, '🎯 即将打开可视化画布...'],
   ];
 
   let i = 0;
+  // 先跑定时器动画，同时发起API调用
   genTimer = setInterval(() => {
     if (i >= msgs.length) {
       clearInterval(genTimer); genTimer=null;
-      currentNodes = template.nodes;
-      document.getElementById('workflowName').textContent = template.name;
-      setTimeout(showCanvas, 350);
       return;
     }
     document.getElementById('loadingFill').style.width = msgs[i][0]+'%';
-    log.innerHTML += '<div>'+msgs[i][1]+'</div>'; log.scrollTop = log.scrollHeight; i++;
-  }, 500);
+    log.innerHTML += '<div>'+msgs[i][1]+'</div>'; log.scrollTop = log.scrollHeight;
+    i++;
+  }, 350);
+
+  // 发起 LLM 调用（异步，并行于定时器）
+  callDecomposeAPI(val, userCount).then(nodes => {
+    if (!nodes || nodes.length === 0) throw new Error('empty response');
+    currentNodes = nodes;
+    log.innerHTML += '<div style="color:var(--green);">✅ GLM-5-Turbo 返回 '+nodes.length+' 个节点</div>';
+    log.scrollTop = log.scrollHeight;
+    setTimeout(showCanvas, 400);
+  }).catch(e => {
+    console.warn('API failed:', e);
+    log.innerHTML += '<div style="color:var(--orange);">⚠️ GLM-5-Turbo 调用失败，使用本地模板降级</div>';
+    log.scrollTop = log.scrollHeight;
+    const tpl = findTemplateLocal(val);
+    currentNodes = adjustTemplateToCount(tpl, userCount).nodes;
+    setTimeout(showCanvas, 400);
+  });
 }
 
-function findTemplate(text) {
+async function callDecomposeAPI(req, cnt) {
+  const resp = await fetch(API_URL, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({requirement: req, count: cnt})
+  });
+  const data = await resp.json();
+  return data.nodes || [];
+}
+
+function findTemplateLocal(text) {
   const t = text.toLowerCase();
   if (t.includes('pid') || t.includes('控制器') || t.includes('四旋翼') || t.includes('无人机')) return WORKFLOW_TEMPLATES['pid'];
   if (t.includes('网站') || t.includes('官网') || t.includes('web') || t.includes('前端') || t.includes('后端')) return WORKFLOW_TEMPLATES['网站'];
   if (t.includes('机器') || t.includes('训练') || t.includes('模型') || t.includes('ml') || t.includes('预测')) return WORKFLOW_TEMPLATES['机器学习'];
   if (t.includes('自动') || t.includes('感知') || t.includes('驾驶') || t.includes('sensor') || t.includes('lidar')) return WORKFLOW_TEMPLATES['自动驾驶'];
-  return WORKFLOW_TEMPLATES['pid']; // default
+  return WORKFLOW_TEMPLATES['pid'];
+}
+
+// 根据用户指定的 Agent 数量调整模板（增加或减少节点）
+function adjustTemplateToCount(template, targetCount) {
+  const nodes = [...template.nodes];
+  const diff = targetCount - nodes.length;
+
+  if (diff > 0) {
+    // 需要增加节点：拆分最后一个非输出节点
+    for (let i = 0; i < diff; i++) {
+      const splitIdx = Math.max(1, nodes.length - 1);
+      const splitNode = nodes[splitIdx];
+      const newId = splitNode.id + '_s' + i;
+      const icons = ['🔧','⚙️','📐','🔩','📎','🔄'];
+      const newNode = {
+        id: newId, icon: icons[i % icons.length], label: splitNode.label + ' (细化)',
+        desc: splitNode.desc + ' — 子步骤', color: 'blue',
+        result: '待执行'
+      };
+      nodes.splice(splitIdx, 0, newNode);
+    }
+  } else if (diff < 0) {
+    // 需要减少节点：合并相邻节点
+    const removeCount = Math.abs(diff);
+    for (let i = 0; i < removeCount; i++) {
+      if (nodes.length <= 2) break;
+      // 删除倒数第二个节点（保留第一个和最后一个）
+      nodes.splice(nodes.length - 2, 1);
+    }
+  }
+
+  return { name: template.name, nodes: nodes };
 }
 
 // ═══════════════════════════════════════════════
@@ -420,6 +552,10 @@ function findTemplate(text) {
 function showCanvas() {
   hide('stepGenerating'); step = 2; updateStepUI();
   renderNodes(); renderOutputs(); drawEdges();
+  // 同步工具栏数量为实际生成的节点数
+  document.getElementById('ctCount').textContent = currentNodes.length;
+  document.getElementById('ctBadge').textContent = '共 ' + currentNodes.length + ' 步';
+  show('canvasToolbar'); updateCanvasCountUI();
 
   // Adjust canvas height
   const N = currentNodes.length;
@@ -488,6 +624,45 @@ function drawEdges() {
       svg.appendChild(v);
     }
   }
+}
+
+// ═══════════════════════════════════════════════
+// CANVAS COUNT ADJUSTMENT
+// ═══════════════════════════════════════════════
+
+function updateCanvasCountUI() {
+  document.getElementById('ctCount').textContent = currentNodes.length;
+  document.getElementById('ctMinus').disabled = currentNodes.length <= 2;
+  document.getElementById('ctBadge').textContent = '共 ' + currentNodes.length + ' 步';
+}
+
+function adjustCanvasCount(delta) {
+  const N = currentNodes.length + delta;
+  if (N < 2 || N > 20) return;
+
+  if (delta > 0) {
+    // Add a node: split the last node's function
+    const last = currentNodes[currentNodes.length - 1];
+    const newId = last.id + '_' + Date.now().toString(36);
+    const newIcon = ['🔧','⚙️','📎','🔩'][Math.floor(Math.random()*4)];
+    const newNode = {
+      id: newId, icon: newIcon, label: '子任务 #' + (currentNodes.length + 1),
+      desc: last.desc + ' (细化)', color: 'blue',
+      result: '待执行'
+    };
+    currentNodes.splice(currentNodes.length - 1, 0, newNode);
+  } else {
+    // Remove the second-to-last node (merge into last)
+    currentNodes.splice(currentNodes.length - 2, 1);
+  }
+
+  // Re-render
+  renderNodes(); renderOutputs(); drawEdges();
+  updateCanvasCountUI();
+
+  // Adjust canvas height
+  const h = ly(currentNodes.length - 1) + 120;
+  document.getElementById('canvasInner').style.height = Math.max(h, 400) + 'px';
 }
 
 // ═══════════════════════════════════════════════
@@ -651,6 +826,7 @@ function resetDemo() {
   document.getElementById('panelTitle').textContent='📋 节点配置';
   document.getElementById('panelBody').innerHTML='<div class="panel-placeholder"><div class="big-icon">🔗</div><div>点击画布上的节点<br>查看详细配置</div></div>';
   document.getElementById('workflowName').textContent='未命名工作流';
+  hide('canvasToolbar');
   show('stepWelcome');hide('stepGenerating');hide('stepHint');
   document.getElementById('genLog').innerHTML='';
   document.getElementById('loadingFill').style.width='0%';
