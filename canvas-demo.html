@@ -259,7 +259,16 @@
 
           <!-- Agent 选择器 -->
           <div class="agent-selector">
-            <div class="as-title">🤖 选择要使用的 Agent <span id="asCount" style="color:var(--accent);font-weight:600;">3</span></div>
+            <div class="as-title">🤖 Agent 配置</div>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+              <div style="font-size:12px;color:var(--text2);">数量</div>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <button class="btn btn-sm" style="width:28px;height:28px;padding:0;font-size:16px;line-height:1;" onclick="adjustAgentCount(-1)">−</button>
+                <span id="asCount" style="font-size:18px;font-weight:700;color:var(--accent);width:28px;text-align:center;">4</span>
+                <button class="btn btn-sm" style="width:28px;height:28px;padding:0;font-size:16px;line-height:1;" onclick="adjustAgentCount(1)">+</button>
+              </div>
+              <div style="font-size:11px;color:var(--text3);">选择具体 Agent（可点选）</div>
+            </div>
             <div class="as-chips" id="agentChips">
               <div class="agent-chip active" data-id="alg">🧮 算法设计</div>
               <div class="agent-chip active" data-id="dev">💻 软件开发</div>
@@ -391,26 +400,62 @@ function getActiveEdges() {
 // AGENT SELECTOR
 // ═══════════════════════════════════════════════
 
+function updateCountUI() {
+  document.getElementById('asCount').textContent = activeAgents.length;
+  document.getElementById('agentCount').textContent = activeAgents.length;
+}
+
+function adjustAgentCount(delta) {
+  const chips = document.querySelectorAll('.agent-chip');
+  const allIds = Array.from(chips).map(c => c.dataset.id);
+  const newCount = activeAgents.length + delta;
+  if (newCount < 1 || newCount > allIds.length) return;
+
+  if (delta > 0) {
+    // Add the first disabled agent
+    const toAdd = allIds.find(id => !activeAgents.includes(id));
+    if (toAdd) {
+      activeAgents.push(toAdd);
+      activeAgents.sort((a,b) => allIds.indexOf(a) - allIds.indexOf(b));
+      chips.forEach(c => {
+        if (c.dataset.id === toAdd) {
+          c.classList.add('active');
+          c.classList.remove('disabled');
+        }
+      });
+    }
+  } else {
+    // Remove the last active agent
+    const toRemove = activeAgents[activeAgents.length - 1];
+    activeAgents = activeAgents.filter(id => id !== toRemove);
+    chips.forEach(c => {
+      if (c.dataset.id === toRemove) {
+        c.classList.remove('active');
+        c.classList.add('disabled');
+      }
+    });
+  }
+  updateCountUI();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('agentChips').addEventListener('click', e => {
     const chip = e.target.closest('.agent-chip');
     if (!chip) return;
     const id = chip.dataset.id;
     if (activeAgents.includes(id)) {
-      // Can't deselect if it's the last one
       if (activeAgents.length <= 1) return;
       activeAgents = activeAgents.filter(x => x !== id);
       chip.classList.remove('active');
       chip.classList.add('disabled');
     } else {
       activeAgents.push(id);
-      // Sort by original order
-      activeAgents.sort((a,b) => ALL_AGENTS.findIndex(x=>x.id===a) - ALL_AGENTS.findIndex(x=>x.id===b));
+      const allIds = Array.from(document.querySelectorAll('.agent-chip')).map(c => c.dataset.id);
+      activeAgents.sort((a,b) => allIds.indexOf(a) - allIds.indexOf(b));
       chip.classList.remove('disabled');
       chip.classList.add('active');
     }
-    document.getElementById('asCount').textContent = activeAgents.length;
-    document.getElementById('agentCount').textContent = activeAgents.length;
+    updateCountUI();
   });
 });
 
@@ -865,6 +910,7 @@ function resetDemo() {
   });
   document.getElementById('asCount').textContent = '4';
   document.getElementById('agentCount').textContent = '4';
+  updateCountUI();
 }
 </script>
 </body>
