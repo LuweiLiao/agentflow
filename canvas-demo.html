@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AgentFlow — 画布交互 Demo v2</title>
+<title>AgentFlow — 画布交互 Demo v3</title>
 <style>
   :root {
     --bg: #0f1117; --surface: #1a1d2e; --surface2: #232742;
@@ -17,21 +17,12 @@
     --mono: 'JetBrains Mono', 'Fira Code', monospace;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
-  body {
-    background: var(--bg); color: var(--text);
-    font-family: var(--font); line-height:1.6;
-    overflow: hidden; height: 100vh;
-  }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); line-height:1.6; overflow:hidden; height:100vh; }
 
   .app { display:flex; flex-direction:column; height:100vh; }
 
   /* ═══ TOP BAR ═══ */
-  .topbar {
-    display:flex; align-items:center; gap:16px;
-    padding:0 20px; height:52px;
-    background: var(--surface); border-bottom:1px solid var(--border);
-    flex-shrink:0; z-index:100;
-  }
+  .topbar { display:flex; align-items:center; gap:16px; padding:0 20px; height:52px; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; z-index:100; }
   .topbar .logo { font-weight:700; font-size:18px; display:flex; align-items:center; gap:8px; }
   .topbar .logo .bolt { color:var(--accent); }
   .topbar .sep { width:1px; height:24px; background:var(--border); }
@@ -41,39 +32,26 @@
   .topbar-right .status { font-size:12px; color:var(--text3); display:flex; align-items:center; gap:6px; }
   .dot-green { width:6px; height:6px; border-radius:50%; background:var(--green); display:inline-block; }
 
-  .btn {
-    padding:6px 16px; border-radius:6px; border:1px solid var(--border);
-    background:var(--surface2); color:var(--text); font-size:13px;
-    cursor:pointer; transition:all 0.15s; font-family:var(--font); white-space:nowrap;
-  }
+  .btn { padding:6px 16px; border-radius:6px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:13px; cursor:pointer; transition:all 0.15s; font-family:var(--font); white-space:nowrap; }
   .btn:hover { border-color:var(--accent); color:#fff; }
-  .btn-primary {
-    background:var(--accent); border-color:var(--accent); color:#fff; font-weight:500;
-  }
+  .btn-primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:500; }
   .btn-primary:hover { background:#2563eb; box-shadow:0 0 20px var(--accent-glow); }
   .btn-success { background:var(--green); border-color:var(--green); color:#fff; }
+  .btn-warn { background:var(--orange); border-color:var(--orange); color:#fff; }
   .btn-danger { background:var(--red); border-color:var(--red); color:#fff; }
   .btn-sm { padding:4px 10px; font-size:11px; }
+  .btn-outline { background:transparent; border-color:var(--border); color:var(--text2); }
+  .btn-outline:hover { border-color:var(--accent); color:#fff; }
 
   .body { display:flex; flex:1; overflow:hidden; }
 
   /* ═══ SIDEBAR ═══ */
-  .sidebar {
-    width:210px; background:var(--surface); border-right:1px solid var(--border);
-    display:flex; flex-direction:column; flex-shrink:0;
-  }
-  .section-title {
-    padding:12px 14px; font-size:10px; text-transform:uppercase;
-    letter-spacing:1px; color:var(--text3); border-bottom:1px solid var(--border);
-  }
+  .sidebar { width:210px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; }
+  .section-title { padding:12px 14px; font-size:10px; text-transform:uppercase; letter-spacing:1px; color:var(--text3); border-bottom:1px solid var(--border); }
   .palette { flex:1; overflow-y:auto; padding:6px; }
   .palette-group { margin-bottom:12px; }
   .palette-group-title { font-size:10px; color:var(--text3); padding:6px 8px 2px; font-weight:600; letter-spacing:0.5px; }
-  .palette-item {
-    display:flex; align-items:center; gap:8px;
-    padding:6px 8px; border-radius:5px; cursor:grab;
-    font-size:12px; color:var(--text2); transition:all 0.12s;
-  }
+  .palette-item { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:5px; cursor:grab; font-size:12px; color:var(--text2); transition:all 0.12s; }
   .palette-item:hover { background:var(--surface2); color:var(--text); }
   .palette-item .icon { width:24px; height:24px; border-radius:5px; display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; }
   .palette-item .icon.blue { background:rgba(59,130,246,0.13); }
@@ -82,262 +60,136 @@
   .palette-item .icon.orange { background:rgba(245,158,11,0.13); }
 
   /* ═══ CANVAS ═══ */
-  .canvas-wrap {
-    flex:1; position:relative; overflow:hidden;
-    background: radial-gradient(ellipse at 50% 40%, #131736 0%, #0a0c14 70%);
-  }
-  .canvas-grid {
-    position:absolute; inset:0;
-    background-image:
-      linear-gradient(rgba(59,130,246,0.04) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(59,130,246,0.04) 1px, transparent 1px);
-    background-size: 40px 40px;
-    pointer-events:none;
-  }
+  .canvas-wrap { flex:1; position:relative; overflow:hidden; background: radial-gradient(ellipse at 50% 40%, #131736 0%, #0a0c14 70%); }
+  .canvas-grid { position:absolute; inset:0; background-image: linear-gradient(rgba(59,130,246,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.04) 1px, transparent 1px); background-size:40px 40px; pointer-events:none; }
 
-  /* ═══ CANVAS SVG EDGES ═══ */
-  .edges-svg {
-    position:absolute; inset:0; z-index:2;
-    pointer-events:none; overflow:visible;
-  }
-  .edges-svg path.edge-line {
-    fill:none; stroke:var(--text3); stroke-width:2;
-    stroke-dasharray: 6,4;
-    transition: stroke 0.4s, stroke-dasharray 0.4s;
-  }
-  .edges-svg path.edge-line.active { stroke:var(--accent); stroke-dasharray: none; }
-  .edges-svg path.edge-line.done { stroke:var(--green); stroke-dasharray: none; stroke-width:2.5; }
-  .edges-svg path.edge-arrow { fill:var(--text3); transition: fill 0.4s; }
+  /* ═══ CANVAS SVG ═══ */
+  .edges-svg { position:absolute; inset:0; z-index:2; pointer-events:none; overflow:visible; }
+  .edges-svg path.edge-line { fill:none; stroke:var(--text3); stroke-width:2; stroke-dasharray:6,4; transition:stroke 0.4s,stroke-dasharray 0.4s; }
+  .edges-svg path.edge-line.active { stroke:var(--accent); stroke-dasharray:none; }
+  .edges-svg path.edge-line.done { stroke:var(--green); stroke-dasharray:none; stroke-width:2.5; }
+  .edges-svg path.edge-arrow { fill:var(--text3); transition:fill 0.4s; }
   .edges-svg path.edge-arrow.active { fill:var(--accent); }
   .edges-svg path.edge-arrow.done { fill:var(--green); }
-
-  /* Edge label */
-  .edge-label {
-    font-family:var(--mono); font-size:9px; fill:var(--text3);
-    text-anchor:middle; dominant-baseline:middle;
-    transition: fill 0.4s;
-  }
+  .edge-label { font-family:var(--mono); font-size:9px; fill:var(--text3); text-anchor:middle; dominant-baseline:middle; transition:fill 0.4s; }
   .edge-label.active { fill:var(--accent); }
   .edge-label.done { fill:var(--green); }
 
   /* ═══ CANVAS NODES ═══ */
-  .canvas-nodes { position:absolute; inset:0; z-index:5; }
-
-  .wf-node {
-    position:absolute; min-width:190px;
-    background: var(--surface); border:1px solid var(--border);
-    border-radius:10px; padding:12px 14px;
-    box-shadow:0 4px 20px rgba(0,0,0,0.3);
-    cursor:pointer; transition:all 0.25s;
-  }
-  .wf-node:hover {
-    border-color:var(--accent);
-    box-shadow:0 4px 24px var(--accent-glow);
-    transform:translateY(-2px);
-  }
-  .wf-node .header { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
-  .wf-node .header .icon-em { font-size:16px; }
-  .wf-node .header .t { font-size:12px; font-weight:600; }
-  .wf-node .header .type-badge {
-    font-size:9px; padding:1px 6px; border-radius:3px;
-    background:rgba(59,130,246,0.12); color:var(--accent); font-weight:500;
-    margin-left:4px;
-  }
+  .canvas-nodes { position:absolute; inset:0; z-index:5; pointer-events:none; }
+  .wf-node { position:absolute; min-width:190px; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; box-shadow:0 4px 20px rgba(0,0,0,0.3); cursor:pointer; transition:all 0.25s; pointer-events:auto; }
+  .wf-node:hover { border-color:var(--accent); box-shadow:0 4px 24px var(--accent-glow); transform:translateY(-2px); }
+  .wf-node .hdr { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+  .wf-node .hdr .ic { font-size:16px; }
+  .wf-node .hdr .t { font-size:12px; font-weight:600; }
+  .wf-node .hdr .badge { font-size:9px; padding:1px 6px; border-radius:3px; background:rgba(59,130,246,0.12); color:var(--accent); font-weight:500; margin-left:4px; }
   .wf-node .desc { font-size:11px; color:var(--text3); line-height:1.5; }
-  .wf-node .status-badge {
-    font-size:10px; padding:1px 8px; border-radius:3px;
-    margin-left:auto; display:none; white-space:nowrap;
-  }
-  .wf-node .status-badge.running {
-    display:none; background:rgba(59,130,246,0.12); color:var(--accent);
-  }
-  .wf-node .status-badge.success {
-    display:none; background:var(--green-bg); color:var(--green);
-  }
+  .wf-node .sbadge { font-size:10px; padding:1px 8px; border-radius:3px; margin-left:auto; display:none; white-space:nowrap; }
+  .wf-node .sbadge.run { display:none; background:rgba(59,130,246,0.12); color:var(--accent); }
+  .wf-node .sbadge.ok { display:none; background:var(--green-bg); color:var(--green); }
   .wf-node.executing { border-color:var(--accent); box-shadow:0 0 30px var(--accent-glow); }
-  .wf-node.executing .status-badge.running { display:inline-block; }
+  .wf-node.executing .sbadge.run { display:inline-block; }
   .wf-node.done { border-color:var(--green); }
-  .wf-node.done .status-badge.success { display:inline-block; }
-  .wf-node.failed { border-color:var(--red); }
-
-  /* Node click hint */
-  .wf-node .click-hint {
-    position:absolute; right:-4px; top:-4px;
-    background:var(--accent); color:#fff; font-size:9px;
-    padding:2px 6px; border-radius:8px; opacity:0;
-    transition:opacity 0.3s; white-space:nowrap; font-weight:500;
-    z-index:10;
-  }
+  .wf-node.done .sbadge.ok { display:inline-block; }
+  .wf-node.done .click-hint { display:none !important; }
+  .wf-node .click-hint { position:absolute; right:-4px; top:-4px; background:var(--accent); color:#fff; font-size:9px; padding:2px 6px; border-radius:8px; opacity:0; transition:opacity 0.3s; white-space:nowrap; font-weight:500; z-index:10; }
   .wf-node.show-hint .click-hint { opacity:1; }
 
-  /* ═══ DEMO OVERLAY ═══ */
-  .demo-overlay {
-    position:absolute; inset:0;
-    display:flex; flex-direction:column;
-    align-items:center; justify-content:center;
-    z-index:20; pointer-events:none;
+  /* ═══ NODE RESULT CARD ═══ */
+  .node-result {
+    position:absolute; min-width:180px; max-width:240px;
+    background:var(--surface2); border:1px solid var(--green);
+    border-radius:8px; padding:8px 10px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.4);
+    z-index:8; pointer-events:auto;
+    opacity:0; transform:translateY(-4px);
+    transition:opacity 0.4s, transform 0.4s;
   }
+  .node-result.show { opacity:1; transform:translateY(0); }
+  .node-result .nr-hdr { font-size:10px; color:var(--green); font-weight:600; margin-bottom:4px; display:flex; align-items:center; gap:4px; }
+  .node-result .nr-body { font-size:10px; color:var(--text2); line-height:1.5; font-family:var(--mono); white-space:pre-wrap; }
+  .node-result .nr-view-btn { margin-top:4px; font-size:9px; color:var(--accent); cursor:pointer; }
+  .node-result .nr-view-btn:hover { text-decoration:underline; }
+
+  /* ═══ DEMO OVERLAY ═══ */
+  .demo-overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:20; pointer-events:none; }
   .demo-overlay > * { pointer-events:auto; }
 
-  .demo-card {
-    background:var(--surface); border:1px solid var(--border);
-    border-radius:16px; padding:28px 36px; max-width:500px;
-    box-shadow:0 20px 60px rgba(0,0,0,0.5);
-    text-align:center;
-  }
-  .demo-card h2 { font-size:20px; margin-bottom:4px; }
-  .demo-card .subtitle { font-size:13px; color:var(--text2); margin-bottom:18px; }
-  .demo-card textarea {
-    width:100%; padding:12px 14px; border-radius:8px;
-    background:var(--bg); border:1px solid var(--border);
-    color:var(--text); font-size:13px; font-family:var(--font);
-    resize:vertical; min-height:72px; outline:none;
-  }
+  .demo-card { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:28px 36px; max-width:520px; width:90%; box-shadow:0 20px 60px rgba(0,0,0,0.5); text-align:center; }
+  .demo-card h2 { font-size:20px; margin-bottom:2px; display:flex; align-items:center; justify-content:center; gap:8px; }
+  .demo-card .sub { font-size:13px; color:var(--text2); margin-bottom:16px; }
+  .demo-card textarea { width:100%; padding:12px 14px; border-radius:8px; background:var(--bg); border:1px solid var(--border); color:var(--text); font-size:13px; font-family:var(--font); resize:vertical; min-height:72px; outline:none; }
   .demo-card textarea:focus { border-color:var(--accent); }
+  .demo-card .actions { margin-top:14px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
 
-  .loading-bar {
-    width:100%; height:3px; background:var(--border);
-    border-radius:3px; overflow:hidden; margin:14px 0;
+  /* Agent selector */
+  .agent-selector { margin:14px 0; text-align:left; }
+  .agent-selector .as-title { font-size:12px; color:var(--text3); font-weight:500; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+  .agent-selector .as-chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .agent-chip {
+    display:flex; align-items:center; gap:5px; padding:5px 10px; border-radius:6px;
+    border:1px solid var(--border); font-size:11px; cursor:pointer;
+    transition:all 0.15s; background:var(--bg); color:var(--text2); user-select:none;
   }
-  .loading-bar .fill {
-    height:100%; background:linear-gradient(90deg,var(--accent),var(--accent2));
-    border-radius:3px; width:0; transition:width 0.3s;
-  }
-  #genLog {
-    font-size:12px; color:var(--text3); font-family:var(--mono);
-    text-align:left; max-height:140px; overflow-y:auto;
-    line-height:1.8;
-  }
+  .agent-chip:hover { border-color:var(--text3); }
+  .agent-chip.active { border-color:var(--accent); background:rgba(59,130,246,0.1); color:var(--accent); }
+  .agent-chip.disabled { opacity:0.35; border-color:var(--border); background:transparent; color:var(--text3); }
+
+  .loading-bar { width:100%; height:3px; background:var(--border); border-radius:3px; overflow:hidden; margin:14px 0; }
+  .loading-bar .fill { height:100%; background:linear-gradient(90deg,var(--accent),var(--accent2)); border-radius:3px; width:0; transition:width 0.3s; }
+  #genLog { font-size:12px; color:var(--text3); font-family:var(--mono); text-align:left; max-height:140px; overflow-y:auto; line-height:1.8; }
 
   /* ═══ FLOATING GUIDE ═══ */
-  .floating-guide {
-    position:absolute; z-index:30;
-    background:var(--surface); border:1px solid var(--border);
-    border-radius:10px; padding:10px 14px;
-    box-shadow:0 8px 32px rgba(0,0,0,0.5);
-    font-size:12px; display:flex; align-items:center; gap:10px;
-    max-width:280px;
-  }
+  .floating-guide { position:absolute; z-index:30; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px 14px; box-shadow:0 8px 32px rgba(0,0,0,0.5); font-size:12px; display:flex; align-items:center; gap:10px; max-width:320px; }
   .floating-guide .fg-icon { font-size:18px; flex-shrink:0; }
   .floating-guide .fg-text { color:var(--text2); line-height:1.5; flex:1; }
   .floating-guide .fg-text strong { color:var(--text); }
 
-  /* Guide arrow */
-  .guide-arrow-box {
-    position:absolute; z-index:31; pointer-events:none;
-  }
-  .guide-arrow {
-    width:0; height:0;
-    border-left:12px solid var(--accent);
-    border-top:8px solid transparent;
-    border-bottom:8px solid transparent;
-  }
-
-  /* ═══ STEP HINT BAR ═══ */
-  .step-hint {
-    position:absolute; bottom:20px; left:50%; transform:translateX(-50%);
-    z-index:35;
-    background:var(--surface); border:1px solid var(--border);
-    border-radius:20px; padding:6px 18px 6px 22px;
-    display:flex; align-items:center; gap:10px;
-    font-size:12px; color:var(--text2);
-    box-shadow:0 4px 20px rgba(0,0,0,0.4);
-  }
+  /* ═══ STEP HINT ═══ */
+  .step-hint { position:absolute; bottom:20px; left:50%; transform:translateX(-50%); z-index:35; background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:6px 18px 6px 22px; display:flex; align-items:center; gap:10px; font-size:12px; color:var(--text2); box-shadow:0 4px 20px rgba(0,0,0,0.4); }
   .step-hint .dots { display:flex; gap:4px; }
-  .step-hint .dots .dot {
-    width:6px; height:6px; border-radius:50%; background:var(--text3);
-    transition:all 0.3s;
-  }
+  .step-hint .dots .dot { width:6px; height:6px; border-radius:50%; background:var(--text3); transition:all 0.3s; }
   .step-hint .dots .dot.active { background:var(--accent); box-shadow:0 0 8px var(--accent-glow); }
   .step-hint .dots .dot.done { background:var(--green); }
 
-  /* ═══ RIGHT PANEL ═══ */
-  .panel {
-    width:330px; background:var(--surface);
-    border-left:1px solid var(--border); flex-shrink:0;
-    display:flex; flex-direction:column;
-  }
-  .panel-header {
-    padding:12px 14px; border-bottom:1px solid var(--border);
-    font-size:13px; font-weight:600; display:flex; align-items:center; gap:6px;
-  }
+  /* ═══ PANEL ═══ */
+  .panel { width:330px; background:var(--surface); border-left:1px solid var(--border); flex-shrink:0; display:flex; flex-direction:column; }
+  .panel-header { padding:12px 14px; border-bottom:1px solid var(--border); font-size:13px; font-weight:600; display:flex; align-items:center; gap:6px; }
   .panel-body { flex:1; overflow-y:auto; padding:14px; }
-
-  .panel-placeholder {
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    padding:40px 20px; text-align:center; color:var(--text3); font-size:13px;
-    gap:12px;
-  }
+  .panel-placeholder { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 20px; text-align:center; color:var(--text3); font-size:13px; gap:12px; }
   .panel-placeholder .big-icon { font-size:40px; opacity:0.5; }
-
   .config-row { margin-bottom:12px; }
   .config-row label { display:block; font-size:11px; color:var(--text3); margin-bottom:2px; font-weight:500; }
-  .config-row input, .config-row select {
-    width:100%; padding:7px 10px; border-radius:5px;
-    background:var(--bg); border:1px solid var(--border);
-    color:var(--text); font-size:12px; outline:none;
-  }
+  .config-row input,.config-row select { width:100%; padding:7px 10px; border-radius:5px; background:var(--bg); border:1px solid var(--border); color:var(--text); font-size:12px; outline:none; }
   .config-row input:focus { border-color:var(--accent); }
   .config-row input[readonly] { color:var(--text2); cursor:default; }
-
-  .schema-box {
-    background:var(--bg); border-radius:5px; padding:10px 12px;
-    font-family:var(--mono); font-size:10px; color:var(--text2); line-height:1.6;
-    border:1px solid var(--border); white-space:pre; overflow-x:auto;
-  }
-
-  .node-type-indicator {
-    display:flex; align-items:center; gap:10px;
-    padding:10px 12px; background:var(--bg); border-radius:8px;
-    margin-bottom:14px; border:1px solid var(--border);
-  }
+  .schema-box { background:var(--bg); border-radius:5px; padding:10px 12px; font-family:var(--mono); font-size:10px; color:var(--text2); line-height:1.6; border:1px solid var(--border); white-space:pre; overflow-x:auto; }
+  .node-type-indicator { display:flex; align-items:center; gap:10px; padding:10px 12px; background:var(--bg); border-radius:8px; margin-bottom:14px; border:1px solid var(--border); }
   .node-type-indicator .nt-icon { font-size:20px; }
   .node-type-indicator .nt-name { font-size:13px; font-weight:600; }
   .node-type-indicator .nt-desc { font-size:11px; color:var(--text3); }
-
   .section-hr { border:none; border-top:1px solid var(--border); margin:14px 0; }
 
   /* ═══ EXECUTION LOG ═══ */
-  .exec-log {
-    background:var(--bg); border:1px solid var(--border);
-    border-radius:6px; padding:10px 12px; font-family:var(--mono);
-    font-size:11px; line-height:1.7; max-height:200px; overflow-y:auto;
-  }
+  .exec-log { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:10px 12px; font-family:var(--mono); font-size:11px; line-height:1.7; max-height:240px; overflow-y:auto; }
   .exec-log .line { display:flex; gap:8px; }
   .exec-log .ts { color:var(--text3); flex-shrink:0; }
   .exec-log .ok { color:var(--green); }
   .exec-log .info { color:var(--accent); }
+  .exec-log .warn { color:var(--orange); }
+  .exec-log .err { color:var(--red); }
 
   /* ═══ RESULT MODAL ═══ */
-  .result-overlay {
-    position:absolute; inset:0; background:rgba(0,0,0,0.55);
-    z-index:50; display:flex; align-items:center; justify-content:center;
-    backdrop-filter:blur(3px);
-  }
-  .result-modal {
-    width:480px; max-height:80vh; overflow-y:auto;
-    background:var(--surface); border:1px solid var(--border);
-    border-radius:16px; padding:28px;
-    box-shadow:0 24px 80px rgba(0,0,0,0.6);
-  }
+  .result-overlay { position:absolute; inset:0; background:rgba(0,0,0,0.55); z-index:50; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(3px); }
+  .result-modal { width:520px; max-height:85vh; overflow-y:auto; background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:28px; box-shadow:0 24px 80px rgba(0,0,0,0.6); }
   .result-modal h2 { font-size:18px; margin-bottom:4px; display:flex; align-items:center; gap:8px; }
   .result-modal .sub { color:var(--text2); font-size:13px; margin-bottom:16px; }
-  .result-item {
-    padding:10px 12px; background:var(--bg); border-radius:6px;
-    margin-bottom:8px; border:1px solid var(--border);
-    display:flex; align-items:center; gap:10px;
-  }
+  .result-item { padding:10px 12px; background:var(--bg); border-radius:6px; margin-bottom:8px; border:1px solid var(--border); display:flex; align-items:center; gap:10px; }
   .result-item .ri-icon { width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; }
   .result-item .ri-info { flex:1; }
   .result-item .ri-title { font-size:12px; font-weight:500; }
   .result-item .ri-detail { font-size:11px; color:var(--text3); }
-
-  .result-data {
-    background:var(--bg); border-radius:6px; padding:10px;
-    font-family:var(--mono); font-size:11px; color:var(--text2);
-    border:1px solid var(--border); white-space:pre; overflow-x:auto;
-    margin-top:10px; line-height:1.5;
-  }
+  .result-data { background:var(--bg); border-radius:6px; padding:10px; font-family:var(--mono); font-size:11px; color:var(--text2); border:1px solid var(--border); white-space:pre; overflow-x:auto; margin-top:10px; line-height:1.5; }
 
   .hidden { display:none !important; }
   .fade-in { animation:fadeIn 0.4s ease forwards; }
@@ -345,22 +197,7 @@
   .slide-up { animation:slideUp 0.4s ease forwards; }
   @keyframes slideUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
 
-  .pulse-ring { animation:pulseRing 2s ease infinite; }
-  @keyframes pulseRing {
-    0% { box-shadow:0 0 0 0 rgba(59,130,246,0.4); }
-    70% { box-shadow:0 0 0 12px transparent; }
-    100% { box-shadow:0 0 0 0 transparent; }
-  }
-  .pulse-glow { animation:pulseGlow 1.5s ease infinite; }
-  @keyframes pulseGlow {
-    0%,100% { opacity:0.5; }
-    50% { opacity:1; }
-  }
-
-  @media (max-width:900px) {
-    .sidebar { display:none; }
-    .panel { width:280px; }
-  }
+  @media (max-width:900px) { .sidebar { display:none; } .panel { width:280px; } }
 </style>
 </head>
 <body>
@@ -370,30 +207,25 @@
   <div class="topbar">
     <div class="logo"><span class="bolt">⚡</span> AgentFlow</div>
     <div class="sep"></div>
-    <div class="bread">
-      <span class="active">画布</span>
-      <span style="color:var(--text3)">/</span>
-      <span style="color:var(--text3)">PID控制器设计工作流</span>
-    </div>
+    <div class="bread"><span class="active">画布</span><span style="color:var(--text3)">/</span><span style="color:var(--text3)">PID控制器设计工作流</span></div>
     <div class="topbar-right">
-      <span class="status"><span class="dot-green"></span> 3 Agent 就绪</span>
+      <span class="status"><span class="dot-green"></span> <span id="agentCount">3</span> Agent 就绪</span>
       <button class="btn btn-sm" onclick="resetDemo()">🔄 重置</button>
     </div>
   </div>
 
-  <!-- ═══ BODY ═══ -->
   <div class="body">
 
-    <!-- ── SIDEBAR ── -->
+    <!-- ═══ SIDEBAR ═══ -->
     <div class="sidebar">
       <div class="section-title">📦 节点面板</div>
-      <div class="palette" id="palette">
+      <div class="palette">
         <div class="palette-group">
           <div class="palette-group-title">🤖 AI Agent</div>
           <div class="palette-item"><span class="icon blue">🧮</span> 算法设计</div>
           <div class="palette-item"><span class="icon green">💻</span> 软件开发</div>
           <div class="palette-item"><span class="icon purple">🧪</span> 编译测试</div>
-          <div class="palette-item"><span class="icon purple">📝</span> 文档生成</div>
+          <div class="palette-item"><span class="icon orange">📝</span> 文档生成</div>
         </div>
         <div class="palette-group">
           <div class="palette-group-title">🔧 工具</div>
@@ -404,30 +236,40 @@
       </div>
     </div>
 
-    <!-- ── CANVAS ── -->
+    <!-- ═══ CANVAS ═══ -->
     <div class="canvas-wrap" id="canvasWrap">
       <div class="canvas-grid"></div>
       <svg class="edges-svg" id="edgesSvg"></svg>
       <div class="canvas-nodes" id="canvasNodes"></div>
+      <!-- result cards layer (inside canvas-nodes z-index) -->
+      <div class="canvas-nodes" id="resultLayer" style="z-index:4;pointer-events:none;"></div>
 
       <!-- Floating guide -->
       <div class="floating-guide hidden" id="guideCanvas">
         <span class="fg-icon">👆</span>
         <span class="fg-text"><strong>点击任意节点</strong> 查看配置详情，或点击下方「运行」开始执行</span>
       </div>
-      <div class="guide-arrow-box hidden" id="guideArrow">
-        <div class="guide-arrow"></div>
-      </div>
 
       <!-- Step 0: Welcome -->
       <div class="demo-overlay" id="demoOverlay">
         <div class="demo-card" id="stepWelcome">
-          <div style="font-size:42px; margin-bottom:8px;">👋</div>
-          <h2>欢迎使用 AgentFlow</h2>
-          <p class="subtitle">输入需求 → AI 自动生成可视化工作流</p>
+          <h2>👋 欢迎使用 AgentFlow</h2>
+          <p class="sub">输入需求，选择 Agent，AI 自动生成工作流</p>
           <textarea id="reqInput">为四旋翼无人机设计PID控制器并生成C++代码，然后编译测试</textarea>
-          <div style="margin-top:12px; display:flex; gap:10px; justify-content:center;">
-            <button class="btn" onclick="document.getElementById('reqInput').value='为四旋翼无人机设计PID控制器 → Ziegler-Nichols方法整定；\n生成C++实现代码（ArduPilot框架）；\n编译测试通过 → 输出报告'">📋 示例</button>
+
+          <!-- Agent 选择器 -->
+          <div class="agent-selector">
+            <div class="as-title">🤖 选择要使用的 Agent <span id="asCount" style="color:var(--accent);font-weight:600;">3</span></div>
+            <div class="as-chips" id="agentChips">
+              <div class="agent-chip active" data-id="alg">🧮 算法设计</div>
+              <div class="agent-chip active" data-id="dev">💻 软件开发</div>
+              <div class="agent-chip active" data-id="test">🧪 编译测试</div>
+              <div class="agent-chip active" data-id="doc">📝 文档生成</div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="btn btn-outline btn-sm" onclick="fillExample()">📋 示例</button>
             <button class="btn btn-primary" onclick="startGenerate()">🚀 AI 生成工作流</button>
           </div>
         </div>
@@ -435,14 +277,14 @@
         <!-- Step 1: Generating -->
         <div class="demo-card hidden" id="stepGenerating">
           <h2>🤖 AI 正在分析需求...</h2>
-          <p class="subtitle">意图解析 → 任务分解 → 节点匹配 → DAG 生成</p>
+          <p class="sub">意图解析 → 任务分解 → 节点匹配 → DAG 生成</p>
           <div class="loading-bar"><div class="fill" id="loadingFill"></div></div>
           <div id="genLog"></div>
         </div>
 
-        <!-- Step hint bar -->
+        <!-- Step hint -->
         <div class="step-hint hidden" id="stepHint">
-          <span id="stepHintText">步骤 0/4：输入需求</span>
+          <span id="stepHintText">步骤 0/4</span>
           <div class="dots">
             <span class="dot done" data-s="0"></span>
             <span class="dot" data-s="1"></span>
@@ -454,14 +296,11 @@
       </div>
     </div>
 
-    <!-- ── RIGHT PANEL ── -->
+    <!-- ═══ PANEL ═══ -->
     <div class="panel" id="rightPanel">
       <div class="panel-header" id="panelTitle">📋 节点配置</div>
       <div class="panel-body" id="panelBody">
-        <div class="panel-placeholder">
-          <div class="big-icon">🔗</div>
-          <div>点击画布上的节点<br>查看详细配置</div>
-        </div>
+        <div class="panel-placeholder"><div class="big-icon">🔗</div><div>点击画布上的节点<br>查看详细配置</div></div>
       </div>
     </div>
 
@@ -473,24 +312,43 @@
 // DATA
 // ═══════════════════════════════════════════════
 
-const NODES = [
-  { id:'alg',  icon:'🧮', label:'算法设计',      type:'algorithm-designer',  desc:'Ziegler-Nichols → PID 参数',     x:200, y:80,  color:'blue' },
-  { id:'dev',  icon:'💻', label:'C++ 代码实现',   type:'software-dev',        desc:'ArduPilot 框架 → PID 控制器',   x:70,  y:300, color:'green' },
-  { id:'test', icon:'🧪', label:'编译与测试',     type:'compile-test',        desc:'scons 编译 + 单元测试 → 验证',  x:360, y:300, color:'purple' },
-  { id:'doc',  icon:'📝', label:'输出报告',       type:'document-gen',        desc:'综合结果 → PDF 文档',          x:200, y:500, color:'orange' },
+const ALL_AGENTS = [
+  { id:'alg', icon:'🧮', label:'算法设计', type:'algorithm-designer', desc:'Ziegler-Nichols → PID 参数',       x:200, y:80,  color:'blue' },
+  { id:'dev', icon:'💻', label:'C++ 代码实现', type:'software-dev',       desc:'ArduPilot 框架 → PID 控制器',  x:70,  y:300, color:'green' },
+  { id:'test',icon:'🧪', label:'编译与测试',   type:'compile-test',       desc:'scons 编译 + 单元测试 → 验证', x:360, y:300, color:'purple' },
+  { id:'doc', icon:'📝', label:'输出报告',     type:'document-gen',       desc:'综合结果 → PDF 文档',         x:200, y:500, color:'orange' },
 ];
 
-const EDGES = [
-  { from:'alg', to:'dev', label:'PID 参数 {Kp,Ki,Kd}' },
-  { from:'dev', to:'test', label:'C++ 源代码' },
-  { from:'test', to:'doc', label:'测试报告' },
-];
+const AGENT_RESULTS = {
+  alg: {
+    summary:'Kp=2.5, Ki=1.0, Kd=0.3',
+    detail:JSON.stringify({ Kp:2.5, Ki:1.0, Kd:0.3, method:'Ziegler-Nichols', iterations:4, convergence_s:1.8 }, null, 2)
+  },
+  dev: {
+    summary:'PID.cpp + PID.h (136行)',
+    detail:JSON.stringify({ files:['PID.cpp','PID.h'], lines:136, framework:'ArduPilot-RTT', alloc:'static' }, null, 2)
+  },
+  test: {
+    summary:'✓ 编译通过, 12/12 测试通过',
+    detail:JSON.stringify({ build:'pass', tests_passed:12, tests_total:12, coverage:'87%', duration_s:8.2 }, null, 2)
+  },
+  doc: {
+    summary:'PID_Controller_Report.pdf (8页)',
+    detail:JSON.stringify({ report:'PID_Controller_Report.pdf', pages:8, sections:['摘要','方法','结果','附录'], tokens:4215 }, null, 2)
+  }
+};
+
+const EDGE_LABELS = {
+  'alg>dev': 'PID 参数 {Kp,Ki,Kd}',
+  'dev>test': 'C++ 源代码',
+  'test>doc': '测试报告',
+};
 
 const NODE_META = {
-  'algorithm-designer': { icon:'🧮', name:'算法设计 Agent', desc:'数值算法分析与参数整定' },
-  'software-dev':       { icon:'💻', name:'软件开发 Agent', desc:'根据算法参数生成实现代码' },
-  'compile-test':       { icon:'🧪', name:'编译测试 Agent', desc:'编译验证 + 单元测试执行' },
-  'document-gen':       { icon:'📝', name:'文档 Agent',     desc:'综合结果生成可交付文档' },
+  'algorithm-designer':{ icon:'🧮', name:'算法设计 Agent', desc:'数值算法分析与参数整定' },
+  'software-dev':{ icon:'💻', name:'软件开发 Agent', desc:'根据算法参数生成实现代码' },
+  'compile-test':{ icon:'🧪', name:'编译测试 Agent', desc:'编译验证 + 单元测试执行' },
+  'document-gen':{ icon:'📝', name:'文档 Agent', desc:'综合结果生成可交付文档' },
 };
 
 const EXEC_LOG = [
@@ -505,13 +363,61 @@ const EXEC_LOG = [
   { ts:'00:25', msg:'✓ 单元测试 12/12 通过', type:'ok' },
   { ts:'00:27', msg:'启动 Agent 容器 (document-gen)', type:'info' },
   { ts:'00:30', msg:'✓ PDF 报告生成完成', type:'ok' },
-  { ts:'00:32', msg:'✅ 工作流执行完毕 — Bom 已就位', type:'ok' },
+  { ts:'00:32', msg:'✅ 工作流执行完毕', type:'ok' },
 ];
 
-const NODE_ORDER = ['alg','dev','test','doc'];
+// ═══════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════
 
 let step = 0;
 let genTimer = null, execTimer = null;
+let activeAgents = ['alg','dev','test','doc']; // selected by user
+
+function getActiveNodes() {
+  return ALL_AGENTS.filter(a => activeAgents.includes(a.id));
+}
+
+function getActiveEdges() {
+  const ids = activeAgents;
+  const edges = [];
+  for (let i = 0; i < ids.length - 1; i++) {
+    edges.push({ from: ids[i], to: ids[i+1] });
+  }
+  return edges;
+}
+
+// ═══════════════════════════════════════════════
+// AGENT SELECTOR
+// ═══════════════════════════════════════════════
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('agentChips').addEventListener('click', e => {
+    const chip = e.target.closest('.agent-chip');
+    if (!chip) return;
+    const id = chip.dataset.id;
+    if (activeAgents.includes(id)) {
+      // Can't deselect if it's the last one
+      if (activeAgents.length <= 1) return;
+      activeAgents = activeAgents.filter(x => x !== id);
+      chip.classList.remove('active');
+      chip.classList.add('disabled');
+    } else {
+      activeAgents.push(id);
+      // Sort by original order
+      activeAgents.sort((a,b) => ALL_AGENTS.findIndex(x=>x.id===a) - ALL_AGENTS.findIndex(x=>x.id===b));
+      chip.classList.remove('disabled');
+      chip.classList.add('active');
+    }
+    document.getElementById('asCount').textContent = activeAgents.length;
+    document.getElementById('agentCount').textContent = activeAgents.length;
+  });
+});
+
+function fillExample() {
+  document.getElementById('reqInput').value =
+    '为四旋翼无人机设计PID控制器 → Ziegler-Nichols方法整定；\n生成C++实现代码（ArduPilot框架）；\n编译测试通过 → 输出报告';
+}
 
 // ═══════════════════════════════════════════════
 // STEP 1 → 2: GENERATE
@@ -520,39 +426,39 @@ let genTimer = null, execTimer = null;
 function startGenerate() {
   const val = document.getElementById('reqInput').value.trim();
   if (!val) { document.getElementById('reqInput').focus(); return; }
+  if (activeAgents.length === 0) return;
 
-  hide('stepWelcome');
-  show('stepGenerating');
-  show('stepHint');
-  step = 1;
-  updateStepUI();
+  hide('stepWelcome'); show('stepGenerating'); show('stepHint');
+  step = 1; updateStepUI();
 
   const log = document.getElementById('genLog');
   log.innerHTML = '';
-  const fill = document.getElementById('loadingFill');
-  fill.style.width = '0%';
+  document.getElementById('loadingFill').style.width = '0%';
 
+  const names = activeAgents.map(id => ALL_AGENTS.find(a=>a.id===id).label).join(' → ');
   const msgs = [
-    [10, '📡 解析用户需求语义...'],
-    [25, '🔍 意图识别: 算法设计 + 代码实现 + 编译测试'],
-    [38, '🔗 匹配节点类型: algorithm-designer ✓'],
-    [48, '🔗 匹配节点类型: software-dev ✓, compile-test ✓'],
-    [60, '🧩 拓扑排序: alg → dev → test → doc'],
-    [72, '📦 渲染节点模板 (YAML → PromptTask)'],
-    [85, '🔌 连接数据流: PID参数 → 源代码 → 测试报告'],
-    [95, '✅ 工作流 DAG 构建完毕'],
+    [8, '📡 解析用户需求语义...'],
+    [20, '🔍 意图识别: '+activeAgents.length+' 个 Agent 需求'],
+    [33, '🔗 匹配节点类型: '+activeAgents.join(', ')],
+    [48, '🧩 拓扑排序: '+names],
+    [62, '📦 渲染节点模板 (YAML → PromptTask)'],
+    [78, '🔌 连接数据流: '+(activeAgents.length-1)+' 条边'],
+    [90, '✅ 工作流 DAG 构建完毕'],
     [100,'🎯 即将打开可视化画布...'],
   ];
 
   let i = 0;
   genTimer = setInterval(() => {
-    if (i >= msgs.length) { clearInterval(genTimer); genTimer=null; setTimeout(showCanvas,400); return; }
-    const [pct, txt] = msgs[i];
-    fill.style.width = pct + '%';
-    log.innerHTML += '<div>'+txt+'</div>';
+    if (i >= msgs.length) {
+      clearInterval(genTimer); genTimer=null;
+      setTimeout(showCanvas, 400);
+      return;
+    }
+    document.getElementById('loadingFill').style.width = msgs[i][0]+'%';
+    log.innerHTML += '<div>'+msgs[i][1]+'</div>';
     log.scrollTop = log.scrollHeight;
     i++;
-  }, 600);
+  }, 500);
 }
 
 // ═══════════════════════════════════════════════
@@ -561,90 +467,272 @@ function startGenerate() {
 
 function showCanvas() {
   hide('stepGenerating');
-  step = 2;
-  updateStepUI();
+  step = 2; updateStepUI();
   renderCanvas();
+  setTimeout(() => drawEdges(), 80);
   show('guideCanvas');
-  setTimeout(() => drawEdges(), 50);
 }
 
 function renderCanvas() {
   const container = document.getElementById('canvasNodes');
   container.innerHTML = '';
-  NODES.forEach(n => {
+  document.getElementById('resultLayer').innerHTML = '';
+
+  const nodes = getActiveNodes();
+  // Compute positions based on count
+  const cw = document.getElementById('canvasWrap');
+  const cwW = cw.offsetWidth || 800;
+  const cwH = cw.offsetHeight || 600;
+  const count = nodes.length;
+  nodes.forEach((n, i) => {
+    const x = (cwW - 220) / 2 - (count-1) * 70 + i * 140;
+    const y = 140 + i * 110;
+
     const el = document.createElement('div');
     el.className = 'wf-node fade-in';
     el.id = 'n-'+n.id;
-    el.style.left = n.x+'px'; el.style.top = n.y+'px';
+    el.style.left = x+'px'; el.style.top = y+'px';
     el.onclick = () => showConfig(n.id);
     el.innerHTML =
-      '<div class="header">'+
-        '<span class="icon-em">'+n.icon+'</span>'+
-        '<span class="t">'+n.label+'</span>'+
-        '<span class="type-badge">'+n.type+'</span>'+
-        '<span class="status-badge running">▶ 运行中</span>'+
-        '<span class="status-badge success">✓ 完成</span>'+
-        '<span class="click-hint">👆 点击配置</span>'+
-      '</div>'+
+      '<div class="hdr"><span class="ic">'+n.icon+'</span><span class="t">'+n.label+'</span><span class="badge">'+n.type+'</span>'+
+      '<span class="sbadge run">▶ 运行中</span><span class="sbadge ok">✓ 完成</span>'+
+      '<span class="click-hint">👆 点击配置</span></div>'+
       '<div class="desc">'+n.desc+'</div>';
     container.appendChild(el);
   });
-  // Show click hint on first node after a short delay
+
   setTimeout(() => {
-    const first = document.getElementById('n-alg');
+    const first = document.querySelector('.wf-node');
     if (first) first.classList.add('show-hint');
-  }, 1200);
+  }, 1000);
 }
 
 function drawEdges() {
   const svg = document.getElementById('edgesSvg');
   svg.innerHTML = '';
-  const cw = document.getElementById('canvasWrap');
+  const edges = getActiveEdges();
 
-  EDGES.forEach(e => {
+  edges.forEach(e => {
     const fn = document.getElementById('n-'+e.from);
     const tn = document.getElementById('n-'+e.to);
     if (!fn || !tn) return;
 
-    // Get node positions relative to canvas-wrap
     const fx = fn.offsetLeft + fn.offsetWidth;
     const fy = fn.offsetTop + fn.offsetHeight / 2;
     const tx = tn.offsetLeft;
     const ty = tn.offsetTop + tn.offsetHeight / 2;
 
+    // Label
+    const labelKey = e.from+'>'+e.to;
+    const label = EDGE_LABELS[labelKey] || '数据';
+
     const cpx1 = fx + (tx - fx) * 0.35;
     const cpx2 = fx + (tx - fx) * 0.65;
 
-    // Line path
     const path = document.createElementNS('http://www.w3.org/2000/svg','path');
     path.setAttribute('d', `M ${fx} ${fy} C ${cpx1} ${fy}, ${cpx2} ${ty}, ${tx} ${ty}`);
     path.setAttribute('class','edge-line');
 
-    // Arrow head (small triangle at the end)
     const arrowSize = 8;
-    const angle = Math.atan2(ty - ((fy + ty)/2 + (ty - fy)*0.15), tx - ((fx + tx)/2 + (tx - fx)*0.15));
-    const arrowPts = [
-      `${tx},${ty}`,
-      `${tx - arrowSize * Math.cos(angle - 0.4)},${ty - arrowSize * Math.sin(angle - 0.4)}`,
-      `${tx - arrowSize * Math.cos(angle + 0.4)},${ty - arrowSize * Math.sin(angle + 0.4)}`
-    ].join(' ');
+    const angle = Math.atan2(ty - ((fy+ty)/2 + (ty-fy)*0.15), tx - ((fx+tx)/2 + (tx-fx)*0.15));
     const arrow = document.createElementNS('http://www.w3.org/2000/svg','polygon');
-    arrow.setAttribute('points', arrowPts);
+    arrow.setAttribute('points',
+      `${tx},${ty} ${tx-arrowSize*Math.cos(angle-0.4)},${ty-arrowSize*Math.sin(angle-0.4)} ${tx-arrowSize*Math.cos(angle+0.4)},${ty-arrowSize*Math.sin(angle+0.4)}`);
     arrow.setAttribute('class','edge-arrow');
 
-    // Edge label
-    const labelX = (fx + tx) / 2;
-    const labelY = (fy + ty) / 2 - 10;
     const text = document.createElementNS('http://www.w3.org/2000/svg','text');
-    text.setAttribute('x', labelX);
-    text.setAttribute('y', labelY);
+    text.setAttribute('x', (fx+tx)/2);
+    text.setAttribute('y', (fy+ty)/2 - 10);
     text.setAttribute('class','edge-label');
-    text.textContent = e.label;
+    text.textContent = label;
 
-    svg.appendChild(path);
-    svg.appendChild(arrow);
-    svg.appendChild(text);
+    svg.appendChild(path); svg.appendChild(arrow); svg.appendChild(text);
   });
+}
+
+// ═══════════════════════════════════════════════
+// STEP 3: EXECUTION
+// ═══════════════════════════════════════════════
+
+function startExecution() {
+  step = 3; updateStepUI();
+  hide('guideCanvas');
+
+  document.getElementById('panelTitle').textContent = '💻 执行日志';
+  document.getElementById('panelBody').innerHTML =
+    '<div class="exec-log" id="execLog"></div>'+
+    '<div style="margin-top:10px;"><button class="btn btn-sm btn-outline" style="width:100%;" onclick="showAllResults()">📊 查看所有结果</button></div>'+
+    '<div style="margin-top:6px;font-size:10px;color:var(--text3);text-align:center;">每个 Agent 运行在独立 Docker 容器中</div>';
+
+  const log = document.getElementById('execLog');
+  let i = 0;
+
+  const agentSequence = activeAgents;
+  let agentIdx = 0;
+
+  execTimer = setInterval(() => {
+    if (i >= EXEC_LOG.length) {
+      clearInterval(execTimer); execTimer=null;
+      document.getElementById('panelTitle').textContent = '✅ 执行完成';
+      // Show all results after a short delay
+      setTimeout(() => {
+        // Scroll to show all results
+        const firstResult = document.querySelector('.node-result');
+        if (firstResult) firstResult.scrollIntoView({ behavior:'smooth', block:'center' });
+      }, 600);
+      return;
+    }
+    const l = EXEC_LOG[i];
+    log.innerHTML += '<div class="line"><span class="ts">['+l.ts+']</span><span class="'+l.type+'">'+l.msg+'</span></div>';
+    log.scrollTop = log.scrollHeight;
+
+    // Update node status and show results
+    if (l.msg.includes('algorithm-designer')) {
+      markNode('alg','executing');
+      updateEdgeStatus();
+    } else if (l.msg.includes('software-dev')) {
+      markNode('alg','done'); showNodeResult('alg'); markNode('dev','executing');
+      updateEdgeStatus();
+    } else if (l.msg.includes('compile-test')) {
+      markNode('dev','done'); showNodeResult('dev'); markNode('test','executing');
+      updateEdgeStatus();
+    } else if (l.msg.includes('document-gen')) {
+      markNode('test','done'); showNodeResult('test'); markNode('doc','executing');
+      updateEdgeStatus();
+    } else if (l.msg.includes('工作流执行完毕')) {
+      markNode('doc','done'); showNodeResult('doc');
+      updateEdgeStatus();
+    }
+    i++;
+  }, 1300);
+}
+
+function markNode(id, status) {
+  const el = document.getElementById('n-'+id);
+  if (!el) return;
+  el.classList.remove('executing','done','failed');
+  if (status) el.classList.add(status);
+}
+
+function updateEdgeStatus() {
+  const edges = getActiveEdges();
+  const svg = document.getElementById('edgesSvg');
+  const paths = svg.querySelectorAll('.edge-line');
+  const arrows = svg.querySelectorAll('.edge-arrow');
+  const labels = svg.querySelectorAll('.edge-label');
+  // Find all done nodes
+  const doneIds = [];
+  activeAgents.forEach(id => {
+    const el = document.getElementById('n-'+id);
+    if (el && el.classList.contains('done')) doneIds.push(id);
+  });
+  edges.forEach((e, i) => {
+    if (doneIds.includes(e.from)) {
+      if (paths[i]) { paths[i].classList.add('done'); paths[i].classList.remove('active'); }
+      if (arrows[i]) { arrows[i].classList.add('done'); arrows[i].classList.remove('active'); }
+      if (labels[i]) { labels[i].classList.add('done'); labels[i].classList.remove('active'); }
+    } else if (doneIds.length > 0 && activeAgents.indexOf(e.from) === doneIds.length) {
+      if (paths[i]) paths[i].classList.add('active');
+      if (arrows[i]) arrows[i].classList.add('active');
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════
+// NODE RESULT CARDS
+// ═══════════════════════════════════════════════
+
+function showNodeResult(id) {
+  const result = AGENT_RESULTS[id];
+  if (!result) return;
+  const node = document.getElementById('n-'+id);
+  if (!node) return;
+
+  const layer = document.getElementById('resultLayer');
+
+  // Remove existing result for this node
+  const existing = layer.querySelector('[data-result="'+id+'"]');
+  if (existing) existing.remove();
+
+  const card = document.createElement('div');
+  card.className = 'node-result';
+  card.dataset.result = id;
+  card.style.left = node.offsetLeft + 'px';
+  card.style.top = (node.offsetTop + node.offsetHeight + 8) + 'px';
+  card.style.width = node.offsetWidth + 'px';
+  card.innerHTML =
+    '<div class="nr-hdr">📦 产出</div>'+
+    '<div class="nr-body">'+result.summary+'</div>'+
+    '<div class="nr-view-btn" onclick="showNodeResultDetail(\''+id+'\')">展开查看 →</div>';
+
+  layer.appendChild(card);
+  // Trigger animation
+  requestAnimationFrame(() => card.classList.add('show'));
+}
+
+function showNodeResultDetail(id) {
+  const result = AGENT_RESULTS[id];
+  if (!result) return;
+  const meta = ALL_AGENTS.find(a => a.id === id);
+  // Show in panel
+  document.getElementById('panelTitle').textContent = '📊 '+meta.label+' — 执行结果';
+  document.getElementById('panelBody').innerHTML =
+    '<div class="node-type-indicator">'+
+      '<span class="nt-icon">'+meta.icon+'</span>'+
+      '<div><div class="nt-name">'+meta.label+'</div><div class="nt-desc" style="color:var(--green)">✓ 执行完成  (PID 参数 {Kp,Ki,Kd})</div></div>'+
+    '</div>'+
+
+    '<div class="config-row"><label>输出摘要</label><div class="schema-box" style="font-size:12px;white-space:normal;">'+result.summary+'</div></div>'+
+
+    '<hr class="section-hr">'+
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:6px;">📄 完整输出 (JSON)</div>'+
+    '<div class="schema-box">'+result.detail+'</div>'+
+
+    '<hr class="section-hr">'+
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:6px;">📍 执行信息</div>'+
+    '<div class="schema-box" style="font-size:11px;white-space:normal;">'+
+      '容器: agent-'+id+'\n'+
+      '耗时: '+(id==='alg'?8:id==='dev'?12:id==='test'?10:6)+'s\n'+
+      'Tokens: '+(id==='alg'?1024:id==='dev'?1536:id==='test'?896:759)+
+    '</div>';
+}
+
+// ═══════════════════════════════════════════════
+// SHOW ALL RESULTS (modal)
+// ═══════════════════════════════════════════════
+
+function showAllResults() {
+  const ov = document.createElement('div');
+  ov.className = 'result-overlay fade-in';
+  ov.id = 'resultOverlay';
+  ov.onclick = function(e) { if (e.target === ov) ov.remove(); };
+
+  let itemsHtml = '';
+  activeAgents.forEach(id => {
+    const meta = ALL_AGENTS.find(a => a.id === id);
+    const res = AGENT_RESULTS[id];
+    if (!meta || !res) return;
+    itemsHtml +=
+      '<div class="result-item" style="cursor:pointer;" onclick="showNodeResultDetail(\''+id+'\');this.closest(\'.result-overlay\').remove();">'+
+        '<div class="ri-icon" style="background:'+(id==='alg'?'rgba(59,130,246,0.12)':id==='dev'?'rgba(16,185,129,0.12)':id==='test'?'rgba(124,58,237,0.12)':'rgba(245,158,11,0.12)')+'">'+meta.icon+'</div>'+
+        '<div class="ri-info"><div class="ri-title">'+meta.label+'</div><div class="ri-detail">'+res.summary+'</div></div>'+
+        '<span style="color:var(--green);font-weight:600;">✓</span>'+
+      '</div>';
+  });
+
+  ov.innerHTML =
+    '<div class="result-modal slide-up">'+
+      '<h2>✅ 工作流执行完成</h2>'+
+      '<div class="sub">'+activeAgents.length+' 个 Agent · 32 秒 · 4,215 tokens · 0 错误</div>'+
+      itemsHtml+
+      '<div class="result-data">{\n  "status": "completed",\n  "agents": '+JSON.stringify(activeAgents)+',\n  "total_time_s": 32,\n  "total_tokens": 4215\n}</div>'+
+      '<div style="margin-top:16px;display:flex;gap:10px;justify-content:center;">'+
+        '<button class="btn btn-sm" onclick="this.closest(\'.result-overlay\').remove()">关闭</button>'+
+        '<button class="btn btn-sm btn-success" onclick="this.closest(\'.result-overlay\').remove()">📄 导出报告</button>'+
+      '</div>'+
+    '</div>';
+  document.getElementById('canvasWrap').appendChild(ov);
+  updateStepUI();
 }
 
 // ═══════════════════════════════════════════════
@@ -652,25 +740,24 @@ function drawEdges() {
 // ═══════════════════════════════════════════════
 
 function showConfig(id) {
-  const n = NODES.find(x => x.id === id);
+  const n = ALL_AGENTS.find(x => x.id === id);
   if (!n) return;
   const meta = NODE_META[n.type] || {};
   document.getElementById('panelTitle').textContent = '⚙️ '+n.label;
 
   const schemaMap = {
-    alg:  '{\n  "Kp": "number",\n  "Ki": "number",\n  "Kd": "number"\n}',
-    dev:  '{\n  "source_code": "string",\n  "header": "string",\n  "lines": "number"\n}',
-    test: '{\n  "build": "pass|fail",\n  "tests_passed": "number",\n  "tests_total": "number"\n}',
-    doc:  '{\n  "report_url": "string",\n  "format": "PDF",\n  "pages": "number"\n}',
+    alg:  JSON.stringify({ Kp:'number', Ki:'number', Kd:'number' }, null, 2),
+    dev:  JSON.stringify({ source_code:'string', header:'string', lines:'number' }, null, 2),
+    test: JSON.stringify({ build:'pass|fail', tests_passed:'number', tests_total:'number' }, null, 2),
+    doc:  JSON.stringify({ report_url:'string', format:'PDF', pages:'number' }, null, 2),
   };
-  const inputsMap = { alg: '无 (根节点)', dev: '$ref:alg/output', test: '$ref:dev/output', doc: '$ref:test/output' };
 
   const promptTemplates = {
     alg: `你是一个控制算法设计专家。
 目标：为四旋翼无人机设计PID控制器。
-输入：无（用户需求）。
+输入：无（根节点）。
 输出：Kp, Ki, Kd 参数。
-约束：收敛时间 < 2s，超调量 < 5%。
+约束：收敛时间<2s，超调量<5%。
 方法：Ziegler-Nichols 频率响应法。
 输出格式：JSON {Kp, Ki, Kd}`,
     dev: `你是一个C++嵌入式软件工程师。
@@ -682,7 +769,7 @@ function showConfig(id) {
     test: `你是一个编译测试工程师。
 目标：编译并测试PID控制器代码。
 输入：C++源代码
-输出：编译结果 + 测试报告
+输出：编译结果+测试报告
 步骤：
 1. scons --board=cuav-v5 编译
 2. 运行单元测试
@@ -698,19 +785,11 @@ function showConfig(id) {
       '<span class="nt-icon">'+n.icon+'</span>'+
       '<div><div class="nt-name">'+meta.name+'</div><div class="nt-desc">'+meta.desc+'</div></div>'+
     '</div>'+
-
     '<div class="config-row"><label>节点类型</label><input value="'+n.type+'" readonly></div>'+
     '<div class="config-row"><label>标签</label><input value="'+n.label+'"></div>'+
 
     '<hr class="section-hr">'+
-    '<div style="font-size:11px;color:var(--text3);margin-bottom:6px;">📥 输入</div>'+
-    '<div class="schema-box">'+(inputsMap[n.id]||'—')+'</div>'+
-
-    '<div style="font-size:11px;color:var(--text3);margin:10px 0 6px;">📤 输出 Schema</div>'+
-    '<div class="schema-box">'+(schemaMap[n.id]||'{}')+'</div>'+
-
-    '<hr class="section-hr">'+
-    '<div style="font-size:11px;color:var(--text3);margin-bottom:6px;">📝 这个 Agent 收到的提示词</div>'+
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:6px;">📝 Agent 提示词</div>'+
     '<div class="schema-box" style="white-space:pre-wrap;font-size:10px;line-height:1.6;">'+(promptTemplates[n.id]||'—')+'</div>'+
 
     '<hr class="section-hr">'+
@@ -718,130 +797,6 @@ function showConfig(id) {
       '<div class="config-row" style="flex:1;"><label>超时(秒)</label><input value="'+(n.id==='dev'?300:120)+'"></div>'+
       '<div class="config-row" style="flex:1;"><label>重试</label><input value="'+(n.id==='test'?0:2)+'"></div>'+
     '</div>';
-}
-
-// ═══════════════════════════════════════════════
-// STEP 3: EXECUTION
-// ═══════════════════════════════════════════════
-
-function startExecution() {
-  step = 3;
-  updateStepUI();
-  hide('guideCanvas');
-
-  document.getElementById('panelTitle').textContent = '💻 执行日志';
-  document.getElementById('panelBody').innerHTML =
-    '<div class="exec-log" id="execLog"></div>'+
-    '<div style="margin-top:10px;"><button class="btn btn-sm btn-danger" style="width:100%;" onclick="showResult()">⏭ 跳过 → 查看结果</button></div>'+
-    '<div style="margin-top:6px;font-size:10px;color:var(--text3);text-align:center;">实际执行会逐个启动 Docker Agent</div>';
-
-  const log = document.getElementById('execLog');
-  let i = 0;
-  execTimer = setInterval(() => {
-    if (i >= EXEC_LOG.length) {
-      clearInterval(execTimer); execTimer=null;
-      document.getElementById('panelTitle').textContent = '✅ 执行完成';
-      setTimeout(showResult, 800);
-      return;
-    }
-    const l = EXEC_LOG[i];
-    log.innerHTML += '<div class="line"><span class="ts">['+l.ts+']</span><span class="'+l.type+'">'+l.msg+'</span></div>';
-    log.scrollTop = log.scrollHeight;
-
-    // Update node statuses
-    if (l.msg.includes('algorithm-designer')) {
-      setNodeStatus('alg','executing');
-      updateEdges();
-    } else if (l.msg.includes('software-dev')) {
-      setNodeStatus('alg','done'); setNodeStatus('dev','executing');
-      updateEdges();
-    } else if (l.msg.includes('compile-test')) {
-      setNodeStatus('dev','done'); setNodeStatus('test','executing');
-      updateEdges();
-    } else if (l.msg.includes('document-gen')) {
-      setNodeStatus('test','done'); setNodeStatus('doc','executing');
-      updateEdges();
-    } else if (l.msg.includes('工作流执行完毕')) {
-      setNodeStatus('doc','done');
-      updateEdges();
-    }
-    i++;
-  }, 1200);
-}
-
-function setNodeStatus(id, status) {
-  const el = document.getElementById('n-'+id);
-  if (!el) return;
-  el.classList.remove('executing','done','failed');
-  if (status) el.classList.add(status);
-}
-
-function updateEdges() {
-  const doneList = [];
-  NODE_ORDER.forEach(id => {
-    const el = document.getElementById('n-'+id);
-    if (el && el.classList.contains('done')) doneList.push(id);
-  });
-  // Animate edges via class changes
-  const svg = document.getElementById('edgesSvg');
-  const paths = svg.querySelectorAll('.edge-line');
-  const arrows = svg.querySelectorAll('.edge-arrow');
-  const labels = svg.querySelectorAll('.edge-label');
-  EDGES.forEach((e, i) => {
-    if (doneList.includes(e.from)) {
-      paths[i]?.classList.add('done');
-      arrows[i]?.classList.add('done');
-      labels[i]?.classList.add('done');
-      paths[i]?.classList.remove('active');
-    } else if (doneList.length > 0 && NODE_ORDER.indexOf(e.from) === doneList.length) {
-      paths[i]?.classList.add('active');
-      arrows[i]?.classList.add('active');
-    }
-  });
-}
-
-// ═══════════════════════════════════════════════
-// RESULT
-// ═══════════════════════════════════════════════
-
-function showResult() {
-  clearInterval(execTimer); execTimer=null;
-  const ov = document.createElement('div');
-  ov.className = 'result-overlay fade-in';
-  ov.id = 'resultOverlay';
-  ov.onclick = function(e) { if (e.target===ov) ov.remove(); };
-  ov.innerHTML =
-    '<div class="result-modal slide-up">'+
-      '<h2>✅ 工作流执行完成</h2>'+
-      '<div class="sub">3 个 Agent · 32 秒 · 4,215 tokens · 0 错误</div>'+
-      '<div class="result-item">'+
-        '<div class="ri-icon" style="background:rgba(59,130,246,0.12);">🧮</div>'+
-        '<div class="ri-info"><div class="ri-title">算法设计</div><div class="ri-detail">Kp=2.5, Ki=1.0, Kd=0.3</div></div>'+
-        '<span style="color:var(--green);font-weight:600;">✓</span>'+
-      '</div>'+
-      '<div class="result-item">'+
-        '<div class="ri-icon" style="background:rgba(16,185,129,0.12);">💻</div>'+
-        '<div class="ri-info"><div class="ri-title">C++ 代码实现</div><div class="ri-detail">PID.cpp + PID.h → 136 行</div></div>'+
-        '<span style="color:var(--green);font-weight:600;">✓</span>'+
-      '</div>'+
-      '<div class="result-item">'+
-        '<div class="ri-icon" style="background:rgba(124,58,237,0.12);">🧪</div>'+
-        '<div class="ri-info"><div class="ri-title">编译测试</div><div class="ri-detail">编译通过 · 12/12 测试通过</div></div>'+
-        '<span style="color:var(--green);font-weight:600;">✓</span>'+
-      '</div>'+
-      '<div class="result-item">'+
-        '<div class="ri-icon" style="background:rgba(245,158,11,0.12);">📝</div>'+
-        '<div class="ri-info"><div class="ri-title">输出报告</div><div class="ri-detail">PID_Controller_Report.pdf (8页)</div></div>'+
-        '<span style="color:var(--green);font-weight:600;">✓</span>'+
-      '</div>'+
-      '<div class="result-data">{\n  "pipeline": "完成",\n  "report": "PID_Controller_Report.pdf",\n  "total_time_s": 32,\n  "total_tokens": 4215\n}</div>'+
-      '<div style="margin-top:16px;display:flex;gap:10px;justify-content:center;">'+
-        '<button class="btn btn-sm" onclick="this.closest(\'.result-overlay\').remove()">关闭</button>'+
-        '<button class="btn btn-sm btn-success" onclick="(function(){let d=document.getElementById(\'stepNextBtn\');d.textContent=\'📄 Bom 已导出!\';setTimeout(()=>d.textContent=\'🔄 重来\',2000);})()">📄 导出报告</button>'+
-      '</div>'+
-    '</div>';
-  document.getElementById('canvasWrap').appendChild(ov);
-  updateStepUI();
 }
 
 // ═══════════════════════════════════════════════
@@ -858,7 +813,6 @@ function updateStepUI() {
     d.classList.toggle('done', i < step);
     d.classList.toggle('active', i === step);
   });
-  const labels = ['输入需求','AI 生成','可视化画布','执行结果'];
   const btn = document.getElementById('stepNextBtn');
   if (step >= 3) {
     document.getElementById('stepHintText').textContent = '✅ 全部完成';
@@ -866,11 +820,11 @@ function updateStepUI() {
     btn.onclick = resetDemo;
   } else if (step === 0) {
     document.getElementById('stepHintText').textContent = '步骤 1/4：输入需求';
-    btn.textContent = '⏭ 跳过';
+    btn.textContent = '⏭ 跳过 → AI 生成';
     btn.onclick = startGenerate;
   } else if (step === 1) {
     document.getElementById('stepHintText').textContent = '步骤 2/4：AI 生成中';
-    btn.textContent = '⏭ 跳过';
+    btn.textContent = '⏭ 跳过 → 画布';
     btn.onclick = function() {
       if (genTimer) { clearInterval(genTimer); genTimer=null; }
       document.getElementById('loadingFill').style.width = '100%';
@@ -892,18 +846,25 @@ function resetDemo() {
   if (ov) ov.remove();
 
   document.getElementById('canvasNodes').innerHTML = '';
+  document.getElementById('resultLayer').innerHTML = '';
   document.getElementById('edgesSvg').innerHTML = '';
 
   document.getElementById('panelTitle').textContent = '📋 节点配置';
   document.getElementById('panelBody').innerHTML =
     '<div class="panel-placeholder"><div class="big-icon">🔗</div><div>点击画布上的节点<br>查看详细配置</div></div>';
 
-  show('stepWelcome');
-  hide('stepGenerating');
-  hide('stepHint');
-  hide('guideCanvas');
+  show('stepWelcome'); hide('stepGenerating'); hide('stepHint'); hide('guideCanvas');
   document.getElementById('genLog').innerHTML = '';
   document.getElementById('loadingFill').style.width = '0%';
+
+  // Reset agent chips - but set alg, dev, test active for all others
+  activeAgents = ['alg','dev','test','doc'];
+  document.querySelectorAll('.agent-chip').forEach(chip => {
+    chip.classList.toggle('active', activeAgents.includes(chip.dataset.id));
+    chip.classList.remove('disabled');
+  });
+  document.getElementById('asCount').textContent = '4';
+  document.getElementById('agentCount').textContent = '4';
 }
 </script>
 </body>
