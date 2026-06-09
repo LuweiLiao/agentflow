@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentFlow — 完整架构设计方案 v2.0</title>
+<style>
+  :root {
+    --primary: #2563eb;
+    --primary-light: #3b82f6;
+    --primary-dark: #1d4ed8;
+    --secondary: #7c3aed;
+    --secondary-light: #a78bfa;
+    --success: #059669;
+    --success-bg: #ecfdf5;
+    --warning: #d97706;
+    --warning-bg: #fffbeb;
+    --danger: #dc2626;
+    --danger-bg: #fef2f2;
+    --info: #0284c7;
+    --info-bg: #eff6ff;
+    --gray-50: #f9fafb;
+    --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb;
+    --gray-300: #d1d5db;
+    --gray-400: #9ca3af;
+    --gray-500: #6b7280;
+    --gray-600: #4b5563;
+    --gray-700: #374151;
+    --gray-800: #1f2937;
+    --gray-900: #111827;
+    --font-mono: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
+    background: var(--gray-50);
+    color: var(--gray-900);
+    line-height: 1.7;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    position: fixed; top: 0; left: 0; width: 280px; height: 100vh;
+    background: var(--gray-900); color: #fff;
+    overflow-y: auto; z-index: 100;
+    padding: 24px 0;
+  }
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--gray-600); border-radius: 4px; }
+  .sidebar .logo { padding: 0 20px 20px; border-bottom: 1px solid var(--gray-700); margin-bottom: 12px; }
+  .sidebar .logo h1 { font-size: 20px; font-weight: 700; letter-spacing: 1px; }
+  .sidebar .logo .tag { font-size: 12px; color: var(--gray-400); margin-top: 4px; }
+  .sidebar nav a {
+    display: block; padding: 8px 20px; font-size: 13px;
+    color: var(--gray-300); text-decoration: none; transition: all 0.15s;
+    border-left: 3px solid transparent;
+  }
+  .sidebar nav a:hover { background: var(--gray-800); color: #fff; }
+  .sidebar nav a.active { color: #fff; background: var(--gray-800); border-left-color: var(--primary); }
+  .sidebar nav .section-title {
+    padding: 16px 20px 4px; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--gray-500); font-weight: 600;
+  }
+  .sidebar nav .sub { padding-left: 16px; }
+
+  /* ── Main ── */
+  .main { margin-left: 280px; max-width: 960px; padding: 0 40px 80px; }
+
+  /* ── Hero ── */
+  .hero {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2d4a7a 50%, #1a1a2e 100%);
+    color: #fff; padding: 60px 48px; border-radius: 0 0 24px 24px;
+    margin: 0 -40px 40px; position: relative; overflow: hidden;
+  }
+  .hero::after {
+    content: ''; position: absolute; top: -50%; right: -20%;
+    width: 500px; height: 500px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(59,130,246,0.15) 0%, transparent 70%);
+  }
+  .hero h1 { font-size: 38px; font-weight: 800; margin-bottom: 8px; position: relative; z-index: 1; }
+  .hero .subtitle { font-size: 18px; color: #93c5fd; margin-bottom: 20px; position: relative; z-index: 1; }
+  .hero .meta { font-size: 14px; color: #7a9bb5; position: relative; z-index: 1; }
+  .hero .meta span { margin-right: 24px; }
+  .hero .tags { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; position: relative; z-index: 1; }
+  .hero .tags .tag {
+    padding: 4px 14px; border-radius: 20px; font-size: 12px;
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+    color: #93c5fd;
+  }
+
+  /* ── Section blocks ── */
+  .section { margin-bottom: 48px; }
+  .section-header {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 20px; padding-bottom: 12px;
+    border-bottom: 2px solid var(--gray-200);
+  }
+  .section-header .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 8px;
+    background: var(--primary); color: #fff; font-size: 14px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .section-header h2 { font-size: 24px; font-weight: 700; margin: 0; border: none; padding: 0; }
+
+  .section h3 { font-size: 18px; font-weight: 600; margin: 28px 0 12px; color: var(--gray-800); }
+  .section h4 { font-size: 15px; font-weight: 600; margin: 20px 0 8px; color: var(--gray-700); }
+  .section p { margin-bottom: 12px; color: var(--gray-600); line-height: 1.8; }
+  .section ul, .section ol { margin: 8px 0 16px 20px; }
+  .section li { margin-bottom: 6px; color: var(--gray-600); }
+  .section li strong { color: var(--gray-800); }
+
+  /* ── Cards ── */
+  .card-grid { display: grid; gap: 16px; margin: 16px 0; }
+  .card-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+  .card-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .card-grid.cols-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  @media (max-width: 768px) {
+    .card-grid.cols-2, .card-grid.cols-3, .card-grid.cols-4 { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: #fff; border-radius: var(--radius);
+    padding: 18px 20px; box-shadow: var(--shadow);
+    border-top: 3px solid var(--gray-200);
+  }
+  .card h4 { margin: 0 0 8px; font-size: 15px; }
+  .card p { margin: 0; font-size: 13px; color: var(--gray-500); line-height: 1.6; }
+  .card code { font-size: 12px; }
+
+  .card.primary   { border-top-color: var(--primary); }
+  .card.secondary { border-top-color: var(--secondary); }
+  .card.success   { border-top-color: var(--success); }
+  .card.warning   { border-top-color: var(--warning); }
+  .card.danger    { border-top-color: var(--danger); }
+  .card.info      { border-top-color: var(--info); }
+
+  /* ── Pipeline ── */
+  .pipeline { display: flex; align-items: center; gap: 8px; margin: 20px 0; flex-wrap: wrap; }
+  .pipeline .step {
+    padding: 10px 18px; border-radius: var(--radius-sm);
+    font-weight: 600; font-size: 13px; text-align: center;
+    min-width: 120px; flex: 1;
+  }
+  .pipeline .step.s1 { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+  .pipeline .step.s2 { background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; }
+  .pipeline .step.s3 { background: #fed7aa; color: #9a3412; border: 1px solid #fdba74; }
+  .pipeline .step.s4 { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+  .pipeline .step.s5 { background: #ccfbf1; color: #115e59; border: 1px solid #5eead4; }
+  .pipeline .arrow { font-size: 18px; color: var(--gray-400); }
+
+  /* ── Code blocks ── */
+  .code-block {
+    background: #1e1e2e; color: #cdd6f4;
+    border-radius: var(--radius-sm); padding: 16px 18px;
+    overflow-x: auto; font-family: var(--font-mono);
+    font-size: 13px; line-height: 1.7; margin: 12px 0;
+  }
+  .code-block .c { color: #6c7086; font-style: italic; }
+  .code-block .k { color: #cba6f7; }
+  .code-block .s { color: #a6e3a1; }
+  .code-block .v { color: #89b4fa; }
+  .code-block .n { color: #fab387; }
+  .code-block .f { color: #f38ba8; }
+
+  /* ── Tables ── */
+  .table-wrap { overflow-x: auto; margin: 12px 0; border-radius: var(--radius-sm); border: 1px solid var(--gray-200); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--gray-100); }
+  th { background: var(--gray-100); font-weight: 600; color: var(--gray-700); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--gray-50); }
+
+  /* ── Highlights ── */
+  .box {
+    padding: 14px 18px; border-radius: var(--radius-sm);
+    margin: 14px 0; border-left: 4px solid;
+    font-size: 14px;
+  }
+  .box.info    { background: var(--info-bg); border-color: var(--info); }
+  .box.warn    { background: var(--warning-bg); border-color: var(--warning); }
+  .box.danger  { background: var(--danger-bg); border-color: var(--danger); }
+  .box.success { background: var(--success-bg); border-color: var(--success); }
+  .box strong { display: block; margin-bottom: 4px; }
+
+  /* ── Flowchart SVG ── */
+  .flow-svg { text-align: center; margin: 20px 0; }
+
+  /* ── Legend / Tags ── */
+  .legend {
+    display: flex; gap: 20px; flex-wrap: wrap; margin: 16px 0;
+    padding: 12px 16px; background: #fff; border-radius: var(--radius-sm);
+    box-shadow: var(--shadow); font-size: 13px;
+  }
+  .legend .dot {
+    display: inline-block; width: 14px; height: 14px; border-radius: 3px;
+    margin-right: 6px; vertical-align: middle;
+  }
+  .dot.blue   { background: var(--primary); }
+  .dot.green  { background: var(--success); }
+  .dot.red    { background: var(--danger); }
+  .dot.purple { background: var(--secondary); }
+  .dot.orange { background: var(--warning); }
+  .dot.teal   { background: #0d9488; }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center; padding: 30px; color: var(--gray-400);
+    font-size: 13px; border-top: 1px solid var(--gray-200); margin-top: 40px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ SIDEBAR ═══════════ -->
+<div class="sidebar">
+  <div class="logo">
+    <h1>⚡ AgentFlow</h1>
+    <div class="tag">架构设计方案 v2.0 · 2026-06-10</div>
+  </div>
+  <nav>
+    <div class="section-title">概览</div>
+    <a href="#overview">总体架构概览</a>
+    <a href="#pipeline">5 阶段转换链路</a>
+
+    <div class="section-title">数据契约</div>
+    <a href="#wfjson">WorkflowJSON</a>
+    <a href="#prompttask">PromptTask</a>
+    <a href="#envelope">Envelope JSON</a>
+
+    <div class="section-title">核心组件</div>
+    <a href="#compiler">Prompt Compiler Agent</a>
+    <a href="#templates">模板系统</a>
+    <a href="#orchestrator">Orchestrator 调度器</a>
+    <a href="#agent">Agent 运行时</a>
+    <a href="#security">安全架构</a>
+
+    <div class="section-title">实施</div>
+    <a href="#oss">OSS 复用策略</a>
+    <a href="#roadmap">实施路线图</a>
+  </nav>
+</div>
+
+<!-- ═══════════ MAIN ═══════════ -->
+<div class="main">
+
+<!-- ── Hero ── -->
+<div class="hero">
+  <h1>AgentFlow</h1>
+  <div class="subtitle">多 Agent 编排平台 — 从工作流画布到 Agent 运行的完整转换链路</div>
+  <div class="meta">
+    <span>📅 2026-06-10</span>
+    <span>👤 廖博士 / 小马总</span>
+    <span>📄 v2.0 — 数据契约冻结</span>
+    <span>📂 github.com/LuweiLiao/agentflow</span>
+  </div>
+  <div class="tags">
+    <span class="tag">🎯 源编排 L0</span>
+    <span class="tag">⚙️ 核心引擎 L1</span>
+    <span class="tag">🎨 React Flow</span>
+    <span class="tag">🔒 内部 KMS</span>
+    <span class="tag">🐳 Docker + Claude Code</span>
+  </div>
+</div>
+
+<!-- ═══════════ 1. OVERVIEW ═══════════ -->
+<div class="section" id="overview">
+  <div class="section-header"><span class="num">1</span><h2>总体架构概览</h2></div>
+
+  <div class="legend">
+    <span><span class="dot blue"></span> 🟦 直接复用 OSS</span>
+    <span><span class="dot green"></span> 🟩 封装适配</span>
+    <span><span class="dot red"></span> 🟥 自研核心</span>
+    <span><span class="dot purple"></span> 🟪 专用 Agent 角色</span>
+  </div>
+
+  <p>AgentFlow 是一个将<strong>可视化工作流编排</strong>与<strong>AI Agent 自动执行</strong>结合的平台。用户通过画布拖拽配线定义工作流 DAG，系统自动编译为 Agent 可执行的提示词，在 Docker 容器中通过 Claude Code CLI 驱动执行，形成完整的闭环反馈系统。</p>
+
+  <div class="card-grid cols-2">
+    <div class="card secondary">
+      <h4>🎯 核心理念</h4>
+      <p>每个画布节点 → 由 Compiler Agent 编译为完整自然语言提示词 → Claude Code 在 Docker 中执行 → 结果通过 Envelope 协议传递。</p>
+    </div>
+    <div class="card info">
+      <h4>🔁 闭环反馈</h4>
+      <p>下游 Agent 测试失败 → 自动回退到上游重新生成 → 形成控制理论中的负反馈闭环。每次迭代 dV/dt < 0。</p>
+    </div>
+  </div>
+
+  <h3>6+1 层级体系</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>层</th><th>名称</th><th>内容</th><th>策略</th><th>状态</th></tr>
+    <tr><td><strong>L0</strong></td><td>源编排</td><td>AI 根据自然语言自动生成工作流草稿</td><td>🟥 自研</td><td>Defer</td></tr>
+    <tr><td><strong>L1</strong></td><td>核心引擎</td><td>Compiler Agent · Orchestrator · 模板系统 · 数据契约</td><td>🟥 自研</td><td>✅ MVP</td></tr>
+    <tr><td><strong>L2</strong></td><td>开发者 SDK</td><td>节点脚手架 · 发布工具 · 沙箱测试</td><td>⏳ 待定</td><td>Defer</td></tr>
+    <tr><td><strong>L3</strong></td><td>市场</td><td>节点市场 · 模板库 · 版本管理</td><td>⏳ 待定</td><td>Defer</td></tr>
+    <tr><td><strong>L4</strong></td><td>用户界面</td><td>画布 (React Flow) · 调试器 · 仪表盘</td><td>🟦 React Flow</td><td>✅ MVP</td></tr>
+    <tr><td><strong>L5</strong></td><td>团队/企业</td><td>多用户 · RBAC · SSO · 审计日志</td><td>⏳ 待定</td><td>Defer</td></tr>
+    <tr><td><strong>L6</strong></td><td>运维</td><td>Docker Compose · 监控 · 计费</td><td>⏳ 待定</td><td>Defer</td></tr>
+  </table>
+  </div>
+
+  <div class="box success">
+    <strong>✅ MVP 范围</strong>
+    L0（源编排）+ L1（核心引擎）+ L4（画布 UI 前端）。L2/L3/L5/L6 全部 defer。
+  </div>
+</div>
+
+<!-- ═══════════ 2. PIPELINE ═══════════ -->
+<div class="section" id="pipeline">
+  <div class="section-header"><span class="num">2</span><h2>核心转换链路（5 阶段）</h2></div>
+
+  <p>从用户在画布上拖拽到 Agent 实际运行，经历 5 个阶段：</p>
+
+  <div class="pipeline">
+    <div class="step s1">① 画布编辑<br><small>React Flow</small></div>
+    <div class="arrow">→</div>
+    <div class="step s2">② 提示词编译<br><small>Compiler Agent</small></div>
+    <div class="arrow">→</div>
+    <div class="step s3">③ 调度执行<br><small>Orchestrator</small></div>
+    <div class="arrow">→</div>
+    <div class="step s4">④ Agent 集群<br><small>Docker+CC</small></div>
+    <div class="arrow">→</div>
+    <div class="step s5">⑤ 结果汇聚<br><small>验证+反馈</small></div>
+  </div>
+
+  <h3>各阶段产出物</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>阶段</th><th>输入</th><th>处理者</th><th>输出</th></tr>
+    <tr>
+      <td>① 画布编辑</td>
+      <td>用户拖拽操作</td>
+      <td>React Flow 画布</td>
+      <td><code>WorkflowJSON</code></td>
+    </tr>
+    <tr>
+      <td>② 提示词编译</td>
+      <td><code>WorkflowJSON</code> + 模板</td>
+      <td>Prompt Compiler Agent (Claude Code)</td>
+      <td><code>PromptTask[]</code></td>
+    </tr>
+    <tr>
+      <td>③ 调度执行</td>
+      <td><code>PromptTask[]</code></td>
+      <td>Orchestrator (Hermes Agent)</td>
+      <td>Docker 容器启动命令</td>
+    </tr>
+    <tr>
+      <td>④ Agent 集群</td>
+      <td>完整提示词 (通过 stdin)</td>
+      <td>Claude Code in Docker</td>
+      <td><code>Envelope JSON</code> (stdout)</td>
+    </tr>
+    <tr>
+      <td>⑤ 结果汇聚</td>
+      <td><code>Envelope JSON</code></td>
+      <td>Orchestrator</td>
+      <td>画布状态更新 / 下一节点 stdin</td>
+    </tr>
+  </table>
+  </div>
+
+  <h3>架构全貌</h3>
+  <div class="code-block">
+<span class="c">┌────────────────────────────────────────────────────────────┐</span>
+<span class="c">│  画布 (React Flow 🟦)        ← 用户拖拽配线                    │</span>
+<span class="c">└──────────────────┬─────────────────────────────────────────┘</span>
+<span class="c">                   │ WorkflowJSON</span>
+<span class="c">                   ▼</span>
+<span class="c">┌────────────────────────────────────────────────────────────┐</span>
+<span class="c">│  Prompt Compiler Agent 🟥🟪  ← 专用Claude Code              │</span>
+<span class="c">│  (读取 WorkflowJSON + templates/*.yaml → 渲染 PromptTask)   │</span>
+<span class="c">└──────────────────┬─────────────────────────────────────────┘</span>
+<span class="c">                   │ PromptTask[]</span>
+<span class="c">                   ▼</span>
+<span class="c">┌────────────────────────────────────────────────────────────┐</span>
+<span class="c">│  Orchestrator 调度器 🟥   ← 按拓扑序派发 Docker 容器         │</span>
+<span class="c">│  (docker run claude --print "{完整提示词}")                  │</span>
+<span class="c">└──────────────────┬─────────────────────────────────────────┘</span>
+<span class="c">                   │</span>
+<span class="c">        ┌──────────┼──────────┐</span>
+<span class="c">        ▼          ▼          ▼</span>
+<span class="c">   ┌────────┐ ┌────────┐ ┌────────┐</span>
+<span class="c">   │Agent A │→│Agent B │→│Agent C │  ← Docker + Claude Code 🟪</span>
+<span class="c">   └────────┘ └────────┘ └────────┘</span>
+<span class="c">        │          │          │</span>
+<span class="c">        └──────────┼──────────┘</span>
+<span class="c">                   │ Envelope JSON</span>
+<span class="c">                   ▼</span>
+<span class="c">┌────────────────────────────────────────────────────────────┐</span>
+<span class="c">│  结果汇聚 🟥 → schema验证 → 画布更新 → 下一轮/完成          │</span>
+<span class="c">└────────────────────────────────────────────────────────────┘</span>
+  </div>
+
+  <div class="box info">
+    <strong>🔑 关键设计决策</strong>
+    每个节点不是传 JSON 参数给 Agent，而是由 Compiler Agent 用模板编译为<strong>完整的自然语言提示词</strong>。Claude Code 擅⻓理解自然语言，不需要结构化接口。
+  </div>
+</div>
+
+<!-- ═══════════ 3. DATA CONTRACTS ═══════════ -->
+<div class="section" id="contracts">
+  <div class="section-header"><span class="num">3</span><h2>数据契约定义</h2></div>
+  <p>系统三份核心数据结构的完整 schema。</p>
+
+  <!-- 3.1 WorkflowJSON -->
+  <h3 id="wfjson">3.1 WorkflowJSON — 画布输出</h3>
+
+  <div class="card-grid cols-2">
+    <div class="card primary"><h4>📤 生产者</h4><p>画布 UI (React Flow)。用户拖拽配线完成后导出。</p></div>
+    <div class="card secondary"><h4>📥 消费者</h4><p>Prompt Compiler Agent。读取后编译为 PromptTask。</p></div>
+  </div>
+
+  <div class="code-block">
+{<span class="c">  // ── 工作流元信息 ──</span>
+  <span class="v">"version"</span>: <span class="s">"1.0.0"</span>,
+  <span class="v">"workflow_id"</span>: <span class="s">"wf_01J..."</span>,
+  <span class="v">"name"</span>: <span class="s">"PID控制器全流程"</span>,
+
+<span class="c">  // ── 全局上下文（所有节点共享） ──</span>
+  <span class="v">"global_context"</span>: {
+    <span class="v">"goal"</span>: <span class="s">"为四旋翼无人机设计并实现PID控制器"</span>,
+    <span class="v">"language"</span>: <span class="s">"zh-CN"</span>,
+    <span class="v">"constraints"</span>: [<span class="s">"C++实现"</span>, <span class="s">"基于ArduPilot框架"</span>, <span class="s">"增益Kp范围0~10"</span>]
+  },
+
+<span class="c">  // ── 节点列表 ──</span>
+  <span class="v">"nodes"</span>: [
+    {
+      <span class="v">"id"</span>: <span class="s">"alg"</span>,
+      <span class="v">"type"</span>: <span class="s">"algorithm-designer"</span>,       <span class="c">// → templates/algorithm-designer.yaml</span>
+      <span class="v">"label"</span>: <span class="s">"算法设计"</span>,
+      <span class="v">"params"</span>: {
+        <span class="v">"plant"</span>: <span class="s">"quadcopter"</span>,
+        <span class="v">"method"</span>: <span class="s">"Ziegler-Nichols"</span>
+      },
+      <span class="v">"output_schema"</span>: { <span class="v">"type"</span>: <span class="s">"object"</span>, <span class="v">"properties"</span>: {
+        <span class="v">"Kp"</span>: { <span class="v">"type"</span>: <span class="s">"number"</span>, <span class="v">"min"</span>: <span class="n">0</span>, <span class="v">"max"</span>: <span class="n">10</span> },
+        <span class="v">"Ki"</span>: { <span class="v">"type"</span>: <span class="s">"number"</span> },
+        <span class="v">"Kd"</span>: { <span class="v">"type"</span>: <span class="s">"number"</span> }
+      }},
+      <span class="v">"timeout_s"</span>: <span class="n">120</span>,
+      <span class="v">"retry"</span>: <span class="n">2</span>,
+      <span class="v">"on_failure"</span>: <span class="s">"retry"</span>
+    },
+    {<span class="c">  // ... dev, test 节点类似（详见GitHub仓库）</span>}
+  ],
+  <span class="v">"edges"</span>: [
+    { <span class="v">"source"</span>: <span class="s">"alg"</span>, <span class="v">"target"</span>: <span class="s">"dev"</span> },
+    { <span class="v">"source"</span>: <span class="s">"dev"</span>, <span class="v">"target"</span>: <span class="s">"test"</span> }
+  ]
+}</div>
+
+  <div class="box warn">
+    <strong>⚠️ Schema 引用机制</strong>
+    input_schema 使用 JSON Schema <code>$ref</code> 语法引用上游节点的 output_schema。画布连线时，如果 A 的 output 不匹配 B 的 input，禁止连线或显示红色警告。
+  </div>
+
+  <!-- 3.2 PromptTask -->
+  <h3 id="prompttask">3.2 PromptTask — Compiler Agent 输出</h3>
+
+  <div class="card-grid cols-2">
+    <div class="card secondary"><h4>📤 生产者</h4><p>Prompt Compiler Agent。用模板渲染 WorkflowJSON 后生成。</p></div>
+    <div class="card warning"><h4>📥 消费者</h4><p>Orchestrator。读取后按拓扑序派发 Docker 容器。</p></div>
+  </div>
+
+  <div class="code-block">[
+  {
+    <span class="v">"task_id"</span>: <span class="s">"pt_alg_01J..."</span>,
+    <span class="v">"workflow_id"</span>: <span class="s">"wf_01J..."</span>,
+    <span class="v">"node_id"</span>: <span class="s">"alg"</span>,
+    <span class="v">"node_type"</span>: <span class="s">"algorithm-designer"</span>,
+    <span class="v">"sequence"</span>: <span class="n">1</span>,
+    <span class="v">"parallel_group"</span>: <span class="k">null</span>,
+    <span class="v">"depends_on"</span>: [],
+
+    <span class="c">// ── 核心 payload：完整的自然语言提示词 ──</span>
+    <span class="v">"prompt"</span>: <span class="s">"## 目标\n为四旋翼无人机设计PID控制器\n→ 使用Ziegler-Nichols方法整定参数\n\n## 约束\n- C++实现\n- 基于ArduPilot框架\n- 输出必须符合以下schema: {Kp, Ki, Kd}\n- 限时120秒\n- 失败可重试2次\n\n## 输出格式\nEnvelope JSON\n\n## 成功标准\npayload 通过 schema 验证"</span>,
+
+    <span class="v">"output_schema"</span>: { <span class="v">"type"</span>: <span class="s">"object"</span>, <span class="v">"properties"</span>: { ... } },
+    <span class="v">"timeout_s"</span>: <span class="n">120</span>,
+    <span class="v">"retry"</span>: <span class="n">2</span>
+  }<span class="c">, { ... dev, test ... }</span>
+]</div>
+
+  <div class="box info">
+    <strong>💡 PromptTask 是系统的"核心货币"</strong>
+    所有的复杂性都在 Compiler Agent 的模板渲染步骤中被消化为一段纯粹的自然语言提示词。Orchestrator 和 Agent 不需要理解 WorkflowJSON 的结构，只需理解这段提示词。
+  </div>
+
+  <!-- 3.3 Envelope JSON -->
+  <h3 id="envelope">3.3 Envelope JSON — Agent stdout 输出</h3>
+
+  <div class="card-grid cols-2">
+    <div class="card success"><h4>📤 生产者</h4><p>Claude Code Agent（Docker 容器内）。写入 stdout 后退出。</p></div>
+    <div class="card warning"><h4>📥 消费者</h4><p>Orchestrator。读取 stdout、校验 schema、传递到下游。</p></div>
+  </div>
+
+  <div class="code-block">{
+  <span class="v">"envelope"</span>: {
+    <span class="v">"message_id"</span>: <span class="s">"msg_01J..."</span>,
+    <span class="v">"correlation_id"</span>: <span class="s">"pt_alg_01J..."</span>,
+    <span class="v">"type"</span>: <span class="s">"result"</span>,               <span class="c">// result | error | ack | heartbeat | progress</span>
+    <span class="v">"timestamp"</span>: <span class="n">1780947845</span>
+  },
+  <span class="v">"source"</span>: {
+    <span class="v">"agent_id"</span>: <span class="s">"claude-code-7a..."</span>,
+    <span class="v">"task_id"</span>: <span class="s">"pt_alg_01J..."</span>
+  },
+  <span class="v">"payload"</span>: {
+    <span class="v">"content_type"</span>: <span class="s">"application/json"</span>,
+    <span class="v">"data"</span>: { <span class="v">"Kp"</span>: <span class="n">2.5</span>, <span class="v">"Ki"</span>: <span class="n">1.0</span>, <span class="v">"Kd"</span>: <span class="n">0.3</span> }
+  },
+  <span class="v">"status"</span>: <span class="s">"done"</span>,
+  <span class="v">"metrics"</span>: {
+    <span class="v">"tokens_used"</span>: <span class="n">4523</span>,
+    <span class="v">"elapsed_ms"</span>: <span class="n">45200</span>,
+    <span class="v">"model"</span>: <span class="s">"claude-sonnet-4"</span>
+  }
+}</div>
+
+  <div class="box success">
+    <strong>✅ Schema 门控</strong>
+    Orchestrator 在收到 Envelope JSON 后，使用 PromptTask 中的 <code>output_schema</code> 对 <code>payload.data</code> 进行校验。不通过则按 <code>on_failure</code> 策略处理。
+  </div>
+</div>
+
+<!-- ═══════════ 4. COMPILER ═══════════ -->
+<div class="section" id="compiler">
+  <div class="section-header"><span class="num">4</span><h2>Prompt Compiler Agent</h2></div>
+
+  <p>Compiler Agent 是一个<strong>固定的专用 Claude Code 实例</strong>，它的唯一工作是将 WorkflowJSON 编译为一组 PromptTask。它的 Prompt 本身也是固定的——不改变，不升级。</p>
+
+  <div class="card-grid cols-3">
+    <div class="card secondary"><h4>🎯 职责</h4><p>WorkflowJSON → 拓扑排序 → 模板渲染 → PromptTask[]</p></div>
+    <div class="card success"><h4>🧠 运行时</h4><p>Claude Code CLI in Docker。<code>claude --print "{compiler_prompt}"</code></p></div>
+    <div class="card warning"><h4>📐 I/O</h4><p>输入: WorkflowJSON (stdin)<br>输出: PromptTask[] (stdout)</p></div>
+  </div>
+
+  <h3>Compiler Agent 的固定 Prompt（概要）</h3>
+
+  <div class="code-block">
+<span class="f">你是一个 Workflow Compiler Agent。</span>
+<span class="f">你的职责是将 WorkflowJSON 编译为一组 PromptTask。</span>
+
+<span class="c">## 执行步骤</span>
+<span class="n">1.</span> 解析 WorkflowJSON — 读取 global_context / nodes[] / edges[]
+<span class="n">2.</span> 拓扑排序 — 使用 Kahn 算法，识别 parallel 分支
+<span class="n">3.</span> 对每个节点执行模板渲染：
+   a. 查找 templates/{node.type}.yaml
+   b. 按映射注入变量（{global.goal}, {params.xxx}, {output_schema}, {upstream_output}...）
+   c. 生成完整提示词文本
+<span class="n">4.</span> 组装 PromptTask — 包含 prompt, output_schema, timeout, retry, depends_on
+<span class="n">5.</span> 验证 — prompt 非空、schema 完整、依赖链完整
+<span class="n">6.</span> 输出 — 直接输出 PromptTask[] JSON 到 stdout
+
+<span class="c">## 约束</span>
+- 严格按照模板格式渲染，不要改写用户原始目标
+- 如果模板变量不存在，保留 {变量名} 原文
+- 不要添加额外说明或注释</div>
+
+  <div class="box warn">
+    <strong>🔄 自洽性质</strong>
+    Compiler Agent 自己也是 Claude Code。AgentFlow 的"Agent 运行在 Docker + Claude Code 中"这一定位，对 Compiler Agent 自身同样成立。它只是被分配了一个不同的 Prompt。
+  </div>
+</div>
+
+<!-- ═══════════ 5. TEMPLATES ═══════════ -->
+<div class="section" id="templates">
+  <div class="section-header"><span class="num">5</span><h2>模板系统</h2></div>
+
+  <p>模板系统是 AgentFlow 的<strong>核心资产</strong>。每个节点类型对应一个 YAML 模板文件，定义了如何将节点配置渲染为 Agent 提示词。</p>
+
+  <div class="card-grid cols-3">
+    <div class="card warning"><h4>📂 存储</h4><p><code>templates/{node_type}.yaml</code></p></div>
+    <div class="card primary"><h4>🔄 版本管理</h4><p>每个模板有独立版本号，支持兼容性检查</p></div>
+    <div class="card info"><h4>🔌 可扩展</h4><p>新增节点类型只需新增一个模板文件</p></div>
+  </div>
+
+  <h3>模板示例（algorithm-designer）</h3>
+  <div class="code-block">
+<span class="c"># templates/algorithm-designer.yaml</span>
+<span class="v">name</span>: algorithm-designer
+<span class="v">version</span>: <span class="s">"1.0.0"</span>
+<span class="v">description</span>: <span class="s">"算法设计Agent：从需求到控制参数"</span>
+
+<span class="v">prompt_template</span>: <span class="s">|
+  ## 目标
+  {global.goal} → 你需要使用 {params.method} 方法
+
+  ## 约束
+  - 输出必须符合 output_schema: {output_schema}
+  - 全局约束: {global.constraints}
+  - 限时 {timeout_s} 秒 / 重试 {retry} 次
+
+  ## 输入上下文
+  {if upstream_output}
+  上游 ({upstream_node_label}) 输出: {upstream_output}
+  {endif}
+
+  ## 输出格式
+  Envelope JSON, payload 必须符合 output_schema
+
+  ## 成功标准
+  payload 通过 output_schema 验证</span></div>
+
+  <h3>模板变量系统</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>变量</th><th>来源</th><th>说明</th></tr>
+    <tr><td><code>{global.goal}</code></td><td>WorkflowJSON.global_context.goal</td><td>全局目标描述</td></tr>
+    <tr><td><code>{global.constraints}</code></td><td>global_context.constraints</td><td>全局约束列表，渲染为 bullet</td></tr>
+    <tr><td><code>{params.xxx}</code></td><td>nodes[].params.xxx</td><td>节点特有参数</td></tr>
+    <tr><td><code>{output_schema}</code></td><td>nodes[].output_schema</td><td>序列化为 YAML</td></tr>
+    <tr><td><code>{upstream_node_label}</code></td><td>上游节点 label</td><td>用于提示词上下文</td></tr>
+    <tr><td><code>{upstream_output}</code></td><td>上游实际运行时输出</td><td>编译时注入 schema 样例，运行时注入实际值</td></tr>
+    <tr><td><code>{timeout_s}</code></td><td>nodes[].timeout_s</td><td>超时秒数</td></tr>
+    <tr><td><code>{retry}</code></td><td>nodes[].retry</td><td>重试次数</td></tr>
+  </table>
+  </div>
+</div>
+
+<!-- ═══════════ 6. ORCHESTRATOR ═══════════ -->
+<div class="section" id="orchestrator">
+  <div class="section-header"><span class="num">6</span><h2>Orchestrator 调度器</h2></div>
+
+  <div class="card-grid cols-3">
+    <div class="card warning"><h4>⚡ 职责</h4><p>接收 PromptTask → 拓扑调度 → docker run → 读 stdout → schema 校验 → 传递</p></div>
+    <div class="card danger"><h4>🛡️ 错误处理</h4><p>超时终止 · 重试逻辑 · 失败回退 · parallel 原子性</p></div>
+    <div class="card info"><h4>📊 状态管理</h4><p>WAL 持久化 · 心跳检测 · 断点续传 · 画布状态同步</p></div>
+  </div>
+
+  <h3>核心循环</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>步骤</th><th>动作</th><th>说明</th></tr>
+    <tr><td>1</td><td>拓扑遍历</td><td>按 sequence 顺序，识别可执行的节点（所有 depends_on 已完成）</td></tr>
+    <tr><td>2a</td><td>串行执行</td><td>单节点：直接创建 Docker 容器</td></tr>
+    <tr><td>2b</td><td>并行执行</td><td>parallel_group 相同：同时创建多个 Docker 容器</td></tr>
+    <tr><td>3</td><td>Docker 启动</td><td><code>docker run --rm -e KEY={token} claude --print "{prompt}"</code></td></tr>
+    <tr><td>4</td><td>运行时注入</td><td>将上游实际输出的 payload.data 替换到 {upstream_output} 位置</td></tr>
+    <tr><td>5</td><td>监控</td><td>监听 stdout 解析 Envelope JSON。超时则 docker kill</td></tr>
+    <tr><td>6</td><td>验证</td><td>用 PromptTask.output_schema 校验 payload.data</td></tr>
+    <tr><td>7a</td><td>成功</td><td>保存结果 → 检查是否完成 → 同步画布</td></tr>
+    <tr><td>7b</td><td>失败</td><td>按 retry/on_failure 策略处理</td></tr>
+    <tr><td>8</td><td>反馈</td><td>测试失败 → 重新编译上游 Task → 新容器重试</td></tr>
+  </table>
+  </div>
+
+  <h3>Docker 容器参数</h3>
+  <div class="code-block">
+docker run --rm \
+  --name agentflow-agent-{task_id} \
+  --network none \
+  --cap-drop=ALL \
+  --security-opt=no-new-privileges:true \
+  --read-only-root-filesystem \
+  --tmpfs /tmp:noexec,nosuid,size=100M \
+  --memory=1G --cpus=2 --pids-limit=200 \
+  -v agentflow-agent-{task_id}:/workspace \
+  -e ANTHROPIC_API_KEY="{kms_session_token}" \
+  agentflow-agent:latest \
+  claude --print "{prompt}"</div>
+
+  <div class="box danger">
+    <strong>🚫 安全铁律</strong>
+    绝不允许 <code>--privileged</code>、<code>--pid=host</code>、<code>--network=host</code>、挂载 Docker Socket。所有密钥通过 KMS 签发限时 Session Token。
+  </div>
+</div>
+
+<!-- ═══════════ 7. AGENT RUNTIME ═══════════ -->
+<div class="section" id="agent">
+  <div class="section-header"><span class="num">7</span><h2>Agent 运行时</h2></div>
+
+  <p>每个 Agent 是一个运行在 Docker 容器中的 Claude Code CLI 实例。通过 stdin 接收完整提示词，通过 stdout 输出 Envelope JSON。</p>
+
+  <h3>Agent 生命周期</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>阶段</th><th>状态</th><th>说明</th></tr>
+    <tr><td>① 创建</td><td><code>pending</code></td><td>Orchestrator 创建 Docker 容器，注入 KMS session token</td></tr>
+    <tr><td>② 启动</td><td><code>running</code></td><td>容器运行中，Claude Code 读取提示词开始处理</td></tr>
+    <tr><td>③ 完成</td><td><code>completed</code></td><td>stdout 输出合法 Envelope JSON，exit code=0</td></tr>
+    <tr><td>④ 失败</td><td><code>failed</code></td><td>超时 / exit non-zero / schema 校验失败</td></tr>
+    <tr><td>⑤ 销毁</td><td><code>cleaned</code></td><td>容器删除，工作区卷清理</td></tr>
+  </table>
+  </div>
+
+  <h3>Agent 类型注册表</h3>
+  <div class="code-block">
+<span class="c"># agent-registry.yaml</span>
+<span class="v">agent_types</span>:
+  <span class="v">algorithm-designer</span>:
+    description: <span class="s">"算法设计Agent"</span>
+    icon: <span class="s">"🧮"</span>
+    system_prompt: <span class="s">"你是一个专业的控制系统算法设计专家。"</span>
+    default_timeout_s: <span class="n">120</span>
+    default_retry: <span class="n">2</span>
+    cost_multiplier: <span class="n">1.0</span>
+
+  <span class="v">software-dev</span>:
+    description: <span class="s">"软件开发Agent"</span>
+    icon: <span class="s">"💻"</span>
+    system_prompt: <span class="s">"你是一个专业的嵌入式软件工程师。"</span>
+    default_timeout_s: <span class="n">300</span>
+    default_retry: <span class="n">1</span>
+    cost_multiplier: <span class="n">1.5</span>
+
+  <span class="v">compile-test</span>:
+    description: <span class="s">"编译测试Agent"</span>
+    icon: <span class="s">"🧪"</span>
+    system_prompt: <span class="s">"你是一个严谨的测试工程师。"</span>
+    default_timeout_s: <span class="n">180</span>
+    default_retry: <span class="n">0</span>
+    cost_multiplier: <span class="n">0.8</span></div>
+</div>
+
+<!-- ═══════════ 8. SECURITY ═══════════ -->
+<div class="section" id="security">
+  <div class="section-header"><span class="num">8</span><h2>安全架构</h2></div>
+
+  <div class="card-grid cols-2">
+    <div class="card danger"><h4>🔑 内部 KMS</h4><p>Orchestrator 不持有原始 API Key。KMS 签发限时 Session Token，Agent 容器内只消费 Token 不接触 Key。Token 可吊销、可审计。</p></div>
+    <div class="card info"><h4>🐳 容器安全</h4><p>最小权限原则：cap-drop=ALL · 只读根文件系统 · 独立卷 · 网络隔离 · 资源限制 · 无 Docker Socket 挂载</p></div>
+  </div>
+
+  <h3>风险矩阵</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>风险</th><th>级别</th><th>缓解方案</th></tr>
+    <tr><td>Docker 逃逸</td><td>🔴 严重</td><td>最小权限配置，拒绝 privilege／pid=host／socket 挂载</td></tr>
+    <tr><td>密钥泄露</td><td>🔴 严重</td><td>KMS 签发 session token，限时吊销，不外传原始 key</td></tr>
+    <tr><td>Orchestrator 单点攻破</td><td>🔴 严重</td><td>WAL 持久化 + 操作签名 + append-only 审计日志</td></tr>
+    <tr><td>共享卷跨容器攻击</td><td>🟡 高</td><td>每 Agent 独立卷，串联通过 Envelope JSON 不通过文件</td></tr>
+    <tr><td>API Key 用量炸弹</td><td>🟡 高</td><td>token 限时 + 用量跟踪 + 阈值告警</td></tr>
+    <tr><td>输出泄露敏感信息</td><td>🟡 高</td><td>输出内容检查 + 审计日志 + 屏蔽凭据模式</td></tr>
+  </table>
+  </div>
+</div>
+
+<!-- ═══════════ 9. OSS STRATEGY ═══════════ -->
+<div class="section" id="oss">
+  <div class="section-header"><span class="num">9</span><h2>OSS 复用策略</h2></div>
+
+  <p>基于「先找，找不到再造」原则，对每个模块的 OSS 评估：</p>
+
+  <div class="table-wrap">
+  <table>
+    <tr><th>模块</th><th>分类</th><th>方案</th><th>说明</th></tr>
+    <tr><td>画布 UI</td><td>🟦 直接复用</td><td><code>npm install @xyflow/react</code></td><td>React Flow 37K⭐，成熟拖拽画布库</td></tr>
+    <tr><td>Claude SDK</td><td>🟦 直接复用</td><td>Anthropic SDK</td><td>标准 Claude Code CLI，子进程调用</td></tr>
+    <tr><td>内部 KMS</td><td>🟩 封装适配</td><td>HashiCorp Vault + 薄壳层</td><td>Vault 做密钥后端 + session token 签发</td></tr>
+    <tr><td>容器编排</td><td>🟩 封装适配</td><td>Docker SDK for Python</td><td>Docker Engine API，不需要 k8s</td></tr>
+    <tr><td>Schema 校验</td><td>🟩 封装适配</td><td>jsonschema / Ajv</td><td>标准 JSON Schema 校验库</td></tr>
+    <tr><td>模板引擎</td><td>🟩 封装适配</td><td>Jinja2 / Go template</td><td>成熟引擎 + AgentFlow 变量绑定层</td></tr>
+    <tr><td>工作流编译引擎</td><td>🟥 自研</td><td>Python/TypeScript</td><td>核心差异化，无合适 OSS</td></tr>
+    <tr><td>Orchestrator 调度器</td><td>🟥 自研</td><td>Python</td><td>Agent 生命周期 + Envelope 协议</td></tr>
+    <tr><td>模板系统</td><td>🟥 自研</td><td>YAML + 渲染器</td><td>AgentFlow 特有设计</td></tr>
+    <tr><td>源编排 (L0)</td><td>🟥 自研</td><td>Claude Code 驱动</td><td>LLM 驱动自动生成工作流</td></tr>
+  </table>
+  </div>
+
+  <div class="box success">
+    <strong>📊 总结</strong>
+    10 个核心模块：<strong>4 个直接复用</strong> + <strong>3 个封装适配</strong> + <strong>3 个自研</strong>。自研部分集中在 AgentFlow 核心差异化价值上。
+  </div>
+</div>
+
+<!-- ═══════════ 10. ROADMAP ═══════════ -->
+<div class="section" id="roadmap">
+  <div class="section-header"><span class="num">10</span><h2>实施路线图</h2></div>
+
+  <div class="card-grid cols-4">
+    <div class="card primary">
+      <h4>📋 Phase 1<br>方案定稿</h4>
+      <p>Week 1-2. 数据契约冻结、画布 UI 设计、Spec 文档</p>
+    </div>
+    <div class="card success">
+      <h4>🔧 Phase 2<br>MVP 实现</h4>
+      <p>Week 3-8. Compiler Agent + 3 模板 + Orchestrator 循环 + 画布 + 端到端跑通</p>
+    </div>
+    <div class="card warning">
+      <h4>🚀 Phase 3<br>生产增强</h4>
+      <p>Week 9-12. KMS 集成 + 模板管理 UI + 并行执行 + 闭环反馈 + 执行历史</p>
+    </div>
+    <div class="card secondary">
+      <h4>🌐 Phase 4<br>生态开放</h4>
+      <p>Week 13-16. SDK + 节点市场 + RBAC + Docker Compose + L0 源编排</p>
+    </div>
+  </div>
+
+  <h3>里程碑</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>里程碑</th><th>时间</th><th>交付物</th></tr>
+    <tr><td><strong>M1</strong></td><td>Week 2</td><td>Spec 文档完成 · 数据契约冻结 · 画布低保真原型</td></tr>
+    <tr><td><strong>M2</strong></td><td>Week 8</td><td>端到端跑通：画布 → Compiler → Orchestrator → Agent → 结果反馈</td></tr>
+    <tr><td><strong>M3</strong></td><td>Week 12</td><td>生产级系统：KMS · 并行 · 错误恢复 · 执行历史 · 内测 v0.2.0</td></tr>
+    <tr><td><strong>M4</strong></td><td>Week 16</td><td>SDK · 市场 · RBAC · L0 · 公测 v1.0.0-beta</td></tr>
+  </table>
+  </div>
+
+  <h3>Phase 2 MVP 关键任务</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>任务</th><th>描述</th><th>工时</th><th>依赖</th></tr>
+    <tr><td>Compiler Agent</td><td>实现固定 Prompt + 模板渲染 + WorkflowJSON 编译</td><td>1 周</td><td>—</td></tr>
+    <tr><td>3 个基础模板</td><td>algorithm-designer / software-dev / compile-test</td><td>0.5 周</td><td>Compiler</td></tr>
+    <tr><td>Orchestrator 核心循环</td><td>拓扑排序 + Docker 生命周期 + schema 校验</td><td>1.5 周</td><td>Compiler</td></tr>
+    <tr><td>React Flow 画布</td><td>节点拖拽 + 连线 + 配置面板 + WorkflowJSON 导出</td><td>2 周</td><td>—</td></tr>
+    <tr><td>端到端集成</td><td>画布 → Compiler → Orchestrator → Agent → 结果</td><td>1 周</td><td>以上全部</td></tr>
+  </table>
+  </div>
+</div>
+
+<div class="footer">
+  AgentFlow 架构方案 v2.0 &mdash; 2026-06-10 &mdash; github.com/LuweiLiao/agentflow<br>
+  本文档是 AgentFlow 项目的核心架构设计文档
+</div>
+
+</div><!-- /main -->
+
+</body>
+</html>
