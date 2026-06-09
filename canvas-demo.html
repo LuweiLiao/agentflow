@@ -591,29 +591,85 @@ function adjustCanvasCount(delta) {
 // ═══════════════════════════════════════════════
 function startExecution() {
   step = 3; updateStepUI();
-  document.getElementById('panelTitle').textContent = '💻 执行日志';
+  document.getElementById('panelTitle').textContent = '💻 执行中 — Claude Code ACP';
   document.getElementById('panelBody').innerHTML =
     '<div class="exec-log" id="execLog"></div>'+
     '<div style="margin-top:8px;"><button class="btn btn-sm btn-outline" style="width:100%;" onclick="showResults()">📊 查看所有结果</button></div>';
-  
-  const log = document.getElementById('execLog');
-  let idx = 0; const N = currentNodes.length;
 
+  const log = document.getElementById('execLog');
+  log.innerHTML = '<div class="line"><span class="ts">[00:00]</span><span class="info">Orch 启动 — '+currentNodes.length+' Agents（Claude Code ACP）</span></div>';
+
+  // 显示所有节点为执行中
+  currentNodes.forEach((n, i) => {
+    setTimeout(() => {
+      markExec(n.id);
+      const p = AGENT_PROFILES[n.profile]||{label:''};
+      log.innerHTML += '<div class="line"><span class="ts">['+String(i+1).padStart(2,'0')+':00]</span><span class="info">启动 Agent '+n.id+' ('+p.label+') — '+n.label+'</span></div>';
+      log.scrollTop = log.scrollHeight;
+    }, 500 + i*300);
+  });
+
+  // 调用真实执行引擎
+  callExecuteAPI(currentNodes).then(data => {
+    const nodes = data.nodes || [];
+    nodes.forEach((n, i) => {
+      setTimeout(() => {
+        // 更新节点状态
+        const idx = currentNodes.findIndex(x => x.id === n.id);
+        if (idx >= 0) currentNodes[idx] = n;
+        markDone(n.id);
+        fillOutput(n);
+        const costStr = n.cost ? `$${n.cost.toFixed(4)}` : '';
+        const durStr = n.duration ? `${(n.duration/1000).toFixed(1)}s` : '';
+        const modelStr = n.model ? ` [${n.model}]` : '';
+        const turnStr = n.turns ? ` (${n.turns}轮)` : '';
+        log.innerHTML += '<div class="line"><span class="ts">[完成]</span><span class="ok">✅ '+n.label+modelStr+turnStr+' '+costStr+' '+durStr+'</span></div>';
+        log.scrollTop = log.scrollHeight;
+      }, 1000 + i*500);
+    });
+
+    // 全部完成
+    setTimeout(() => {
+      const totalCost = data.total_cost ? `$${data.total_cost.toFixed(4)}` : '';
+      const totalDur = data.total_duration ? `${(data.total_duration/1000).toFixed(1)}s` : '';
+      log.innerHTML += '<div class="line"><span class="ts">[完成]</span><span class="ok">✅ 全部完成 — '+nodes.length+' Agents · 总费用 '+totalCost+' · 总耗时 '+totalDur+'</span></div>';
+      log.scrollTop = log.scrollHeight;
+      document.getElementById('panelTitle').textContent = '✅ 执行完成 — Multi-Provider Agent 真实输出';
+    }, 1000 + nodes.length * 600);
+
+  }).catch(e => {
+    log.innerHTML += '<div class="line"><span class="ts">[错误]</span><span style="color:var(--orange);">⚠️ ACP 调用失败: '+e.message+'</span></div>';
+    log.scrollTop = log.scrollHeight;
+    // 降级到模拟执行
+    fallbackExecution(log);
+  });
+}
+
+async function callExecuteAPI(nodes) {
+  const resp = await fetch(API_URL.replace('/decompose','/execute'), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({nodes: nodes})
+  });
+  if (!resp.ok) throw new Error('HTTP '+resp.status);
+  return await resp.json();
+}
+
+function fallbackExecution(log) {
+  log.innerHTML += '<div class="line"><span class="ts">[降级]</span><span style="color:var(--text3);">使用模拟执行...</span></div>';
+  let idx = 0; const N = currentNodes.length;
   execTimer = setInterval(() => {
     if (idx >= N+2) { clearInterval(execTimer); execTimer=null;
       document.getElementById('panelTitle').textContent = '✅ 执行完成'; return; }
-    if (idx === 0) {
-      log.innerHTML += '<div class="line"><span class="ts">[00:00]</span><span class="info">Orch 启动 — '+N+' Agents</span></div>';
-    } else if (idx <= N) {
+    if (idx === 0) { /* skip - already logged */ }
+    else if (idx <= N) {
       const n = currentNodes[idx-1];
       if (idx > 1) { markDone(currentNodes[idx-2].id); fillOutput(currentNodes[idx-2]); }
       markExec(n.id);
-      const p = AGENT_PROFILES[n.profile]||{label:''};
-      log.innerHTML += '<div class="line"><span class="ts">[00:'+String(idx*2).padStart(2,'0')+']</span><span class="info">Agent '+n.id+' ('+p.label+') — '+n.label+'</span></div>';
     } else {
       const last = currentNodes[N-1];
       markDone(last.id); fillOutput(last);
-      log.innerHTML += '<div class="line"><span class="ts">[00:'+String(N*2+2).padStart(2,'0')+']</span><span class="ok">✅ 全部完成 — '+N+' Agents</span></div>';
+      log.innerHTML += '<div class="line"><span class="ts">[完成]</span><span class="ok">✅ 全部完成 — '+N+' Agents（模拟）</span></div>';
       document.getElementById('panelTitle').textContent = '✅ 执行完成';
     }
     log.scrollTop = log.scrollHeight; idx++;
