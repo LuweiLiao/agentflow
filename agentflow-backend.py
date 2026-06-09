@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""AgentFlow 统一后端 — 静态文件 + API + Multi-Provider Agent 执行引擎"""
+"""AgentFlow 统一后端 — 静态文件 + API + Compiler + DAG 并行执行引擎"""
 import os, sys, json, http.server, urllib.request, urllib.error, tempfile, shutil, time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from agent_runner import AgentRunner
+from agentflow_schema import (
+    WorkflowJSON, NodeDef, EdgeDef,
+    validate_workflow, parallel_groups, Profile,
+)
+from prompt_compiler import PromptCompiler
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9600
 STATIC_DIR = "/home/llw/www/agentflow"
+TEMPLATE_DIR = os.path.join(STATIC_DIR, "templates")
 DEFAULT_AGENT_MODEL = os.environ.get("AGENT_MODEL", "glm-5-turbo")
 
 SYSTEM_PROMPT = """你是一个工作流编排专家。你的任务是将用户的需求拆解为多个子任务（Agent），每个子任务由独立的 AI Agent 执行。
@@ -106,12 +113,25 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         zai_key = os.environ.get("ZAI_API_KEY", "")
         nodes = self.call_llm(requirement, count) if zai_key else self.fallback_template(requirement, count)
 
+        # 自动生成 edges: 分析→设计→开发→测试→文档→部署（链式串联）
+        edges = self._generate_edges(nodes)
+
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(json.dumps({"nodes": nodes, "count": len(nodes)}).encode())
+        self.wfile.write(json.dumps({
+            "nodes": nodes, "count": len(nodes), "edges": edges
+        }).encode())
+
+    def _generate_edges(self, nodes):
+        """根据 profile 类型自动生成 DAG 边。"""
+        edges = []
+        for i in range(1, len(nodes)):
+            edges.append({"source": nodes[i-1]["id"], "target": nodes[i]["id"]})
+        # 如果节点数 > 2，可以让 analysis→dev/test 并行
+        return edges
 
     def call_llm(self, requirement, count):
         zai_key = os.environ.get("ZAI_API_KEY", "")
@@ -169,13 +189,15 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
                 nodes.pop(-2)
         return nodes[:target]
 
-    # ── /api/execute — Multi-Provider Agent 引擎 ────
+    # ── /api/execute — Compiler + DAG 并行执行 ──────
 
     def handle_execute(self):
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length))
             nodes = body.get("nodes", [])
+            edges = body.get("edges", [])
+            requirement = body.get("requirement", "")
         except:
             self.send_error(400, "Invalid request")
             return
@@ -184,37 +206,66 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(400, "No nodes")
             return
 
-        print(f"[Execute] Starting workflow with {len(nodes)} nodes", file=sys.stderr)
+        # 构建 WorkflowJSON
+        wf = WorkflowJSON.from_api_request(nodes, requirement, edges)
+        errs = validate_workflow(wf)
+        if errs:
+            print(f"[Execute] Validation errors: {errs}", file=sys.stderr)
+
+        # Compiler: 编译 PromptTask[]
+        compiler = PromptCompiler(TEMPLATE_DIR)
+        tasks = compiler.compile(wf)
+        print(f"[Execute] Compiled {len(tasks)} PromptTasks for {len(nodes)} nodes", file=sys.stderr)
+
+        # DAG 分组: 按拓扑深度分组，同组可并行
+        groups = parallel_groups(wf.nodes, wf.edges)
+        print(f"[Execute] DAG groups: {[len(g) for g in groups]}", file=sys.stderr)
+
+        # 执行
         work_dir = tempfile.mkdtemp(prefix="agentflow_")
-        results = []
+        node_map = {n.id: n for n in wf.nodes}
+        all_results = []
+        all_envelopes = {}
 
-        for i, node in enumerate(nodes):
-            print(f"[Execute] Node {i+1}/{len(nodes)}: {node.get('label','?')}", file=sys.stderr)
-            node_dir = os.path.join(work_dir, f"node_{node['id']}")
-            os.makedirs(node_dir, exist_ok=True)
+        for group_idx, group_nodes in enumerate(groups):
+            print(f"[Execute] Group {group_idx}: {[n.id for n in group_nodes]}", file=sys.stderr)
 
-            prompt = self.build_agent_prompt(node, i, len(nodes), nodes[:i])
+            # 并行执行同组节点
+            with ThreadPoolExecutor(max_workers=len(group_nodes)) as pool:
+                fut_to_node = {}
+                for node in group_nodes:
+                    task = next((t for t in tasks if t.node_id == node.id), None)
+                    if not task:
+                        continue
+                    node_dir = os.path.join(work_dir, f"node_{node.id}")
+                    os.makedirs(node_dir, exist_ok=True)
+                    fut = pool.submit(
+                        self._execute_one_node, node, task, node_dir
+                    )
+                    fut_to_node[fut] = node
 
-            agent_model = node.get("model", DEFAULT_AGENT_MODEL)
-            agent = AgentRunner(model=agent_model)
-            result = agent.execute(
-                prompt=prompt, work_dir=node_dir,
-                profile=node.get("profile", "dev"),
-                tools_enabled=True, max_turns=10, timeout=120
-            )
+                for fut in as_completed(fut_to_node):
+                    node = fut_to_node[fut]
+                    try:
+                        result = fut.result()
+                    except Exception as e:
+                        result = {
+                            "status": "error",
+                            "result": f"执行异常: {e}",
+                            "cost": 0, "duration": 0, "turns": 0,
+                        }
+                    # 更新节点
+                    node.result = result.get("result", "")
+                    node.output = result.get("output", "")[:2000]
+                    node.status = result.get("status", "error")
+                    node.cost = result.get("cost", 0)
+                    node.turns = result.get("turns", 0)
+                    node.provider = result.get("provider", "")
+                    all_envelopes[node.id] = result
+                    all_results.append(node.to_dict())
+                    print(f"[Execute] Node {node.id} done: ${node.cost:.4f} / {result.get('duration',0)}ms", file=sys.stderr)
 
-            node["result"] = result.get("result", "完成")
-            node["output"] = result.get("output", "")[:2000]
-            node["cost"] = result.get("cost", 0)
-            node["duration"] = result.get("duration_ms", 0)
-            node["status"] = result.get("status", "ok")
-            node["turns"] = result.get("turns", 1)
-            node["model"] = result.get("model", agent_model)
-            node["provider"] = result.get("provider", "")
-            results.append(node)
-
-            print(f"[Execute] Node {i+1} done: ${node.get('cost',0):.4f} / {node.get('duration',0)}ms", file=sys.stderr)
-
+        # 清理
         try:
             shutil.rmtree(work_dir)
         except:
@@ -226,40 +277,41 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps({
-            "nodes": results,
-            "total_cost": sum(n.get("cost", 0) for n in results),
-            "total_duration": sum(n.get("duration", 0) for n in results)
+            "nodes": all_results,
+            "total_cost": sum(r.get("cost", 0) for r in all_results),
+            "total_duration": sum(r.get("duration", 0) for r in all_results),
+            "groups": [len(g) for g in groups],
         }).encode())
 
-    def build_agent_prompt(self, node, idx, total, prev_nodes):
-        ctx_lines = []
-        if prev_nodes:
-            ctx_lines.append("## 上游输出")
-            for p in prev_nodes:
-                ctx_lines.append(f"- {p.get('label','?')}: {p.get('result','?')}")
-        ctx = "\n".join(ctx_lines) if ctx_lines else "无上游依赖"
+    def _execute_one_node(self, node: NodeDef, task, node_dir: str) -> dict:
+        """执行单个节点（在 ThreadPool 中运行）。"""
+        agent_model = node.model or DEFAULT_AGENT_MODEL
+        agent = AgentRunner(model=agent_model)
 
-        return f"""你是一个 {node.get('label','')} Agent（{node.get('profile','')} 角色）。
+        # 用 Compiler 生成的完整提示词
+        prompt = task.prompt
+        if not prompt:
+            prompt = node.desc or "请完成分配的工作。"
 
-## 任务说明
-{node.get('desc','请完成分配的工作。')}
+        result = agent.execute(
+            prompt=prompt,
+            work_dir=node_dir,
+            profile=node.profile,
+            tools_enabled=True,
+            max_turns=task.max_turns,
+            timeout=task.timeout_s,
+        )
 
-## 上下文
-{ctx}
-
-## 要求
-1. 请输出清晰的结构化结果
-2. 包含具体的技术方案或代码
-3. 适合传递给下一个 Agent 继续处理
-
-## 输出格式
-以 ```json 代码块结束，包含:
-{{
-  "summary": "一句话总结",
-  "output": "详细输出内容",
-  "files": ["生成的文件列表"],
-  "metrics": {{"key": "value"}}
-}}"""
+        return {
+            "result": result.get("result", "完成"),
+            "output": result.get("output", "")[:2000],
+            "cost": result.get("cost", 0),
+            "duration": result.get("duration_ms", 0),
+            "status": result.get("status", "ok"),
+            "turns": result.get("turns", 1),
+            "model": result.get("model", agent_model),
+            "provider": result.get("provider", ""),
+        }
 
     def fallback_template(self, requirement, count):
         t = requirement.lower()
@@ -313,8 +365,8 @@ if __name__ == "__main__":
     print(f"Static: {STATIC_DIR}", file=sys.stderr)
     print(f"Default Agent Model: {DEFAULT_AGENT_MODEL}", file=sys.stderr)
     print(f"ZAI_API_KEY: {'SET' if os.environ.get('ZAI_API_KEY') else 'NOT SET'}", file=sys.stderr)
-    print(f"Agent Engine: Multi-Provider Agent (agent_runner.py)", file=sys.stderr)
-    print(f"Supported: DeepSeek/GLM/Grok/GPT/Qwen/Moonshot/Yi/MiniMax/...", file=sys.stderr)
+    print(f"Agent Engine: Compiler + DAG Parallel + AgentRunner", file=sys.stderr)
+    print(f"Support: {len(AgentRunner.PROVIDER_CONFIGS)} providers / 6 profile templates", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
