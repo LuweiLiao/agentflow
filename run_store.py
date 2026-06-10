@@ -4,6 +4,7 @@
 v2 核心改进：
   - 规范化 workflow_edges 表（替代逗号分隔的 depends_on）
   - workflow_snapshots 表（完整不可变工作流快照）
+  - workflows 表（可复用工作流定义 + webhook token）
   - 每次操作独立连接 + threading.Lock（替代单例长连接 check_same_thread=False）
   - 节点级别 lease/heartbeat/attempt 字段
   - startup_scan() 重启恢复
@@ -103,7 +104,25 @@ def _init():
         -- 索引
         CREATE INDEX IF NOT EXISTS idx_nodes_run ON nodes(run_id);
         CREATE INDEX IF NOT EXISTS idx_edges_run ON workflow_edges(run_id);
+
+        CREATE TABLE IF NOT EXISTS workflows (
+            workflow_id   TEXT PRIMARY KEY,
+            name          TEXT NOT NULL DEFAULT '',
+            requirement   TEXT NOT NULL DEFAULT '',
+            nodes_json    TEXT NOT NULL DEFAULT '[]',
+            edges_json    TEXT NOT NULL DEFAULT '[]',
+            webhook_token TEXT UNIQUE NOT NULL,
+            created_at    REAL NOT NULL,
+            updated_at    REAL NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_workflows_updated ON workflows(updated_at DESC);
     """)
+    # 迁移：runs 表增加 workflow_id
+    try:
+        conn.execute("ALTER TABLE runs ADD COLUMN workflow_id TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -168,7 +187,7 @@ class RunStore:
     # ── Run 层面 ────────────────────────────────────
 
     def create_run(self, requirement: str, nodes: list,
-                   edges: list | None = None) -> str:
+                   edges: list | None = None, workflow_id: str = "") -> str:
         """创建新 run，返回 run_id。同时存储边信息和快照。"""
         run_id = f"run_{os.urandom(6).hex()}"
         now = time.time()
@@ -176,9 +195,9 @@ class RunStore:
             conn = _get_conn()
             try:
                 conn.execute(
-                    "INSERT INTO runs (run_id, requirement, status, created_at, updated_at)"
-                    " VALUES (?,?,?,?,?)",
-                    (run_id, requirement[:500], "pending", now, now),
+                    ("INSERT INTO runs (run_id, requirement, status, created_at, updated_at, workflow_id)"
+                     " VALUES (?,?,?,?,?,?)"),
+                    (run_id, requirement[:500], "pending", now, now, workflow_id or ""),
                 )
                 # 写入节点
                 for n in nodes:
@@ -428,6 +447,89 @@ class RunStore:
 
     def envelopes_dir(self, run_id: str) -> str:
         return os.path.join(RUNS_DIR, run_id, "envelopes")
+
+    # ── Workflow 定义（n8n Workflows 对标） ───────────
+
+    def create_workflow(
+        self, name: str, requirement: str, nodes: list, edges: list | None = None
+    ) -> dict:
+        workflow_id = f"wf_{os.urandom(6).hex()}"
+        webhook_token = os.urandom(12).hex()
+        now = time.time()
+        self._write(
+            """INSERT INTO workflows
+               (workflow_id, name, requirement, nodes_json, edges_json,
+                webhook_token, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (
+                workflow_id,
+                name[:200] or "未命名工作流",
+                requirement[:500],
+                json.dumps(nodes, ensure_ascii=False),
+                json.dumps(edges or [], ensure_ascii=False),
+                webhook_token,
+                now,
+                now,
+            ),
+        )
+        return self.get_workflow(workflow_id)
+
+    def get_workflow(self, workflow_id: str) -> dict | None:
+        rows = self._read(
+            "SELECT * FROM workflows WHERE workflow_id=?", [workflow_id]
+        )
+        if not rows:
+            return None
+        wf = dict(rows[0])
+        wf["nodes"] = json.loads(wf.pop("nodes_json") or "[]")
+        wf["edges"] = json.loads(wf.pop("edges_json") or "[]")
+        return wf
+
+    def get_workflow_by_token(self, webhook_token: str) -> dict | None:
+        rows = self._read(
+            "SELECT workflow_id FROM workflows WHERE webhook_token=?",
+            [webhook_token],
+        )
+        if not rows:
+            return None
+        return self.get_workflow(rows[0]["workflow_id"])
+
+    def list_workflows(self, limit: int = 50) -> list:
+        rows = self._read(
+            """SELECT workflow_id, name, requirement, webhook_token,
+                      created_at, updated_at
+               FROM workflows ORDER BY updated_at DESC LIMIT ?""",
+            [limit],
+        )
+        return [dict(r) for r in rows]
+
+    def update_workflow(self, workflow_id: str, **kwargs) -> dict | None:
+        allowed = {"name", "requirement", "nodes", "edges"}
+        fields: dict = {}
+        for k, v in kwargs.items():
+            if k not in allowed or v is None:
+                continue
+            if k == "nodes":
+                fields["nodes_json"] = json.dumps(v, ensure_ascii=False)
+            elif k == "edges":
+                fields["edges_json"] = json.dumps(v, ensure_ascii=False)
+            else:
+                fields[k] = v[:500] if k == "requirement" else v[:200]
+        if not fields:
+            return self.get_workflow(workflow_id)
+        fields["updated_at"] = time.time()
+        sets = ", ".join(f"{k}=?" for k in fields)
+        vals = list(fields.values()) + [workflow_id]
+        cur = self._write(f"UPDATE workflows SET {sets} WHERE workflow_id=?", vals)
+        if cur.rowcount == 0:
+            return None
+        return self.get_workflow(workflow_id)
+
+    def delete_workflow(self, workflow_id: str) -> bool:
+        cur = self._write(
+            "DELETE FROM workflows WHERE workflow_id=?", [workflow_id]
+        )
+        return cur.rowcount > 0
 
 
 # ── 全局单例 ────────────────────────────────────────

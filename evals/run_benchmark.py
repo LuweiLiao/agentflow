@@ -256,7 +256,11 @@ def print_summary(results: list[dict]):
         step2 = steps[1] if len(steps) > 1 else {}
         status = "✅ 通过" if r["passed"] else "❌ 失败"
         node_count = step2.get("completed", 0)
-        completions = f"{step2.get('completed', 0)}/{step2.get('completed', 0) + step2.get('failed', 0) + step2.get('skipped', 0)}"
+        completed = step2.get("completed", 0)
+        failed = step2.get("failed", 0)
+        skipped = step2.get("skipped", 0)
+        total = completed + failed + skipped
+        completions = f"{completed}/{total}"
         cost = f"${step2.get('total_cost', 0):.4f}"
         dur = f"{step2.get('total_duration_ms', 0) / 1000:.1f}"
         print(f"{r['name']:<20} {status:<8} {node_count:<6} {completions:<6} {cost:<10} {dur:<8}")

@@ -4,6 +4,7 @@
 
 
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -14,6 +15,8 @@ from agentflow_schema import (
 )
 from prompt_compiler import PromptCompiler, TemplateEngine, TemplateNotFoundError
 
+TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "templates"
+
 # ═══════════════════════════════════════════════════════
 # TemplateEngine  tests
 # ═══════════════════════════════════════════════════════
@@ -21,7 +24,7 @@ from prompt_compiler import PromptCompiler, TemplateEngine, TemplateNotFoundErro
 class TestTemplateEngine:
     def test_load_existing_template(self):
         """Loading an existing profile template should succeed."""
-        engine = TemplateEngine(template_dir="/home/llw/agentflow/templates")
+        engine = TemplateEngine(template_dir=str(TEMPLATE_DIR))
         tmpl = engine.load("dev")
         assert "prompt_template" in tmpl
         assert "system_prompt" in tmpl
@@ -29,7 +32,7 @@ class TestTemplateEngine:
 
     def test_load_fallback_to_dev(self):
         """Loading a missing profile should fall back to dev.json."""
-        engine = TemplateEngine(template_dir="/home/llw/agentflow/templates")
+        engine = TemplateEngine(template_dir=str(TEMPLATE_DIR))
         tmpl = engine.load("nonexistent_profile")
         # Should have loaded dev.json as fallback
         assert "prompt_template" in tmpl
@@ -43,7 +46,7 @@ class TestTemplateEngine:
 
     def test_render_basic_variables(self):
         """Render should replace {global.goal} and {node.label}."""
-        engine = TemplateEngine(template_dir="/home/llw/agentflow/templates")
+        engine = TemplateEngine(template_dir=str(TEMPLATE_DIR))
         tmpl = engine.load("dev")
         rendered = engine.render(tmpl, {
             "global_context": {"goal": "Build a website", "constraints": []},
@@ -58,7 +61,7 @@ class TestTemplateEngine:
 
     def test_render_upstream_context(self):
         """{upstream_context} should be replaced."""
-        engine = TemplateEngine(template_dir="/home/llw/agentflow/templates")
+        engine = TemplateEngine(template_dir=str(TEMPLATE_DIR))
         tmpl = engine.load("dev")
         rendered = engine.render(tmpl, {
             "global_context": {"goal": "test", "constraints": []},
@@ -71,7 +74,7 @@ class TestTemplateEngine:
 
     def test_render_empty_upstream_context(self):
         """When upstream_context is empty, render should show fallback."""
-        engine = TemplateEngine(template_dir="/home/llw/agentflow/templates")
+        engine = TemplateEngine(template_dir=str(TEMPLATE_DIR))
         tmpl = engine.load("dev")
         rendered = engine.render(tmpl, {
             "global_context": {"goal": "test", "constraints": []},
@@ -85,14 +88,14 @@ class TestTemplateEngine:
 
     def test_render_caching(self):
         """Templates should be cached after first load."""
-        engine = TemplateEngine(template_dir="/home/llw/agentflow/templates")
+        engine = TemplateEngine(template_dir=str(TEMPLATE_DIR))
         tmpl1 = engine.load("dev")
         tmpl2 = engine.load("dev")
         assert tmpl1 is tmpl2  # same object from cache
 
     def test_render_global_constraints_list(self):
         """{global.constraints} as a list should render as bullet points."""
-        engine = TemplateEngine(template_dir="/home/llw/agentflow/templates")
+        engine = TemplateEngine(template_dir=str(TEMPLATE_DIR))
         tmpl = engine.load("dev")
         rendered = engine.render(tmpl, {
             "global_context": {
@@ -115,7 +118,7 @@ class TestTemplateEngine:
 class TestPromptCompilerBasic:
     def test_compile_simple_workflow(self):
         """Compiling a simple workflow should produce one PromptTask per node."""
-        compiler = PromptCompiler(template_dir="/home/llw/agentflow/templates")
+        compiler = PromptCompiler(template_dir=str(TEMPLATE_DIR))
         wf = WorkflowJSON(
             workflow_id="test_wf",
             nodes=[
@@ -135,7 +138,7 @@ class TestPromptCompilerBasic:
 
     def test_compile_depends_on(self):
         """depends_on should contain correct upstream node_ids."""
-        compiler = PromptCompiler(template_dir="/home/llw/agentflow/templates")
+        compiler = PromptCompiler(template_dir=str(TEMPLATE_DIR))
         wf = WorkflowJSON(
             nodes=[
                 NodeDef(id="n1", profile="analysis"),
@@ -157,7 +160,7 @@ class TestPromptCompilerBasic:
 
     def test_compile_parallel_group(self):
         """parallel_group should reflect topological depth."""
-        compiler = PromptCompiler(template_dir="/home/llw/agentflow/templates")
+        compiler = PromptCompiler(template_dir=str(TEMPLATE_DIR))
         wf = WorkflowJSON(
             nodes=[
                 NodeDef(id="root", profile="analysis"),
@@ -179,7 +182,7 @@ class TestPromptCompilerBasic:
 
     def test_compile_system_prompt(self):
         """system_prompt should be loaded from template."""
-        compiler = PromptCompiler(template_dir="/home/llw/agentflow/templates")
+        compiler = PromptCompiler(template_dir=str(TEMPLATE_DIR))
         wf = WorkflowJSON(
             nodes=[NodeDef(id="n1", profile="dev")],
         )
@@ -195,7 +198,7 @@ class TestPromptCompilerBasic:
 class TestUpstreamContext:
     def test_upstream_context_without_results(self):
         """Without upstream_results, context should be built from static descriptions."""
-        compiler = PromptCompiler(template_dir="/home/llw/agentflow/templates")
+        compiler = PromptCompiler(template_dir=str(TEMPLATE_DIR))
         wf = WorkflowJSON(
             global_context={"goal": "test", "language": "zh-CN", "constraints": []},
             nodes=[
@@ -213,7 +216,7 @@ class TestUpstreamContext:
 
     def test_upstream_context_with_results(self):
         """With upstream_results, context should use real output text."""
-        compiler = PromptCompiler(template_dir="/home/llw/agentflow/templates")
+        compiler = PromptCompiler(template_dir=str(TEMPLATE_DIR))
         wf = WorkflowJSON(
             global_context={"goal": "test", "language": "zh-CN", "constraints": []},
             nodes=[
@@ -232,7 +235,7 @@ class TestUpstreamContext:
 
     def test_upstream_context_empty_when_no_deps(self):
         """A node with no dependencies should have no upstream context."""
-        compiler = PromptCompiler(template_dir="/home/llw/agentflow/templates")
+        compiler = PromptCompiler(template_dir=str(TEMPLATE_DIR))
         wf = WorkflowJSON(
             global_context={"goal": "test", "language": "zh-CN", "constraints": []},
             nodes=[NodeDef(id="root", profile="analysis", desc="Start here")],
@@ -244,7 +247,7 @@ class TestUpstreamContext:
 
     def test_upstream_results_missing_node(self):
         """If upstream_results is provided but missing output for a dep, show fallback."""
-        compiler = PromptCompiler(template_dir="/home/llw/agentflow/templates")
+        compiler = PromptCompiler(template_dir=str(TEMPLATE_DIR))
         wf = WorkflowJSON(
             global_context={"goal": "test", "language": "zh-CN", "constraints": []},
             nodes=[
@@ -267,14 +270,14 @@ class TestUpstreamContext:
 class TestCompilerEdgeCases:
     def test_empty_workflow_no_nodes(self):
         """A workflow with no nodes should produce an empty task list."""
-        compiler = PromptCompiler(template_dir="/home/llw/agentflow/templates")
+        compiler = PromptCompiler(template_dir=str(TEMPLATE_DIR))
         wf = WorkflowJSON()
         tasks = compiler.compile(wf)
         assert tasks == []
 
     def test_single_node_no_edges(self):
         """A single node with no edges should produce one task."""
-        compiler = PromptCompiler(template_dir="/home/llw/agentflow/templates")
+        compiler = PromptCompiler(template_dir=str(TEMPLATE_DIR))
         wf = WorkflowJSON(
             nodes=[NodeDef(id="only", profile="dev")],
         )
@@ -285,7 +288,7 @@ class TestCompilerEdgeCases:
 
     def test_diamond_dag_dependencies(self):
         """Diamond DAG: middle nodes depend on root, final depends on both."""
-        compiler = PromptCompiler(template_dir="/home/llw/agentflow/templates")
+        compiler = PromptCompiler(template_dir=str(TEMPLATE_DIR))
         wf = WorkflowJSON(
             nodes=[
                 NodeDef(id="root", profile="analysis"),
@@ -309,7 +312,7 @@ class TestCompilerEdgeCases:
 
     def test_template_with_custom_params(self):
         """Node params should be available as {param.*} in templates."""
-        compiler = PromptCompiler(template_dir="/home/llw/agentflow/templates")
+        compiler = PromptCompiler(template_dir=str(TEMPLATE_DIR))
         wf = WorkflowJSON(
             global_context={"goal": "test", "language": "zh-CN", "constraints": []},
             nodes=[

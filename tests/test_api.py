@@ -17,8 +17,10 @@ _saved_argv = sys.argv
 sys.argv = ['agentflow-backend.py', '19600']  # use a dummy non-standard port
 
 # Load agentflow-backend.py (name has a hyphen, so use spec_from_file_location)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_backend_path = os.path.join(PROJECT_ROOT, "agentflow-backend.py")
 _spec = importlib.util.spec_from_file_location(
-    "agentflow_backend", "/home/llw/agentflow/agentflow-backend.py"
+    "agentflow_backend", _backend_path
 )
 agentflow_backend = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(agentflow_backend)
@@ -53,6 +55,11 @@ class _TestServer:
         self._mock_runner = mock.MagicMock()
         self._mock_runner_cls.return_value = self._mock_runner
         self._mock_runner.api_key = "sk-test"
+        self._mock_runner.provider_name = "test-provider"
+        self._mock_runner_cls.PROVIDER_CONFIGS = {
+            "deepseek": {"key_env": "DEEPSEEK_API_KEY", "base_env": "DEEPSEEK_BASE_URL", "default_base": "https://api.deepseek.com/v1"},
+            "test-provider": {"key_env": "TEST_API_KEY", "base_env": "TEST_BASE_URL", "default_base": "http://test.local/v1"},
+        }
         # Configure mock execute to return a proper dict
         # The output should be parseable JSON for call_llm to work
         self._mock_runner.execute.return_value = {
@@ -143,6 +150,40 @@ class _TestServer:
                     parsed = {"_raw": raw.decode("utf-8", errors="replace")}
             else:
                 parsed = {}
+            return resp.status, parsed, dict(resp.headers)
+        except HTTPError as e:
+            raw = e.read()
+            try:
+                parsed = json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                parsed = {"_raw": raw.decode("utf-8", errors="replace")}
+            return e.code, parsed, dict(e.headers)
+
+    def put(self, path, data, headers=None):
+        hdrs = {"Content-Type": "application/json"}
+        if headers:
+            hdrs.update(headers)
+        body = json.dumps(data).encode() if isinstance(data, dict) else data
+        req = Request(self.url(path), data=body, headers=hdrs, method="PUT")
+        try:
+            resp = urlopen(req, timeout=5)
+            raw = resp.read()
+            parsed = json.loads(raw) if raw else {}
+            return resp.status, parsed, dict(resp.headers)
+        except HTTPError as e:
+            raw = e.read()
+            try:
+                parsed = json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                parsed = {"_raw": raw.decode("utf-8", errors="replace")}
+            return e.code, parsed, dict(e.headers)
+
+    def delete(self, path, headers=None):
+        req = Request(self.url(path), headers=headers or {}, method="DELETE")
+        try:
+            resp = urlopen(req, timeout=5)
+            raw = resp.read()
+            parsed = json.loads(raw) if raw else {}
             return resp.status, parsed, dict(resp.headers)
         except HTTPError as e:
             raw = e.read()
@@ -359,3 +400,165 @@ class TestStaticFileWhitelist:
             req = Request(srv.url("/canvas-demo.html"))
             resp = urlopen(req, timeout=5)
             assert resp.status == 200
+
+
+# ═══════════════════════════════════════════════════════
+# Execute async + validation tests
+# ═══════════════════════════════════════════════════════
+
+class TestExecuteAsync:
+    def test_execute_returns_202_with_run_id(self):
+        with _TestServer() as srv:
+            nodes = [{"id": "n1", "profile": "dev", "label": "test"}]
+            status, data, _ = srv.post(
+                "/api/execute", {"nodes": nodes, "requirement": "test req"}
+            )
+            assert status == 202
+            assert data.get("run_id")
+            assert data.get("status") == "pending"
+
+    def test_decompose_empty_requirement_returns_400(self):
+        with _TestServer() as srv:
+            status, data, _ = srv.post("/api/decompose", {"requirement": "", "count": 3})
+            assert status == 400
+            assert "empty" in data.get("error", "").lower()
+
+    def test_execute_run_completes_with_mock_agent(self):
+        with _TestServer() as srv:
+            nodes = [{"id": "n1", "profile": "dev", "label": "test"}]
+            status, data, _ = srv.post(
+                "/api/execute", {"nodes": nodes, "requirement": "integration test"}
+            )
+            assert status == 202
+            run_id = data["run_id"]
+            final = None
+            for _ in range(60):
+                time.sleep(0.1)
+                code, raw, _ = srv.get(f"/api/runs/{run_id}")
+                assert code == 200
+                final = json.loads(raw)
+                if final.get("status") in ("completed", "failed"):
+                    break
+            assert final is not None
+            assert final["status"] in ("completed", "failed")
+            assert final["nodes"][0]["status"] in ("completed", "failed", "skipped")
+
+    def test_build_workflow_edges_from_depends_on(self):
+        nodes_data = [
+            {"node_id": "a1", "depends_on": ""},
+            {"node_id": "a2", "depends_on": "a1"},
+            {"node_id": "a3", "depends_on": "a1,a2"},
+        ]
+        edges = agentflow_backend._build_workflow_edges(nodes_data)
+        assert len(edges) == 3
+        assert edges[0].source == "a1" and edges[0].target == "a2"
+        assert edges[1].source == "a1" and edges[1].target == "a3"
+        assert edges[2].source == "a2" and edges[2].target == "a3"
+
+
+class TestRuntimeStatus:
+    def test_status_endpoint_returns_api_key_flag(self):
+        with _TestServer() as srv:
+            code, raw, _ = srv.get("/api/status")
+            assert code == 200
+            data = json.loads(raw)
+            assert "api_key_configured" in data
+            assert data["api_key_configured"] is True  # mock AgentRunner has sk-test
+            assert data.get("model")
+            assert data.get("provider")
+            assert data.get("key_env")
+
+
+class TestWorkflowCRUD:
+    _SAMPLE_NODES = [
+        {"id": "n1", "profile": "dev", "label": "开发", "icon": "💻", "desc": "写代码", "color": "green"},
+        {"id": "n2", "profile": "test", "label": "测试", "icon": "🧪", "desc": "跑测试", "color": "purple",
+         "depends_on": ["n1"]},
+    ]
+    _SAMPLE_EDGES = [{"source": "n1", "target": "n2"}]
+
+    def test_create_and_get_workflow(self):
+        with _TestServer(env_overrides={"AGENTFLOW_API_TOKEN": None}) as srv:
+            status, data, _ = srv.post("/api/workflows", {
+                "name": "测试工作流",
+                "requirement": "集成测试需求",
+                "nodes": self._SAMPLE_NODES,
+                "edges": self._SAMPLE_EDGES,
+            })
+            assert status == 201
+            assert data.get("workflow_id", "").startswith("wf_")
+            assert data.get("webhook_token")
+            assert data.get("webhook_url")
+            wf_id = data["workflow_id"]
+
+            code, raw, _ = srv.get(f"/api/workflows/{wf_id}")
+            assert code == 200
+            wf = json.loads(raw)
+            assert len(wf["nodes"]) == 2
+            assert wf["edges"][0]["source"] == "n1"
+
+    def test_list_workflows(self):
+        with _TestServer(env_overrides={"AGENTFLOW_API_TOKEN": None}) as srv:
+            srv.post("/api/workflows", {
+                "name": "列表测试",
+                "requirement": "req",
+                "nodes": self._SAMPLE_NODES,
+            })
+            code, raw, _ = srv.get("/api/workflows")
+            assert code == 200
+            data = json.loads(raw)
+            assert data.get("count", 0) >= 1
+
+    def test_update_workflow(self):
+        with _TestServer(env_overrides={"AGENTFLOW_API_TOKEN": None}) as srv:
+            _, created, _ = srv.post("/api/workflows", {
+                "name": "旧名称",
+                "requirement": "旧需求",
+                "nodes": self._SAMPLE_NODES,
+            })
+            wf_id = created["workflow_id"]
+            status, updated, _ = srv.put(f"/api/workflows/{wf_id}", {
+                "name": "新名称",
+                "requirement": "新需求",
+            })
+            assert status == 200
+            assert updated["name"] == "新名称"
+            assert updated["requirement"] == "新需求"
+
+    def test_delete_workflow(self):
+        with _TestServer(env_overrides={"AGENTFLOW_API_TOKEN": None}) as srv:
+            _, created, _ = srv.post("/api/workflows", {
+                "name": "待删除",
+                "requirement": "req",
+                "nodes": self._SAMPLE_NODES,
+            })
+            wf_id = created["workflow_id"]
+            status, data, _ = srv.delete(f"/api/workflows/{wf_id}")
+            assert status == 200
+            assert data.get("deleted") is True
+            code, raw, _ = srv.get(f"/api/workflows/{wf_id}")
+            assert code == 404
+
+    def test_webhook_triggers_run_without_bearer_auth(self):
+        with _TestServer(env_overrides={"AGENTFLOW_API_TOKEN": "secret-token"}) as srv:
+            _, wf, _ = srv.post("/api/workflows", {
+                "name": "Webhook 测试",
+                "requirement": "webhook req",
+                "nodes": [{"id": "n1", "profile": "dev", "label": "t"}],
+            }, headers={"Authorization": "Bearer secret-token"})
+            token = wf["webhook_token"]
+            status, data, _ = srv.post(f"/api/hook/{token}", {})
+            assert status == 202
+            assert data.get("run_id", "").startswith("run_")
+            assert data.get("workflow_id") == wf["workflow_id"]
+
+            code, raw, _ = srv.get(f"/api/runs/{data['run_id']}",
+                                   headers={"Authorization": "Bearer secret-token"})
+            assert code == 200
+            run = json.loads(raw)
+            assert run.get("workflow_id") == wf["workflow_id"]
+
+    def test_webhook_invalid_token_returns_404(self):
+        with _TestServer() as srv:
+            status, data, _ = srv.post("/api/hook/invalidtoken123", {})
+            assert status == 404

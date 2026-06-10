@@ -92,7 +92,8 @@ class ArtifactStore:
                 continue
 
             if format == "summary":
-                parts.append(f"## {uid}\n- 状态: {env.status}\n- 总结: {env.summary or '(空)'}\n- 成本: ${env.metrics.cost:.4f}")
+                parts.append(
+                    f"## {uid}\n- 状态: {env.status}\n- 总结: {env.summary or '(空)'}\n- 成本: ${env.metrics.cost:.4f}")
             elif format == "full":
                 output = env.payload.get("output", "")[:2000] or "(无输出)"
                 parts.append(f"## {uid}\n- 状态: {env.status}\n- 总结: {env.summary or '(空)'}\n- 输出:\n{output}")

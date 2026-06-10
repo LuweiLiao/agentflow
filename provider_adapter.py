@@ -129,7 +129,9 @@ class ProviderAdapter:
                 if e.code == 429:
                     # 429 (rate limit): 长退避 30s → 60s → 120s → 240s → 480s
                     delay = 30 * (2 ** attempt)
-                    print(f"[ProviderAdapter] 429 rate limited, waiting {delay}s (attempt {attempt+1}/{self.max_retries})", file=sys.stderr)
+                    msg = (f"[ProviderAdapter] 429 rate limited, "
+                           f"waiting {delay}s (attempt {attempt+1}/{self.max_retries})")
+                    print(msg, file=sys.stderr)
                     time.sleep(delay)
                 elif self._should_retry(e, attempt):
                     delay = DEFAULT_RETRY_DELAY ** attempt
