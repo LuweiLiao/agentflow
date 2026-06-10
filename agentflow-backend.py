@@ -432,11 +432,8 @@ profile 必须是: analysis/design/dev/test/doc/deploy 之一
     def _stream_send_event(self, event: str, data: dict):
         """发送 SSE 事件（需在流式响应头之后调用）。"""
         payload = f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-        try:
-            self.wfile.write(payload.encode())
-            self.wfile.flush()
-        except Exception:
-            pass  # 连接断开，忽略
+        self.wfile.write(payload.encode())
+        self.wfile.flush()
 
     def _send_sse_headers(self):
         """发送 SSE 响应头。"""
@@ -481,6 +478,7 @@ profile 必须是: analysis/design/dev/test/doc/deploy 之一
         wf = WorkflowJSON.from_api_request(nodes, requirement, edges)
         errs = validate_workflow(wf)
         if errs:
+            self._send_sse_headers()
             self._stream_send_event("error", {
                 "error": "工作流验证失败",
                 "details": errs,

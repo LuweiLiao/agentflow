@@ -1,0 +1,32 @@
+=== AgentFlow SSE 流式事件示例 (PyQt5 串口调试助手) ===
+
+event: workflow_start
+data: {"run_id": "run_4e5746d885ba", "total_nodes": 5, "total_groups": 5}
+
+event: group_start
+data: {"group_idx": 0, "total_groups": 5, "nodes": [{"id": "a1", "label": "需求分析"}]}
+
+event: node_start
+data: {"node_id": "a1", "label": "需求分析", "profile": "analysis", "group_idx": 0}
+
+event: node_complete
+data: {"node_id": "a1", "label": "需求分析", "status": "error",
+       "result": "失败: 调用失败 (重试3次): HTTP Error 429: Too Many Requests",
+       "cost": 0.0, "duration_ms": 3200}
+
+event: group_complete
+data: {"group_idx": 0, "completed": 1}
+
+event: group_start
+data: {"group_idx": 1, "total_groups": 5, "nodes": [{"id": "a2", "label": "UI设计"}]}
+
+event: node_start
+data: {"node_id": "a2", "label": "UI设计", "profile": "design", "group_idx": 1}
+
+event: node_complete
+data: {"node_id": "a2", "label": "UI设计", "status": "error",
+       "result": "失败: 调用失败 (重试3次): HTTP Error 429: Too Many Requests",
+       "cost": 0.0, "duration_ms": 3056}
+
+event: workflow_done
+data: {"run_id": "run_4e5746d885ba", "nodes": [...], "total_cost": 0.0}
