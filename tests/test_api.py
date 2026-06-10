@@ -55,6 +55,7 @@ class _TestServer:
         self._mock_runner = mock.MagicMock()
         self._mock_runner_cls.return_value = self._mock_runner
         self._mock_runner.api_key = "sk-test"
+        self._mock_runner.provider_name = "deepseek"
         # Configure mock execute to return a proper dict
         # The output should be parseable JSON for call_llm to work
         self._mock_runner.execute.return_value = {
@@ -415,3 +416,16 @@ class TestExecuteAsync:
         assert edges[0].source == "a1" and edges[0].target == "a2"
         assert edges[1].source == "a1" and edges[1].target == "a3"
         assert edges[2].source == "a2" and edges[2].target == "a3"
+
+
+class TestRuntimeStatus:
+    def test_status_endpoint_returns_api_key_flag(self):
+        with _TestServer() as srv:
+            code, raw, _ = srv.get("/api/status")
+            assert code == 200
+            data = json.loads(raw)
+            assert "api_key_configured" in data
+            assert data["api_key_configured"] is True  # mock AgentRunner has sk-test
+            assert data.get("model")
+            assert data.get("provider")
+            assert data.get("key_env")

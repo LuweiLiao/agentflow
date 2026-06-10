@@ -95,16 +95,22 @@
   .c-agent .sbadge { font-size:9px; padding:1px 6px; border-radius:3px; flex-shrink:0; display:none; }
   .c-agent .sbadge.run { display:none; background:rgba(59,130,246,0.12); color:var(--accent); }
   .c-agent .sbadge.ok { display:none; background:var(--green-bg); color:var(--green); }
+  .c-agent .sbadge.fail { display:none; background:rgba(245,158,11,0.12); color:var(--orange); }
   .c-agent.executing { border-color:var(--accent); box-shadow:0 0 30px var(--accent-glow); }
   .c-agent.executing .sbadge.run { display:inline-block; }
   .c-agent.done { border-color:var(--green); box-shadow:0 0 16px rgba(16,185,129,0.2); }
   .c-agent.done .sbadge.ok { display:inline-block; }
+  .c-agent.failed { border-color:var(--orange); box-shadow:0 0 16px rgba(245,158,11,0.2); }
+  .c-agent.failed .sbadge.fail { display:inline-block; }
+  .c-agent.skipped { border-color:var(--text3); opacity:0.8; }
   
   /* Arrow column */
   .c-arrow { font-size:18px; color:var(--text3); justify-self:center;
     transition:color 0.3s; user-select:none; }
   .c-arrow.active { color:var(--accent); }
   .c-arrow.done { color:var(--green); }
+  .c-arrow.failed { color:var(--orange); }
+  .c-arrow.skipped { color:var(--text3); }
   
   /* Output card */
   .c-output {
@@ -116,12 +122,24 @@
   }
   .c-output.show { opacity:1; transform:translateX(0); }
   .c-output.done { border-color:var(--green); }
+  .c-output.failed { border-color:var(--orange); }
+  .c-output.skipped { border-color:var(--text3); opacity:0.85; }
   .c-output:hover { border-color:var(--accent); }
   .c-output .oh { font-size:9px; color:var(--text3); display:flex; align-items:center; gap:4px; }
   .c-output .ob { font-size:10px; color:var(--text2); line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .c-output .o-status { margin-left:auto; font-size:8px; }
   .c-output .o-status.wait { color:var(--text3); } .c-output .o-status.run { color:var(--accent); }
   .c-output .o-status.done { color:var(--green); }
+  .c-output .o-status.failed { color:var(--orange); }
+  .c-output .o-status.skipped { color:var(--text3); }
+
+  .api-key-banner {
+    background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.35);
+    color:var(--orange); font-size:11px; padding:8px 10px; border-radius:6px;
+    margin-bottom:10px; line-height:1.55; text-align:left;
+  }
+  .api-key-banner code { font-family:var(--mono); font-size:10px; }
+  .dot-orange { width:6px; height:6px; border-radius:50%; background:var(--orange); display:inline-block; }
   
   /* Vertical connector (between rows) */
   .c-vert { justify-self:center; display:flex; flex-direction:column; align-items:center; }
@@ -211,7 +229,7 @@
     <div class="sep"></div>
     <div class="bread"><span class="active">画布</span><span>/</span><span id="workflowName">未命名工作流</span></div>
     <div class="topbar-right">
-      <span class="status"><span class="dot-green"></span> 编排就绪</span>
+      <span class="status" id="topbarStatus"><span class="dot-green" id="statusDot"></span> <span id="statusText">编排就绪</span></span>
       <button class="btn btn-sm" onclick="exportWorkflow()" title="导出工作流 JSON">📤 导出</button>
       <button class="btn btn-sm" onclick="importWorkflow()" title="导入工作流 JSON">📥 导入</button>
       <button class="btn btn-sm" onclick="showRunHistory()" title="执行历史">📜 历史</button>
@@ -257,6 +275,7 @@
         <div class="demo-card" id="stepWelcome">
           <h2>👋 欢迎使用 AgentFlow</h2>
           <p class="sub">输入需求 → 编排 Agent 自动拆解 → 生成可视化工作流</p>
+          <div class="api-key-banner hidden" id="apiKeyBanner"></div>
           <div style="display:flex;justify-content:center;gap:6px;margin-bottom:6px;">
             <span style="font-size:10px;background:var(--accent);color:#fff;padding:2px 8px;border-radius:99px;">⚡ SSE 实时执行</span>
             <span style="font-size:10px;background:var(--accent2);color:#fff;padding:2px 8px;border-radius:99px;">📦 工作流导入导出</span>
@@ -316,6 +335,59 @@
 let step = 0, genTimer = null, execTimer = null;
 let currentNodes = [];
 let workflowEdges = [];
+let runtimeStatus = { api_key_configured: true, model: 'deepseek-v4-flash', provider: 'deepseek', key_env: 'DEEPSEEK_API_KEY' };
+
+async function fetchRuntimeStatus() {
+  try {
+    const resp = await fetch('/api/status');
+    if (!resp.ok) return;
+    runtimeStatus = await resp.json();
+    updateApiKeyBanner();
+    updateTopbarStatus();
+  } catch (e) {
+    console.warn('status fetch failed', e);
+  }
+}
+
+function updateApiKeyBanner() {
+  const banner = document.getElementById('apiKeyBanner');
+  if (!banner) return;
+  if (runtimeStatus.api_key_configured) {
+    banner.classList.add('hidden');
+    return;
+  }
+  banner.classList.remove('hidden');
+  const keyEnv = runtimeStatus.key_env || 'DEEPSEEK_API_KEY';
+  banner.innerHTML =
+    '⚠️ 未配置 LLM API 密钥，Agent 执行将失败。请在项目根目录创建 <code>.env</code> 并设置 '+
+    '<code>'+keyEnv+'</code>，然后重启 <code>python agentflow-backend.py</code>。'+
+    '（编排分解仍可使用本地模板降级）';
+}
+
+function updateTopbarStatus() {
+  const dot = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  if (!dot || !text) return;
+  if (runtimeStatus.api_key_configured) {
+    dot.className = 'dot-green';
+    text.textContent = '编排就绪';
+  } else {
+    dot.className = 'dot-orange';
+    text.textContent = '未配置 API Key';
+  }
+}
+
+function bindNodeAccessibility(el, label, onActivate) {
+  el.setAttribute('role', 'button');
+  el.setAttribute('tabindex', '0');
+  el.setAttribute('aria-label', label);
+  el.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onActivate();
+    }
+  };
+}
 
 const AGENT_PROFILES = {
   'analysis': {icon:'🧮', color:'blue', label:'分析型'},
@@ -366,6 +438,7 @@ function adjustWelcomeCount(delta) {
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('reqInput').addEventListener('input', updateRecCount);
+  fetchRuntimeStatus();
 });
 
 // ═══════════════════════════════════════════════
@@ -560,12 +633,13 @@ function renderGrid() {
     const card = document.createElement('div'); card.className = 'c-agent fade-in';
     card.id = 'n-'+n.id;
     card.onclick = () => showConfig(n);
+    bindNodeAccessibility(card, n.label + '，' + (prof.label || 'Agent') + ' 节点', () => showConfig(n));
     card.innerHTML =
       '<div class="ai '+n.color+'">'+n.icon+'</div>'+
       '<div class="al">'+n.label+
         '<span class="sub">'+ (prof.label||'') +'</span>'+
       '</div>'+
-      '<span class="sbadge run">▶</span><span class="sbadge ok">✓</span>';
+      '<span class="sbadge run">▶</span><span class="sbadge ok">✓</span><span class="sbadge fail">✗</span>';
     
     // Arrow
     const arrow = document.createElement('div'); arrow.className = 'c-arrow';
@@ -575,6 +649,7 @@ function renderGrid() {
     const out = document.createElement('div'); out.className = 'c-output';
     out.id = 'oc-'+n.id;
     out.onclick = () => showConfig(n);
+    bindNodeAccessibility(out, n.label + ' 输出结果', () => showConfig(n));
     out.innerHTML =
       '<div class="oh"><span>📤</span><span class="o-status wait">⏳</span></div>'+
       '<div class="ob">—</div>';
@@ -619,6 +694,19 @@ function adjustCanvasCount(delta) {
 // EXECUTION
 // ═══════════════════════════════════════════════
 function startExecution() {
+  if (!runtimeStatus.api_key_configured) {
+    step = 3; updateStepUI();
+    document.getElementById('panelTitle').textContent = '⚠️ 无法执行 Agent';
+    document.getElementById('panelBody').innerHTML =
+      '<div class="api-key-banner" style="margin:0;">'+
+      '未检测到 <code>'+(runtimeStatus.key_env || 'DEEPSEEK_API_KEY')+'</code>。'+
+      '请配置 <code>.env</code> 并重启后端后再运行工作流。</div>'+
+      '<div style="font-size:11px;color:var(--text2);margin-top:10px;line-height:1.6;">'+
+      '提示：工作流编排（分解）在无 Key 时会降级为本地模板；但 Agent 节点执行必须提供 LLM API 密钥。</div>';
+    return;
+  }
+
+  resetExecutionVisuals();
   step = 3; updateStepUI();
   document.getElementById('panelTitle').textContent = '💻 执行中 — SSE 实时推送';
   document.getElementById('panelBody').innerHTML =
@@ -650,24 +738,29 @@ function startExecution() {
         currentNodes[idx].model = data.model;
       }
       const n = currentNodes.find(x => x.id === nid) || {id: nid, label: data.label, result: data.result};
-      if (data.status === 'completed') {
-        markDone(nid);
-        fillOutput(n);
-      } else {
-        markDone(nid);
-        fillOutput(n);
-      }
+      const nodeStatus = data.status === 'completed' ? 'completed'
+        : (data.status === 'skipped' ? 'skipped' : 'failed');
+      if (idx >= 0) currentNodes[idx].execStatus = nodeStatus;
+      markNodeStatus(nid, nodeStatus);
+      fillOutput(n, nodeStatus);
       const costStr = data.cost ? `$${Number(data.cost).toFixed(4)}` : '';
       const durStr = data.duration_ms ? `${(data.duration_ms/1000).toFixed(1)}s` : '';
-      const icon = data.status === 'completed' ? '✅' : (data.status === 'skipped' ? '⏭' : '❌');
-      log.innerHTML += '<div class="line"><span class="ts">[完成]</span><span class="'+(data.status==='completed'?'ok':'')+'">'+icon+' '+(data.label || nid)+' '+costStr+' '+durStr+'</span></div>';
+      const icon = nodeStatus === 'completed' ? '✅' : (nodeStatus === 'skipped' ? '⏭' : '❌');
+      const lineClass = nodeStatus === 'completed' ? 'ok' : '';
+      log.innerHTML += '<div class="line"><span class="ts">[完成]</span><span class="'+lineClass+'">'+icon+' '+(data.label || nid)+' '+costStr+' '+durStr+'</span></div>';
       log.scrollTop = log.scrollHeight;
     } else if (event === 'workflow_done') {
+      const wfStatus = data.status || 'completed';
+      const isOk = wfStatus === 'completed';
       const totalCost = data.total_cost ? `$${Number(data.total_cost).toFixed(4)}` : '';
       const totalDur = data.total_duration ? `${(data.total_duration/1000).toFixed(1)}s` : '';
-      log.innerHTML += '<div class="line"><span class="ts">[完成]</span><span class="ok">✅ 全部完成 — 总费用 '+totalCost+' · 总耗时 '+totalDur+(data.run_id?' [run: '+data.run_id+']':'')+'</span></div>';
+      const summaryIcon = isOk ? '✅' : '⚠️';
+      const summaryLabel = isOk ? '全部完成' : '执行结束（存在失败/跳过）';
+      log.innerHTML += '<div class="line"><span class="ts">[完成]</span><span class="'+(isOk?'ok':'')+'">'+summaryIcon+' '+summaryLabel+' — 总费用 '+totalCost+' · 总耗时 '+totalDur+(data.run_id?' [run: '+data.run_id+']':'')+'</span></div>';
       log.scrollTop = log.scrollHeight;
-      document.getElementById('panelTitle').textContent = '✅ 执行完成 — Multi-Provider Agent 真实输出';
+      document.getElementById('panelTitle').textContent = isOk
+        ? '✅ 执行完成 — Multi-Provider Agent 真实输出'
+        : '⚠️ 执行结束 — 部分节点失败或跳过';
     }
   }).catch(e => {
     log.innerHTML += '<div class="line"><span class="ts">[错误]</span><span style="color:var(--orange);">⚠️ SSE 执行失败: '+e.message+'</span></div>';
@@ -743,26 +836,75 @@ function fallbackExecution(log) {
   }, 1300);
 }
 
-function markExec(id) {
-  const el = document.getElementById('n-'+id);
-  if (el) { el.classList.remove('done'); el.classList.add('executing'); }
-  const arr = document.getElementById('ea-'+id);
-  if (arr) { arr.classList.add('active'); }
-}
-function markDone(id) {
-  const el = document.getElementById('n-'+id);
-  if (el) { el.classList.remove('executing'); el.classList.add('done'); }
-  const arr = document.getElementById('ea-'+id);
-  if (arr) { arr.classList.remove('active'); arr.classList.add('done'); }
+function resetExecutionVisuals() {
+  currentNodes.forEach(n => {
+    const el = document.getElementById('n-'+n.id);
+    const arr = document.getElementById('ea-'+n.id);
+    const oc = document.getElementById('oc-'+n.id);
+    if (el) el.classList.remove('executing', 'done', 'failed', 'skipped');
+    if (arr) arr.classList.remove('active', 'done', 'failed', 'skipped');
+    if (oc) {
+      oc.classList.remove('done', 'failed', 'skipped');
+      const st = oc.querySelector('.o-status');
+      if (st) { st.textContent = '⏳'; st.className = 'o-status wait'; }
+      const ob = oc.querySelector('.ob');
+      if (ob) ob.textContent = '—';
+    }
+  });
 }
 
-function fillOutput(n) {
+function markExec(id) {
+  const el = document.getElementById('n-'+id);
+  if (el) { el.classList.remove('done', 'failed', 'skipped'); el.classList.add('executing'); }
+  const arr = document.getElementById('ea-'+id);
+  if (arr) { arr.classList.remove('done', 'failed', 'skipped'); arr.classList.add('active'); }
+  const oc = document.getElementById('oc-'+id);
+  if (oc) {
+    const st = oc.querySelector('.o-status');
+    if (st) { st.textContent = '▶'; st.className = 'o-status run'; }
+  }
+}
+
+function markNodeStatus(id, status) {
+  const el = document.getElementById('n-'+id);
+  const arr = document.getElementById('ea-'+id);
+  if (el) {
+    el.classList.remove('executing', 'done', 'failed', 'skipped');
+    if (status === 'completed') el.classList.add('done');
+    else if (status === 'failed') el.classList.add('failed');
+    else if (status === 'skipped') el.classList.add('skipped');
+  }
+  if (arr) {
+    arr.classList.remove('active', 'done', 'failed', 'skipped');
+    if (status === 'completed') arr.classList.add('done');
+    else if (status === 'failed') arr.classList.add('failed');
+    else if (status === 'skipped') arr.classList.add('skipped');
+  }
+}
+
+function markDone(id) { markNodeStatus(id, 'completed'); }
+
+function fillOutput(n, status) {
+  status = status || n.execStatus || 'completed';
   const oc = document.getElementById('oc-'+n.id);
   if (!oc) return;
-  oc.classList.add('done');
-  oc.querySelector('.o-status').textContent = '✓';
-  oc.querySelector('.o-status').className = 'o-status done';
-  oc.querySelector('.ob').textContent = n.result ? n.result.replace(/\\n/g,'; ') : '完成';
+  oc.classList.remove('done', 'failed', 'skipped');
+  const statusEl = oc.querySelector('.o-status');
+  if (status === 'completed') {
+    oc.classList.add('done');
+    statusEl.textContent = '✓';
+    statusEl.className = 'o-status done';
+  } else if (status === 'skipped') {
+    oc.classList.add('skipped');
+    statusEl.textContent = '⏭';
+    statusEl.className = 'o-status skipped';
+  } else {
+    oc.classList.add('failed');
+    statusEl.textContent = '✗';
+    statusEl.className = 'o-status failed';
+  }
+  const text = n.result ? n.result.replace(/\\n/g,'; ') : (status === 'skipped' ? '已跳过' : (status === 'failed' ? '失败' : '完成'));
+  oc.querySelector('.ob').textContent = text;
 }
 
 // ═══════════════════════════════════════════════

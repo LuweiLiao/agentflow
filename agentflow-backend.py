@@ -62,6 +62,31 @@ def _build_workflow_edges(nodes_data: list) -> list[EdgeDef]:
     return edges
 
 
+def _runtime_status() -> dict:
+    """返回当前运行时配置（供前端检测 API Key 是否就绪）。"""
+    agent = AgentRunner(model=DEFAULT_AGENT_MODEL)
+    provider = agent.provider_name
+    if not isinstance(provider, str):
+        provider = "deepseek"
+    config = AgentRunner.PROVIDER_CONFIGS.get(provider, {})
+    key_env = config.get("key_env", "OPENAI_API_KEY")
+    api_key = getattr(agent, "api_key", "") or ""
+    if isinstance(api_key, str):
+        configured = bool(api_key.strip())
+    else:
+        configured = False
+    hint = ""
+    if not configured:
+        hint = f"请在 .env 中设置 {key_env} 后重启服务"
+    return {
+        "model": str(DEFAULT_AGENT_MODEL),
+        "provider": str(provider),
+        "api_key_configured": configured,
+        "key_env": str(key_env),
+        "hint": str(hint),
+    }
+
+
 def _background_worker():
     """后台工作线程：消费队列里的 run_id，异步执行 DAG。"""
     while True:
@@ -329,6 +354,9 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
 
         if url == "/api/runs":
             self._handle_list_runs()
+            return
+        if url == "/api/status":
+            self._handle_status()
             return
         if url.startswith("/api/runs/"):
             run_id = url.split("/")[-1]
@@ -731,6 +759,12 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
 
     # ── Run 历史 API ───────────────────────────────
 
+    def _handle_status(self):
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        self._send_json(200, _runtime_status())
+
     def _handle_list_runs(self):
         if not self._require_auth():
             self._send_json(401, {"error": "Unauthorized"})
@@ -775,6 +809,7 @@ if __name__ == "__main__":
     print("  POST /api/decompose    — 编排分解 (同步)", file=sys.stderr)
     print("  POST /api/execute      — 异步执行 (返回 run_id)", file=sys.stderr)
     print("  POST /api/execute/stream — SSE 流式执行", file=sys.stderr)
+    print("  GET  /api/status        — 运行时状态 / API Key 检测", file=sys.stderr)
     print("  GET  /api/runs         — 执行历史", file=sys.stderr)
     print("  GET  /api/runs/<id>    — 单 run 详情", file=sys.stderr)
     print(f"Model: {DEFAULT_AGENT_MODEL}", file=sys.stderr)
