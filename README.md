@@ -153,16 +153,20 @@ workflow_done    → 5 nodes, 5 errors, cost=$0.00
 
 ### 修复后的效果
 
-在修复 P0 #1 和 #2 后，预期单节点执行流程（以 glm-5-turbo 为例）：
+在修复 P0 #1 和 #2 后，ProviderAdapter 的 429 退避实际执行日志：
 
 ```
-节点启动 → 全局限流(1req/s) → 请求API
-  ├─ 成功(200) → 熔断器重置 → 下一节点
-  ├─ 429限流 → 等待30s → 重试
-  │           → 再次429 → 等待60s → 重试
-  │           → 再次429 → 等待120s → 熔断器打开(120s)
-  └─ 5xx错误 → 退避1.5s → 重试(最多5次)
+[AgentRunner] → Provider: zhipu | Model: glm-5-turbo
+[ProviderAdapter] Attempt 1 failed: HTTP Error 429: Too Many Requests
+[ProviderAdapter] 429 rate limited, waiting 30s (attempt 1/5)
+[ProviderAdapter] Attempt 2 failed: HTTP Error 429: Too Many Requests
+[ProviderAdapter] 429 rate limited, waiting 60s (attempt 2/5)
+[ProviderAdapter] Attempt 3 failed: HTTP Error 429: Too Many Requests
+[ProviderAdapter] 429 rate limited, waiting 120s (attempt 3/5)
 ```
+
+> ⚠️ **注意:** 实测中 Zhipu GLM 的免费 API key 具有极低的 Rate Limit（~1 请求/2-3分钟），导致所有节点 429 失败。
+> **建议使用 DeepSeek、SiliconFlow 或其他更高限流的 Provider 进行测试。**
 
 ---
 
