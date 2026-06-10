@@ -288,10 +288,10 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
                     node.output = result.get("output", "")[:2000]
                     node.status = result.get("status", "error")
                     node.cost = result.get("cost", 0)
-                    node.duration = result.get("duration_ms", 0)
+                    node.duration = result.get("duration", 0)
                     node.turns = result.get("turns", 0)
                     node.provider = result.get("provider", "")
-                    node.model = result.get("model", agent_model)
+                    node.model = result.get("model", node.model or DEFAULT_AGENT_MODEL)
                     all_envelopes[node.id] = result
                     all_results.append(node.to_dict())
                     print(f"[Execute] Node {node.id} done: ${node.cost:.4f} / {result.get('duration',0)}ms", file=sys.stderr)
