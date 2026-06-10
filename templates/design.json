@@ -8,8 +8,8 @@
     "read",
     "write"
   ],
-  "max_turns": 10,
-  "timeout_s": 120,
+  "max_turns": 15,
+  "timeout_s": 180,
   "output_format": "```json\n{\n  \"summary\": \"一句话总结设计方案\",\n  \"output\": \"详细设计方案\",\n  \"files\": [\"设计文档列表\"],\n  \"metrics\": {\n    \"alternatives\": 2,\n    \"decision\": \"选择的方案及理由\"\n  }\n}\n```\n",
   "prompt_template": "你是一个 {node.label} Agent（design 角色）。\n\n## 全局上下文\n{global.goal}\n\n{global.constraints}\n\n## 本节点任务\n{params.description}\n\n## 上游分析结果\n{upstream_context}\n\n## 要求\n1. 设计方案要具体、可落地\n2. 包含技术选型理由\n3. 输出接口定义清晰\n4. 使用中文回复\n"
 }

@@ -28,7 +28,7 @@ STATIC_DIR = os.environ.get("AGENTFLOW_STATIC_DIR", SCRIPT_DIR)
 TEMPLATE_DIR = os.environ.get("AGENTFLOW_TEMPLATE_DIR",
     os.path.join(STATIC_DIR, "templates") if os.path.isdir(os.path.join(STATIC_DIR, "templates"))
     else os.path.join(SCRIPT_DIR, "templates"))
-DEFAULT_AGENT_MODEL = os.environ.get("AGENT_MODEL", "glm-5-turbo")
+DEFAULT_AGENT_MODEL = os.environ.get("AGENT_MODEL", "deepseek-v4-flash")
 
 # 全局并发控制
 MAX_CONCURRENT_AGENTS = int(os.environ.get("AGENTFLOW_MAX_CONCURRENT", "10"))
@@ -730,7 +730,7 @@ profile 必须是: analysis/design/dev/test/doc/deploy 之一
 
 
 if __name__ == "__main__":
-    server = http.server.HTTPServer(("127.0.0.1", PORT), AgentFlowHandler)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), AgentFlowHandler)
     print(f"AgentFlow v3 backend running on http://localhost:{PORT}", file=sys.stderr)
     print("API: POST /api/decompose | POST /api/execute | POST /api/execute/stream", file=sys.stderr)
     print(f"Static: {STATIC_DIR}", file=sys.stderr)

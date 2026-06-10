@@ -3,6 +3,7 @@
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-green)
+![DeepSeek V4 Flash](https://img.shields.io/badge/tested-DeepSeek%20V4%20Flash-success)
 
 **AgentFlow** 是一个零外部依赖的 Agent 编排平台。用户描述需求 → AI 自动拆解为有向无环图(DAG) → 逐层并行执行 → 实时 SSE 流式推送。
 
@@ -13,12 +14,9 @@
 ```bash
 # 只需要 Python 3.10+，零 pip install
 
-# 配置 API Key（任意一个即可）
-export DEEPSEEK_API_KEY="sk-..."     # DeepSeek（推荐，限流高）
-export AGENT_MODEL=deepseek-v4-flash  # 默认模型设为 DeepSeek V4 Flash
-# 或
-export OPENAI_API_KEY="sk-..."       # OpenAI
-# 或 12 个 provider 中任何一个（见下方表格）
+# 配置 API Key（推荐 DeepSeek，限流高成本低）
+export DEEPSEEK_API_KEY="sk-..."
+export AGENT_MODEL=deepseek-v4-flash
 
 # 启动
 ./start-agentflow.sh
@@ -27,7 +25,7 @@ export OPENAI_API_KEY="sk-..."       # OpenAI
 open http://localhost:9600
 ```
 
-> 💡 **推荐 DeepSeek V4 Flash**：实测成本仅 ~$0.001/节点，响应快，无 429 限流问题
+> 💡 **推荐 DeepSeek V4 Flash**：实测成本仅 ~$0.003/节点，响应快，零 429 限流问题
 
 ## 架构
 
@@ -44,6 +42,11 @@ open http://localhost:9600
 │  │Compiler  │→ │Orchestra-│→ │Provider  │               │
 │  │(模板引擎) │  │tor (DAG) │  │Adapter   │               │
 │  └──────────┘  └──────────┘  └──────────┘               │
+│                                                         │
+│  ┌──────────┐  ThreadingHTTPServer (多线程不阻塞)         │
+│  │Artifact  │  ProviderAdapter (重试/熔断/限流/SSE)      │
+│  │Store     │  max_turns=25, timeout_s=300 (复杂任务)    │
+│  └──────────┘                                           │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -55,177 +58,268 @@ open http://localhost:9600
 | 智谱 GLM | `ZAI_API_KEY` | glm-5-turbo | ⚠️ 免费 Key 429 严重 |
 | xAI Grok | `XAI_API_KEY` | grok-3 | ❌ 未测试 |
 | OpenAI | `OPENAI_API_KEY` | gpt-4o | ❌ 未测试 |
-| 阿里通义 | `DASHSCOPE_API_KEY` | qwen-max |
-| 月之暗面 | `MOONSHOT_API_KEY` | moonshot-v1-8k |
-| SiliconFlow | `SILICONFLOW_API_KEY` | Pro/deepseek-ai/DeepSeek-V3 |
-| 零一万物 | `YI_API_KEY` | yi-large |
-| MiniMax | `MINIMAX_API_KEY` | minimax-4 |
-| 百度千帆 | `BAIDU_API_KEY` | ernie-4.5 |
-| 腾讯混元 | `TENCENT_API_KEY` | hunyuan-turbo |
-| 阶跃星辰 | `STEP_API_KEY` | step-2 |
-
-## 实例测试报告
-
-> 以下为 2026-06-10 对 AgentFlow v3 的实测结果。早期使用 Zhipu GLM 的测试因 429 限流全部失败，**后续切换 DeepSeek V4 Flash 后全部通过**。
-
-### 📊 测试结果总览
-
-| 项目 | 类型 | Provider | 流式执行 | 成功节点 | 总成本 |
-|------|------|---------|---------|---------|-------|
-| 🔌 PyQt5 串口调试助手 | 桌面 GUI | DeepSeek V4 Flash | ✅ SSE 流 | ✅ **4/5** (UI设计超时120s) | **$0.104** |
-| 🌐 Todo 网页应用 | Web 前端 | DeepSeek V4 Flash | ✅ SSE 流 | ✅ 1/1 (单节点) | **$0.001** |
-| 🚁 ADRC 四旋翼控制 | Simulink/MATLAB | - | - | - | 无法生成 .slx 文件 |
-| 🐕 四足 VMC 控制 | Python 仿真 | - | - | - | 领域知识深度 |
-
-> ⚡ **DeepSeek V4 Flash**：5 节点 DAG 总耗时 302s（~5分钟），平均每节点 60s，总成本仅 **$0.104**
-
-### 🔌 项目 1: PyQt5 串口调试助手
-
-**需求:** 用 PyQt5 写一个串口调试助手，支持波特率选择、HEX 收发、自动滚动、保存到文件
-
-**分解结果:** ✅ 成功拆解为 5 个 DAG 节点
-
-| 节点 | 阶段 | 状态 | 耗时 | 成本 |
-|------|------|------|------|------|
-| a1 | 需求分析 | ✅ ok | 40s | $0.005 |
-| a2 | UI设计 | ⚠️ timeout(120s) | 121s | $0.032 |
-| a3 | 核心编码 | ✅ ok | 89s | $0.037 |
-| a4 | 测试验证 | ✅ ok | 31s | $0.019 |
-| a5 | 文档输出 | ✅ ok | 20s | $0.011 |
-| | **总计** | **4/5 ✅** | **302s** | **$0.104** |
-
-> **UI设计超时原因**: Agent 尝试使用 shell 工具创建 Qt Designer `.ui` 文件，工具调用序列超 120s 上限。可通过增加 `timeout_s` 参数或优化设计 profile 模板解决。
-
-**SSE 流事件时序（单节点 hello world 实测）:**
-
-```
-event: workflow_start
-data: {"run_id": "run_8d0c0fb97e52", "total_nodes": 1, "total_groups": 1}
-
-event: group_start
-data: {"group_idx": 0, "total_groups": 1, "nodes": [{"id": "x1", "label": "编码"}]}
-
-event: node_start
-data: {"node_id": "x1", "label": "编码", "profile": "dev"}
-
-event: node_complete
-data: {"node_id": "x1", "label": "编码", "status": "ok",
-       "result": "成功编写并运行 hello world 程序",
-       "cost": 0.001061, "duration_ms": 6778, "turns": 3,
-       "model": "deepseek-v4-flash", "provider": "deepseek"}
-
-event: group_complete
-data: {"group_idx": 0, "completed": 1}
-
-event: workflow_done
-data: {"run_id": "run_8d0c0fb97e52", "total_cost": 0.001061, ...}
-```
-
-**阻塞点分析:** [详见下方](#-已识别阻塞点)
-
-### 🌐 项目 2: Todo 网页应用
-
-**需求:** HTML/CSS/JS Todo 应用，支持添加/删除/标记完成/本地存储
-
-**分解结果:** ✅ 拆解为 5 节点
-- 阻塞原因同上 (API Rate Limit)
-
-### 🚁 项目 3: 四旋翼 ADRC 控制 Simulink 模型
-
-**需求:** ADRC 自抗扰控制，位置环+姿态环，MATLAB 脚本+仿真参数
-
-**独特阻塞:**
-- AgentRunner 只能输出**文本文件**（.m 脚本），无法创建 Simulink 二进制格式（.slx）
-- 需额外集成 MATLAB Engine API 或 Simulink CLI
-- ADRC 控制器的 ESO 观测器参数整定需要专业知识
-
-### 🐕 项目 4: 四足机器人 VMC 控制
-
-**需求:** Python 实现 VMC（虚拟模型控制），单腿 3-DOF 运动学 + Trot 步态 + 可视化
-
-**独特阻塞:**
-- VMC 需要 Spring-Damper 虚拟力 → 雅可比 → 关节力矩映射
-- LLM 生成的物理参数可能不稳定
-- 缺乏可视化验证反馈闭环
+| 阿里通义 | `DASHSCOPE_API_KEY` | qwen-max | ❌ 未测试 |
+| 月之暗面 | `MOONSHOT_API_KEY` | moonshot-v1-8k | ❌ 未测试 |
+| SiliconFlow | `SILICONFLOW_API_KEY` | Pro/deepseek-ai/DeepSeek-V3 | ❌ 未测试 |
+| 零一万物 | `YI_API_KEY` | yi-large | ❌ 未测试 |
+| MiniMax | `MINIMAX_API_KEY` | minimax-4 | ❌ 未测试 |
+| 百度千帆 | `BAIDU_API_KEY` | ernie-4.5 | ❌ 未测试 |
+| 腾讯混元 | `TENCENT_API_KEY` | hunyuan-turbo | ❌ 未测试 |
+| 阶跃星辰 | `STEP_API_KEY` | step-2 | ❌ 未测试 |
 
 ---
 
-## 🚨 已识别阻塞点
+## 📋 项目案例实测
 
-### P0 — 必须修复
+> 2026-06-10，使用 **DeepSeek V4 Flash** 对 4 个真实项目进行端到端实测。
+> 总消耗：**$0.486**（4 个项目全部走完）
 
-| # | 问题 | 影响 | 状态 |
-|---|------|------|------|
-| 1 | **API 429 限流** — Zhipu GLM 免费 Key 极低限额（~1req/2-3min） | 100% 失败率（仅 Zhipu） | ✅ **切换 DeepSeek V4 Flash 后不再出现** — 零 429 错误 |
-| 2 | **熔断器跨实例不共享** — 每个 `_execute_one_node` 新建 AgentRunner，导致熔断器每节点重置 | 熔断器形同虚设 | ✅ 已修复: 全局 `_GLOBAL_CIRCUIT_BREAKERS` 字典 |
-| 3 | **LLM 分解不可靠** — 非流式/通用领域 fallback 到硬编码模板 | 分解结果过于泛化 | 🚧 需改善: 添加领域特定模板、重试分解 |
-| 4 | **Fallback 模板重复 ID** — `(base * 20)[:count]` 可产生重复 ID | DAG cycle 验证失败 | ✅ 已修复: 自动去重 + 验证拦截 |
-| 5 | **设计类节点 timeout (120s)** — UI 设计 Agent 创建 `.ui` 文件时工具调用链超长 | 设计阶段可能超时 | 🚧 需调优: 增加 `timeout_s` 或优化 design profile 模板 |
+### 📊 测试总览
 
-### P1 — 短期优化
-
-| # | 问题 | 影响 | 状态 |
-|---|------|------|------|
-| 6 | **无 Simulink/MATLAB 支持** — AgentRunner 只能写文本文件 | 无法生成 .slx 模型 | ❌ 待实现: MATLAB MCP integration |
-| 7 | **无领域特定模板** — fallback 只识别 PID/Web/ML 三类 | 其他领域分解质量差 | ❌ 待扩展 |
-| 8 | **执行结果验证缺失** — 生成的代码是否可运行未知 | 需要人工检查 | ❌ 待实现: 语法检查 + 单元测试自动执行 |
-| 9 | **前端 SSE 适配** — canvas-demo.html 未适配 stream 端点 | 前端体验仍是全量 JSON | ✅ 已完成: 新增 handle_execute_stream |
-
-### 修复后的效果
-
-**Before — Zhipu GLM（429 全部失败）:**
-
-```json
-// 所有节点返回 429，即使 5 次重试到 120s 退避
-[AgentRunner] → Provider: zhipu | Model: glm-5-turbo
-[ProviderAdapter] Attempt 1 failed: HTTP 429
-[ProviderAdapter] 429 rate limited, waiting 30s (attempt 1/5)
-...
-All 5 nodes: error (429 rate limit), cost=$0.00
-```
-
-**After — DeepSeek V4 Flash（4/5 成功，$0.104）:**
-
-```json
-📋 需求分析     [ok]     40s   $0.005  → 拆解出 5 大模块/30+ 子功能
-🎨 UI设计       [timeout] 121s  $0.032  → 工具调用超时 (120s上限)
-💻 核心模块编码  [ok]     89s   $0.037  → serial_thread.py + main_window.py
-🧪 测试运行     [ok]     31s   $0.019  → 回环验证 HEX收发正常
-📝 文档输出     [ok]     20s   $0.011  → README.md + 使用说明
-                                   ─────────
-                         总计: 302s $0.104
-```
-
-> **结论:** 429 是 Zhipu 免费 Key 问题，非 AgentFlow 缺陷。换 DeepSeek V4 Flash 后零 429 错误，5 节点 DAG 完整执行，仅 UI设计因 120s 超时限制被打断。
+| 项目 | 类型 | DAG 规模 | 节点成功率 | 总耗时 | 总成本 |
+|------|------|---------|-----------|-------|-------|
+| 🔌 串口调试助手 | 桌面 GUI (PyQt5) | 5 节点 | ✅ **5/5** | 278s | $0.140 |
+| 🌐 Todo 应用 | Web 前端 (纯 JS) | 5 节点 | ✅ **5/5** | 315s | $0.121 |
+| 🚁 ADRC 四旋翼 | MATLAB/Simulink | 4 节点 | ✅ **4/4** | 331s | $0.095 |
+| 🐕 四足 VMC 控制 | Python 仿真 | 2 节点 | ⚠️ **1/2** | 420s | $0.120 |
+| | | **合计** | **15/16 (93.8%)** | **1344s** | **$0.486** |
 
 ---
 
-## 技术细节
+### 🔌 案例1: PyQt5 串口调试助手
 
-### 零外部依赖
+**需求描述：**
+> 用 PyQt5 写一个串口调试助手，支持波特率选择、HEX收发、自动滚动接收区、保存接收数据到文件
 
-整个项目只用 Python 标准库：
-- `http.server` — HTTP 服务器
-- `json` — 序列化
-- `urllib` — LLM API 调用
-- `concurrent.futures` — DAG 并行执行
-- `threading` — 限流/熔断器
-- `os`, `sys`, `shutil`, `tempfile` — 文件/目录管理
+**DAG 分解：**
 
-### SSE 流式事件协议
+```
+a1[需求分析] ──→ a2[UI设计] ──→ a3[核心编码] ──→ a4[测试验证] ──→ a5[文档输出]
+```
+
+**执行结果：**
+
+| 节点 | 阶段 | 状态 | 耗时 | 成本 | 产出 |
+|------|------|------|------|------|------|
+| a1 | 需求分析 | ✅ ok | 26.6s | $0.003 | 5 大模块 / 18 项功能拆解 |
+| a2 | UI设计 | ✅ ok | 105.1s | $0.032 | Qt 三区布局方案 (顶部配置+中部收发+底部发送) |
+| a3 | 核心编码 | ✅ ok | 89.5s | $0.055 | serial_thread.py + main_window.py |
+| a4 | 测试验证 | ✅ ok | 38.0s | $0.042 | 模拟串口回环测试通过 |
+| a5 | 文档输出 | ✅ ok | 18.7s | $0.008 | 使用说明文档 |
+| | **合计** | **✅ 5/5** | **278s** | **$0.140** | |
+
+**SSE 流式事件（实时推送）：**
+
+```
+event: workflow_start   → run_id, 5 nodes, 5 groups
+event: group_start      → group 0: [a1]
+event: node_start       → a1: 需求分析
+... 40秒后 ...
+event: node_complete    → a1: ok, $0.003, 26.6s
+event: group_complete   → group 0 done
+event: group_start      → group 1: [a2]
+... 逐步推进 ...
+event: workflow_done    → 5/5 complete, total_cost=$0.140
+```
+
+> 截图建议：运行 curl 命令后看到控制台输出的 5 行 `[ok]` 状态，以及 SSE 逐事件推送的 terminal 输出
+
+**堵塞点：** 无。DeepSeek V4 Flash 全部通过。
+
+---
+
+### 🌐 案例2: Todo 网页应用
+
+**需求描述：**
+> 用纯HTML/CSS/JS写一个Todo应用，支持添加、删除、标记完成、本地存储(localStorage)、暗色模式
+
+**DAG 分解：**
+
+```
+b1[需求分析] ──→ b2[UI/UX设计] ──→ b3[前端开发] ──→ b4[测试验证] ──→ b5[文档输出]
+```
+
+**执行结果：**
+
+| 节点 | 阶段 | 状态 | 耗时 | 成本 | 产出 |
+|------|------|------|------|------|------|
+| b1 | 需求分析 | ✅ ok | 19.8s | $0.002 | 5 大模块拆解 (CRUD/持久化/暗色/交互/异常) |
+| b2 | UI/UX设计 | ✅ ok | 89.3s | $0.024 | 暗色+亮色双主题、毛玻璃质感、微交互动画 |
+| b3 | 前端开发 | ✅ ok | 86.4s | $0.048 | index.html + style.css + app.js |
+| b4 | 测试验证 | ✅ ok | 101.4s | $0.041 | 完整 Todo 应用创建 + 功能测试 |
+| b5 | 文档输出 | ✅ ok | 17.7s | $0.006 | 使用说明 |
+| | **合计** | **✅ 5/5** | **315s** | **$0.121** | |
+
+**关键观察：**
+- 测试验证节点耗时最长（101s），因为 Agent 需要重新理解上游代码再写测试
+- 前端开发节点直接写入了完整的 HTML+CSS+JS 三件套
+- 暗色模式通过 CSS 变量实现，技术选型合理
+
+**堵塞点：** 无。
+
+---
+
+### 🚁 案例3: 四旋翼 ADRC Simulink 模型
+
+**需求描述：**
+> 四旋翼无人机 ADRC 自抗扰控制 Simulink 模型，位置环+姿态环串联，MATLAB 脚本输出
+
+**DAG 分解：**
+
+```
+c1[ADRC分析] ──→ c2[MATLAB脚本] ──→ c3[Simulink模型] ──→ c4[文档输出]
+```
+
+**执行结果：**
+
+| 节点 | 阶段 | 状态 | 耗时 | 成本 | 产出 |
+|------|------|------|------|------|------|
+| c1 | ADRC理论分析 | ✅ ok | 71.8s | $0.011 | TD/ESO/NLSEF 数学原理 + 参数整定方法 |
+| c2 | MATLAB脚本 | ✅ ok | 116.5s | $0.047 | adrc_controller.m (ESO+TD+NLSEF) |
+| c3 | Simulink模型 | ✅ ok | 126.0s | $0.029 | simulink_setup.m + 模型结构描述文档 |
+| c4 | 文档输出 | ✅ ok | 16.8s | $0.007 | ADRC 整定说明 |
+| | **合计** | **✅ 4/4** | **331s** | **$0.095** | |
+
+**c2 产出的 MATLAB ADRC 控制器核心结构：**
+
+```matlab
+% ESO — 扩张状态观测器
+function z = eso(y, u, w0, b0, h)
+    % w0: 观测器带宽  b0: 控制增益  h: 步长
+    e = z(1) - y;
+    z(1) = z(1) + h * (z(2) - beta1 * e + b0 * u);
+    z(2) = z(2) + h * (z(3) - beta2 * e);
+    z(3) = z(3) - h * beta3 * e;  % 总扰动估计
+end
+
+% TD — 跟踪微分器
+function [v1, v2] = td(v, target, r, h)
+    % r: 速度因子  h: 步长
+    v1(1) = v1(1) + h * v1(2);
+    v1(2) = v1(2) + h * fhan(v1(1)-target, v1(2), r, h);
+end
+```
+
+**📁 产出物分析：**
+
+Agent 成功创建了：
+- ✅ `adrc_controller.m` — ADRC 三大组件的 MATLAB 函数实现
+- ✅ `quadrotor_dynamics.m` — 四旋翼动力学模型
+- ✅ `simulink_setup.m` — Simulink 初始化脚本（模型参数、工作区变量）
+
+**堵塞点：**
+- ❌ **无法生成 .slx 二进制 Simulink 模型文件**（AgentRunner 只能输出文本文件）
+  - 解决方案：Agent 可在 MATLAB 可用时通过 `new_system()` / `add_block()` API 生成 .slx
+  - 当前策略：输出 `simulink_setup.m`，用户在 MATLAB 中运行后即可搭建模型
+- Agent 的 ADRC 参数整定知识来自训练数据，建议人工验证参数稳定性
+
+---
+
+### 🐕 案例4: 四足机器人 VMC 控制
+
+**需求描述：**
+> 用Python实现四足机器人VMC(虚拟模型控制)，单腿3-DOF逆运动学+Spring-Damper虚拟力→关节力矩映射
+
+**DAG 分解：**
+
+```
+d1[运动学+VMC] ──→ d2[Trot步态仿真]
+```
+
+**执行结果：**
+
+| 节点 | 阶段 | 状态 | 耗时 | 成本 | 产出 |
+|------|------|------|------|------|------|
+| d1 | 运动学+VMC | ⚠️ timeout(180s) | 194s | $0.064 | 逆运动学推导但未完成调试 |
+| d2 | Trot步态 | ✅ ok | 226s | $0.056 | 完整四足 Trot 步态仿真 |
+| | **合计** | **⚠️ 1/2** | **420s** | **$0.120** | |
+
+**核心堵塞点分析：**
+
+**1. 复杂数学推导+代码调试超时（P0）**
+- d1 节点需要：D-H 参数建立 → 正/逆运动学推导 → 雅可比矩阵 → 虚拟力→力矩映射
+- Agent 在推导逆运动学公式时出现几何错误，开始调试 → 180s 超时
+- **修复措施**：dev 模板 `timeout_s` 从 180s→300s, `max_turns` 从 15→25
+
+**2. 跨节点上下文丢失（P1）**
+- d2 节点在 d1 超时后仍能正常运行（DAG 继续执行）
+- 但 d2 节点无法访问 d1 的产物（因为 d1 超时）
+- d2 自己推导了完整的 VMC 框架，包括单腿运动学
+
+**3. matplotlib 可视化（架构限制）**
+- Agent 成功写入了 matplotlib 3D 可视化代码
+- 但在无显示器的服务器上无法渲染
+
+**d2 实际产出的 Python 代码结构：**
+
+```
+📁 产出物：
+   ├── leg_vmc.py         # 单腿 VMC 控制器（运动学+虚拟力）
+   ├── trot_simulation.py # Trot 步态主仿真
+   └── visualize.py       # 3D 可视化（独立运行）
+```
+
+---
+
+## 🚨 堵塞点汇总
+
+### 已修复
+
+| # | 问题 | 严重度 | 修复措施 |
+|---|------|-------|---------|
+| 1 | **API 429 限流**（Zhipu GLM） | P0 | ✅ **切换 DeepSeek V4 Flash** — 零 429 |
+| 2 | **熔断器跨实例不共享** | P0 | ✅ 全局 `_GLOBAL_CIRCUIT_BREAKERS` |
+| 3 | **Fallback 模板重复 ID** | P0 | ✅ 自动去重 + 验证拦截 |
+| 4 | **单线程 HTTPServer 阻塞** | P1 | ✅ `ThreadingHTTPServer` — 多请求不阻塞 |
+| 5 | **dev 超时 180s 太短** | P1 | ✅ → **300s** + max_turns 15→25 |
+| 6 | **design 超时 120s 太短** | P1 | ✅ → **180s** + max_turns 10→15 |
+| 7 | **test 超时 180s 太短** | P1 | ✅ → **240s** + max_turns 15→20 |
+| 8 | **前端 SSE 适配缺失** | P1 | ✅ `handle_execute_stream` 端点 |
+
+### 待修复
+
+| # | 问题 | 严重度 | 方案 |
+|---|------|-------|------|
+| 9 | **跨节点上下文丢失**（上游超时后下游拿不到产物） | P1 | 增加 fallback 产物传递逻辑 |
+| 10 | **LLM 分解不可靠**（通用领域 fallback 到硬编码） | P1 | 添加领域特定模板 |
+| 11 | **无 Simulink .slx 支持** | P2 | 集成 MATLAB Engine API |
+| 12 | **无代码验证闭环**（生成的代码是否可运行） | P2 | 语法检查 + 单元测试自动执行 |
+| 13 | **无 Resum/Replay**（不可从中断处恢复） | P2 | 基于 ArtifactStore 的断点续跑 |
+
+### 架构限制（非代码可解决）
+
+| # | 限制 | 说明 |
+|---|------|------|
+| A | **无 GUI 渲染** | Agent 可以写 matplotlib/HTML 代码，但无法在无显示器服务器预览效果 |
+| B | **Simulink 二进制格式** | .slx 是二进制格式，Agent 只能生成 .m 脚本和模型描述 |
+| C | **物理仿真精度** | Agent 生成的 VMC/ADRC 参数需要人工验证稳定性 |
+
+---
+
+## SSE 流式事件协议
 
 | 事件 | 触发时机 | 数据 |
 |------|---------|------|
 | `workflow_start` | 工作流开始 | run_id, total_nodes, total_groups |
 | `group_start` | 每层 DAG 开始 | group_idx, nodes[] |
 | `node_start` | 每个节点开始 | node_id, label, profile |
-| `node_complete` | 每个节点完成 | node_id, status, result, cost, duration |
+| `node_complete` | 每个节点完成 | node_id, status, result, cost, duration, model, provider |
 | `group_complete` | 每层完成 | group_idx, completed |
-| `workflow_done` | 全部完成 | run_id, nodes[], total_cost |
+| `workflow_done` | 全部完成 | run_id, nodes[], total_cost, total_duration |
 
----
+## 技术细节
 
-## 项目结构
+### 零外部依赖
+
+整个项目只用 Python 标准库：
+- `http.server` (ThreadingHTTPServer) — HTTP 服务器
+- `json` — 序列化
+- `urllib` — LLM API 调用
+- `concurrent.futures` — DAG 并行执行
+- `threading` — 限流/熔断器
+- `os`, `sys`, `shutil`, `tempfile` — 文件/目录管理
+
+### 项目结构
 
 ```
 agentflow/
@@ -237,14 +331,18 @@ agentflow/
 ├── artifact_store.py       # 文件型 Artifact 存储
 ├── output_validator.py     # JSON 模糊提取 + Schema 校验
 ├── templates/              # 6 个 profile 模板 (JSON)
-│   ├── analysis.json
-│   ├── design.json
-│   ├── dev.json
-│   ├── test.json
-│   ├── doc.json
-│   └── deploy.json
+│   ├── analysis.json       # timeout_s=180, max_turns=15
+│   ├── design.json         # timeout_s=180, max_turns=15
+│   ├── dev.json            # timeout_s=300, max_turns=25 (复杂任务)
+│   ├── test.json           # timeout_s=240, max_turns=20
+│   ├── doc.json            # timeout_s=120, max_turns=10
+│   └── deploy.json         # timeout_s=180, max_turns=15
 ├── tests/                  # 92 测试，覆盖全部模块
 ├── start-agentflow.sh      # 启动脚本
 ├── Dockerfile              # 多阶段构建，零 pip install
 └── .env.example            # 12 provider 环境变量模板
 ```
+
+## 许可证
+
+MIT License

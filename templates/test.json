@@ -8,8 +8,8 @@
     "read",
     "write"
   ],
-  "max_turns": 15,
-  "timeout_s": 180,
+  "max_turns": 20,
+  "timeout_s": 240,
   "output_format": "```json\n{\n  \"summary\": \"一句话总结测试结果\",\n  \"output\": \"详细测试报告\",\n  \"files\": [\"测试文件列表\"],\n  \"metrics\": {\n    \"total_tests\": 0,\n    \"passed\": 0,\n    \"failed\": 0,\n    \"pass_rate\": \"100%\"\n  }\n}\n```\n",
   "prompt_template": "你是一个 {node.label} Agent（test 角色）。\n\n## 全局上下文\n{global.goal}\n\n## 本节点任务\n{params.description}\n\n## 待测试的上游实现\n{upstream_context}\n\n## 要求\n1. 先理解上游代码/方案，编写测试用例\n2. 执行测试，记录通过/失败\n3. 对失败的测试给出修复建议\n4. 使用中文回复\n"
 }
