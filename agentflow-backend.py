@@ -127,22 +127,29 @@ def _execute_run(run_id: str):
         while not store.all_nodes_done(run_id):
             ready = store.get_pending_nodes(run_id)
             if not ready:
-                # 检查是否有 failed 节点需要跳过其下游
-                failed = store.count_status(run_id).get("failed", 0)
-                if failed > 0:
-                    # 标记所有 pending 的下游为 skipped（使用 workflow_edges 表）
-                    for n in nodes_data:
-                        if n["status"] == "pending":
-                            upstream_ids = store.get_upstream(run_id, n["node_id"])
-                            if upstream_ids:
-                                for uid in upstream_ids:
-                                    upstream_status = store.get_run(run_id)["nodes"]
-                                    us = next((nn["status"] for nn in upstream_status
-                                               if nn["node_id"] == uid), None)
-                                    if us == "failed":
-                                        store.update_node(run_id, n["node_id"],
-                                            status="skipped", result=f"上游节点 {uid} 失败，跳过")
-                                        break
+                # 检查是否有 failed/skipped 节点需要跳过其下游
+                has_failure = store.count_status(run_id).get("failed", 0) > 0
+                if not has_failure:
+                    has_failure = store.count_status(run_id).get("skipped", 0) > 0
+                if has_failure:
+                    # 递归标记所有 downstream 为 skipped
+                    changed = True
+                    while changed:
+                        changed = False
+                        current_nodes = store.get_run(run_id).get("nodes", [])
+                        for n in current_nodes:
+                            if n.get("status") == "pending":
+                                upstream_ids = store.get_upstream(run_id, n["node_id"])
+                                if upstream_ids:
+                                    for uid in upstream_ids:
+                                        un = next((nn for nn in current_nodes
+                                                    if nn["node_id"] == uid), None)
+                                        if un and un.get("status") in ("failed", "skipped"):
+                                            store.update_node(run_id, n["node_id"],
+                                                status="skipped",
+                                                result=f"上游节点 {uid} {un['status']}，跳过")
+                                            changed = True
+                                            break
                     # 再检查一次
                     ready = store.get_pending_nodes(run_id)
                 if not ready:
@@ -693,7 +700,7 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
             n["depends_on"] = dep_map.get(nid, [])
 
         store = get_store()
-        run_id = store.create_run(requirement, nodes)
+        run_id = store.create_run(requirement, nodes, edges)
         total_nodes = len(nodes)
         groups = self._compute_groups(nodes, edges)
 
