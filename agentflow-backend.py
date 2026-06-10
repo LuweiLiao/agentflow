@@ -10,6 +10,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue
+from urllib.parse import urlparse
 
 from agent_runner import AgentRunner
 from agentflow_schema import (
@@ -321,6 +322,57 @@ def _execute_one_node(node_row: dict, task, node_dir: str, default_model: str) -
         }
 
 
+def _runtime_status() -> dict:
+    """返回当前运行时配置（供前端检测 API Key 是否就绪）。"""
+    agent = AgentRunner(model=DEFAULT_AGENT_MODEL)
+    provider = agent.provider_name
+    if not isinstance(provider, str):
+        provider = "deepseek"
+    config = AgentRunner.PROVIDER_CONFIGS.get(provider, {})
+    key_env = config.get("key_env", "OPENAI_API_KEY")
+    api_key = getattr(agent, "api_key", "") or ""
+    configured = bool(api_key.strip()) if isinstance(api_key, str) else False
+    hint = ""
+    if not configured:
+        hint = f"请在 .env 中设置 {key_env} 后重启服务"
+    return {
+        "api_key_configured": configured,
+        "model": DEFAULT_AGENT_MODEL,
+        "provider": provider,
+        "key_env": key_env,
+        "hint": hint,
+    }
+
+
+def _api_path(raw_path: str) -> str:
+    return urlparse(raw_path).path.rstrip("/") or "/"
+
+
+def _apply_edges_to_nodes(nodes: list, edges: list | None) -> list:
+    dep_map: dict[str, list[str]] = {}
+    for e in edges or []:
+        src, tgt = e.get("source"), e.get("target")
+        if src and tgt:
+            dep_map.setdefault(tgt, []).append(src)
+    prepared = []
+    for n in nodes:
+        nd = dict(n)
+        nid = nd.get("id", "")
+        nd["depends_on"] = dep_map.get(nid, nd.get("depends_on", []))
+        prepared.append(nd)
+    return prepared
+
+
+def _submit_run(
+    requirement: str, nodes: list, edges: list | None = None, workflow_id: str = ""
+) -> str:
+    prepared = _apply_edges_to_nodes(nodes, edges)
+    store = get_store()
+    run_id = store.create_run(requirement, prepared, edges, workflow_id=workflow_id)
+    _executor_queue.put(run_id)
+    return run_id
+
+
 # ── HTTP Handler ──────────────────────────────────
 class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
     server_version = "AgentFlow/3"
@@ -362,16 +414,26 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        url = self.path
+        path = _api_path(self.path)
 
-        if url == "/api/runs":
+        if path == "/api/runs":
             self._handle_list_runs()
             return
-        if url == "/api/providers":
+        if path == "/api/status":
+            self._handle_status()
+            return
+        if path == "/api/providers":
             self._handle_list_providers()
             return
-        if url.startswith("/api/runs/"):
-            parts = url.split("/")
+        if path == "/api/workflows":
+            self._handle_list_workflows()
+            return
+        if path.startswith("/api/workflows/"):
+            wf_id = path.split("/")[-1]
+            self._handle_get_workflow(wf_id)
+            return
+        if path.startswith("/api/runs/"):
+            parts = path.split("/")
             run_id = parts[-1]
             if len(parts) >= 5 and parts[-2] == "events":
                 self._handle_run_events(run_id)
@@ -380,6 +442,7 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             return
 
         # 静态文件
+        url = self.path
         if url == "/" or url == "":
             # 优先尝试 frontend/index.html, 其次 canvas-demo.html
             fe_path = os.path.join(STATIC_DIR, "index.html")
@@ -433,17 +496,53 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404, str(e))
 
     def do_POST(self):
-        url = self.path
-        if url == "/api/decompose":
+        path = _api_path(self.path)
+        if path == "/api/decompose":
             self.handle_decompose()
-        elif url == "/api/supervisor":
+        elif path == "/api/supervisor":
             self.handle_supervisor()
-        elif url == "/api/execute" or url == "/api/runs":
+        elif path in ("/api/execute", "/api/runs"):
             self.handle_execute()
-        elif url == "/api/execute/stream":
+        elif path == "/api/execute/stream":
             self.handle_execute_stream()
+        elif path == "/api/workflows":
+            self._handle_create_workflow()
+        elif path.startswith("/api/hook/"):
+            token = path.split("/")[-1]
+            self._handle_webhook_trigger(token)
         else:
             self.send_error(404)
+
+    def do_PUT(self):
+        path = _api_path(self.path)
+        if path.startswith("/api/workflows/"):
+            wf_id = path.split("/")[-1]
+            self._handle_update_workflow(wf_id)
+        else:
+            self.send_error(404)
+
+    def do_DELETE(self):
+        path = _api_path(self.path)
+        if path.startswith("/api/workflows/"):
+            wf_id = path.split("/")[-1]
+            self._handle_delete_workflow(wf_id)
+        else:
+            self.send_error(404)
+
+    def _read_json_body(self) -> tuple[dict | None, str | None]:
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length > MAX_BODY_SIZE:
+                return None, f"Request too large ({length} > {MAX_BODY_SIZE})"
+            if length == 0:
+                return {}, None
+            return json.loads(self.rfile.read(length)), None
+        except (json.JSONDecodeError, ValueError, TypeError):
+            return None, "Invalid request"
+
+    def _webhook_url(self, token: str) -> str:
+        host = self.headers.get("Host", f"localhost:{PORT}")
+        return f"http://{host}/api/hook/{token}"
 
     # ── 编排（分解大需求为 DAG） ─────────────────────
 
@@ -641,25 +740,8 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
             self._send_json(422, {"error": "invalid_workflow", "details": validation_errors})
             return
 
-        # 将 edges 转为 depends_on 字段
-        dep_map: dict[str, list[str]] = {}
-        for e in edges:
-            src, tgt = e.get("source"), e.get("target")
-            dep_map.setdefault(tgt, []).append(src)
-
-        for n in nodes:
-            nid = n.get("id", "")
-            if nid in dep_map:
-                n["depends_on"] = dep_map[nid]
-            else:
-                n.setdefault("depends_on", [])
-
-        # 持久化到 SQLite
-        store = get_store()
-        run_id = store.create_run(requirement, nodes, edges)
-
-        # 入队异步执行
-        _executor_queue.put(run_id)
+        workflow_id = body.get("workflow_id", "")
+        run_id = _submit_run(requirement, nodes, edges, workflow_id=workflow_id)
 
         print(f"[Execute] Submitted {run_id}: {len(nodes)} nodes", file=sys.stderr)
         self._send_json(202, {
@@ -689,20 +771,14 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
             self._send_json(400, {"error": "No nodes"})
             return
 
-        # 持久化
-        dep_map = {}
-        for e in edges:
-            src, tgt = e.get("source"), e.get("target")
-            dep_map.setdefault(tgt, []).append(src)
-        for n in nodes:
-            nid = n.get("id", "")
-            dep_map.get(nid, [])
-            n["depends_on"] = dep_map.get(nid, [])
-
+        workflow_id = body.get("workflow_id", "")
+        prepared = _apply_edges_to_nodes(nodes, edges)
         store = get_store()
-        run_id = store.create_run(requirement, nodes, edges)
-        total_nodes = len(nodes)
-        groups = self._compute_groups(nodes, edges)
+        run_id = store.create_run(
+            requirement, prepared, edges, workflow_id=workflow_id or ""
+        )
+        total_nodes = len(prepared)
+        groups = self._compute_groups(prepared, edges)
 
         # 发送 SSE 头
         self._send_sse_headers()
@@ -888,6 +964,14 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
 
     # ── Run 历史 API ───────────────────────────────
 
+    # ── Run 历史 API ───────────────────────────────
+
+    def _handle_status(self):
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        self._send_json(200, _runtime_status())
+
     def _handle_list_runs(self):
         if not self._require_auth():
             self._send_json(401, {"error": "Unauthorized"})
@@ -904,6 +988,107 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
             self._send_json(404, {"error": f"Run {run_id} not found"})
             return
         self._send_json(200, run)
+
+    # ── Workflow CRUD + Webhook ─────────────────────
+
+    def _handle_list_workflows(self):
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        workflows = get_store().list_workflows()
+        for wf in workflows:
+            wf["webhook_url"] = self._webhook_url(wf["webhook_token"])
+        self._send_json(200, {"workflows": workflows, "count": len(workflows)})
+
+    def _handle_get_workflow(self, workflow_id: str):
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        wf = get_store().get_workflow(workflow_id)
+        if not wf:
+            self._send_json(404, {"error": f"Workflow {workflow_id} not found"})
+            return
+        wf["webhook_url"] = self._webhook_url(wf["webhook_token"])
+        self._send_json(200, wf)
+
+    def _handle_create_workflow(self):
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        body, err = self._read_json_body()
+        if err:
+            code = 413 if "too large" in err.lower() else 400
+            self._send_json(code, {"error": err})
+            return
+        nodes = (body or {}).get("nodes", [])
+        if not nodes:
+            self._send_json(400, {"error": "No nodes"})
+            return
+        wf = get_store().create_workflow(
+            name=(body or {}).get("name", ""),
+            requirement=(body or {}).get("requirement", ""),
+            nodes=nodes,
+            edges=(body or {}).get("edges", []),
+        )
+        wf["webhook_url"] = self._webhook_url(wf["webhook_token"])
+        self._send_json(201, wf)
+
+    def _handle_update_workflow(self, workflow_id: str):
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        body, err = self._read_json_body()
+        if err:
+            code = 413 if "too large" in err.lower() else 400
+            self._send_json(code, {"error": err})
+            return
+        body = body or {}
+        kwargs = {}
+        for key in ("name", "requirement", "nodes", "edges"):
+            if key in body:
+                kwargs[key] = body[key]
+        if "nodes" in kwargs and not kwargs["nodes"]:
+            self._send_json(400, {"error": "No nodes"})
+            return
+        wf = get_store().update_workflow(workflow_id, **kwargs)
+        if not wf:
+            self._send_json(404, {"error": f"Workflow {workflow_id} not found"})
+            return
+        wf["webhook_url"] = self._webhook_url(wf["webhook_token"])
+        self._send_json(200, wf)
+
+    def _handle_delete_workflow(self, workflow_id: str):
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        if get_store().delete_workflow(workflow_id):
+            self._send_json(200, {"deleted": True, "workflow_id": workflow_id})
+        else:
+            self._send_json(404, {"error": f"Workflow {workflow_id} not found"})
+
+    def _handle_webhook_trigger(self, token: str):
+        """Webhook 触发：URL token 即鉴权，无需 Bearer。"""
+        wf = get_store().get_workflow_by_token(token)
+        if not wf:
+            self._send_json(404, {"error": "Workflow not found"})
+            return
+        body, err = self._read_json_body()
+        if err:
+            code = 413 if "too large" in err.lower() else 400
+            self._send_json(code, {"error": err})
+            return
+        body = body or {}
+        requirement = body.get("requirement") or wf["requirement"]
+        run_id = _submit_run(
+            requirement, wf["nodes"], wf["edges"], workflow_id=wf["workflow_id"]
+        )
+        print(f"[Webhook] Triggered {wf['workflow_id']} -> {run_id}", file=sys.stderr)
+        self._send_json(202, {
+            "run_id": run_id,
+            "workflow_id": wf["workflow_id"],
+            "status": "pending",
+            "message": "Webhook triggered execution",
+        })
 
     def _send_json(self, status: int, data: dict):
         self.send_response(status)
@@ -974,6 +1159,9 @@ if __name__ == "__main__":
     print("  GET  /api/runs         — 执行历史", file=sys.stderr)
     print("  GET  /api/runs/<id>    — 单 run 详情", file=sys.stderr)
     print("  GET  /api/providers    — Provider 能力矩阵", file=sys.stderr)
+    print("  GET  /api/workflows    — 工作流列表", file=sys.stderr)
+    print("  POST /api/workflows    — 保存工作流", file=sys.stderr)
+    print("  POST /api/hook/<token> — Webhook 触发执行", file=sys.stderr)
     print(f"Model: {DEFAULT_AGENT_MODEL}", file=sys.stderr)
     print("Features: Async exec + SQLite persistence + ThreadingHTTPServer", file=sys.stderr)
     print("           Bracket-balanced JSON + Static file whitelist", file=sys.stderr)

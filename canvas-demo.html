@@ -190,6 +190,7 @@
   .result-modal .sub { color:var(--text2); font-size:12px; margin-bottom:14px; }
   .result-item { padding:8px 10px; background:var(--bg); border-radius:5px; margin-bottom:6px; border:1px solid var(--border); display:flex; align-items:center; gap:8px; cursor:pointer; }
   .result-item:hover { border-color:var(--accent); }
+  .result-item:focus { outline:2px solid var(--accent); outline-offset:1px; }
   .result-item .ri-icon { width:24px; height:24px; border-radius:5px; display:flex; align-items:center; justify-content:center; font-size:12px; flex-shrink:0; }
   .result-item .ri-info { flex:1; } .result-item .ri-title { font-size:11px; font-weight:500; }
   .result-item .ri-detail { font-size:10px; color:var(--text3); }
@@ -212,7 +213,12 @@
     <div class="sep"></div>
     <div class="bread"><span class="active">画布</span><span>/</span><span id="workflowName">未命名工作流</span></div>
     <div class="topbar-right">
-      <span class="status"><span class="dot-green"></span> 编排就绪</span>
+      <span class="status" id="topbarStatus"><span class="dot-green" id="statusDot"></span> <span id="statusText">编排就绪</span></span>
+      <button class="btn btn-sm" onclick="saveWorkflow()" title="保存到服务端">💾 保存</button>
+      <button class="btn btn-sm" onclick="showWorkflowList()" title="加载已保存工作流">📂 工作流</button>
+      <button class="btn btn-sm" onclick="exportWorkflow()" title="导出工作流 JSON">📤 导出</button>
+      <button class="btn btn-sm" onclick="importWorkflow()" title="导入工作流 JSON">📥 导入</button>
+      <button class="btn btn-sm" onclick="showRunHistory()" title="执行历史">📜 历史</button>
       <button class="btn btn-sm" onclick="resetDemo()">🔄 重置</button>
     </div>
   </div>
@@ -322,6 +328,62 @@ function esc(s) {
 let step = 0, genTimer = null;
 let currentNodes = [];
 let workflowEdges = [];
+let currentWorkflowId = null;
+let currentWebhookUrl = null;
+let runtimeStatus = { api_key_configured: true, model: 'deepseek-v4-flash', provider: 'deepseek', key_env: 'DEEPSEEK_API_KEY' };
+
+async function fetchRuntimeStatus() {
+  try {
+    const resp = await fetch('/api/status');
+    if (!resp.ok) return;
+    runtimeStatus = await resp.json();
+    updateApiKeyBanner();
+    updateTopbarStatus();
+  } catch (e) {
+    console.warn('status fetch failed', e);
+  }
+}
+
+function updateApiKeyBanner() {
+  const banner = document.getElementById('apiKeyBanner');
+  if (!banner) return;
+  if (runtimeStatus.api_key_configured) {
+    banner.classList.add('hidden');
+    return;
+  }
+  banner.classList.remove('hidden');
+  const keyEnv = runtimeStatus.key_env || 'DEEPSEEK_API_KEY';
+  banner.innerHTML =
+    '⚠️ 未配置 LLM API 密钥，Agent 执行将失败。请在项目根目录创建 <code>.env</code> 并设置 '+
+    '<code>'+keyEnv+'</code>，然后重启 <code>python agentflow-backend.py</code>。'+
+    '（编排分解仍可使用本地模板降级）';
+}
+
+function updateTopbarStatus() {
+  const dot = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  if (!dot || !text) return;
+  if (runtimeStatus.api_key_configured) {
+    dot.className = 'dot-green';
+    text.textContent = '编排就绪';
+  } else {
+    dot.className = 'dot-orange';
+    text.textContent = '未配置 API Key';
+  }
+}
+
+function bindNodeAccessibility(el, label, onActivate) {
+  el.setAttribute('role', 'button');
+  el.setAttribute('tabindex', '0');
+  el.setAttribute('aria-label', label);
+  el.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onActivate();
+    }
+  };
+}
+
 
 const AGENT_PROFILES = {
   'analysis': {icon:'🧮', color:'blue', label:'分析型'},
@@ -372,6 +434,7 @@ function adjustWelcomeCount(delta) {
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('reqInput').addEventListener('input', updateRecCount);
+  fetchRuntimeStatus();
 });
 
 // ═══════════════════════════════════════════════
@@ -623,7 +686,7 @@ function adjustCanvasCount(delta) {
 // ═══════════════════════════════════════════════
 // EXECUTION
 // ═══════════════════════════════════════════════
-function startExecution() {
+async function startExecution() {
   step = 3; updateStepUI();
   // 两阶段执行：POST /api/runs → 202 + run_id → SSE /api/runs/{run_id}/events
   document.getElementById('panelTitle').textContent = '⏳ 提交中 — 等待后端...';
@@ -643,7 +706,8 @@ function startExecution() {
       body: JSON.stringify({
         nodes: currentNodes,
         edges: workflowEdges || [],
-        requirement: document.getElementById('reqInput')?.value || ''
+        requirement: document.getElementById('reqInput')?.value || '',
+        workflow_id: currentWorkflowId || ''
       })
     });
     if (!resp.ok) throw new Error('HTTP '+resp.status);
@@ -683,7 +747,7 @@ function startExecution() {
       }
 
       markDone(nodeId);
-      fillOutput(currentNodes[idx] || {id: nodeId, label: ev.label});
+      fillOutput(currentNodes[idx] || {id: nodeId, label: ev.label}, ev.status);
 
       const costStr = ev.cost ? '$' + ev.cost.toFixed(4) : '';
       const durStr = ev.duration_ms ? (ev.duration_ms/1000).toFixed(1) + 's' : '';
@@ -800,13 +864,240 @@ function markDone(id) {
   if (arr) { arr.classList.remove('active'); arr.classList.add('done'); }
 }
 
-function fillOutput(n) {
+function fillOutput(n, status) {
   const oc = document.getElementById('oc-'+n.id);
   if (!oc) return;
-  oc.classList.add('done');
-  oc.querySelector('.o-status').textContent = '✓';
-  oc.querySelector('.o-status').className = 'o-status done';
-  oc.querySelector('.ob').textContent = n.result ? n.result.replace(/\\n/g,'; ') : '完成';
+  status = status || n.status || n.execStatus || 'completed';
+  oc.classList.remove('done', 'failed', 'skipped');
+  const statusEl = oc.querySelector('.o-status');
+  if (status === 'completed') {
+    oc.classList.add('done');
+    statusEl.textContent = '✓';
+    statusEl.className = 'o-status done';
+  } else if (status === 'skipped') {
+    oc.classList.add('skipped');
+    statusEl.textContent = '⏭';
+    statusEl.className = 'o-status skipped';
+  } else if (status === 'failed') {
+    oc.classList.add('failed');
+    statusEl.textContent = '✗';
+    statusEl.className = 'o-status failed';
+  } else {
+    oc.classList.add('done');
+    statusEl.textContent = '✓';
+    statusEl.className = 'o-status done';
+  }
+  const text = n.result ? n.result.replace(/\\n/g,'; ') : (status === 'skipped' ? '已跳过' : (status === 'failed' ? '失败' : '完成'));
+  oc.querySelector('.ob').textContent = text;
+}
+
+// ═══════════════════════════════════════════════
+// WORKFLOW I/O & RUN HISTORY (n8n-style)
+// ═══════════════════════════════════════════════
+async function saveWorkflow() {
+  if (!currentNodes.length) {
+    alert('请先生成或导入工作流');
+    return;
+  }
+  const payload = {
+    name: document.getElementById('workflowName').textContent,
+    requirement: document.getElementById('reqInput')?.value || '',
+    nodes: currentNodes,
+    edges: workflowEdges,
+  };
+  const isUpdate = !!currentWorkflowId;
+  const url = isUpdate ? '/api/workflows/' + currentWorkflowId : '/api/workflows';
+  const method = isUpdate ? 'PUT' : 'POST';
+  try {
+    const resp = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || ('HTTP ' + resp.status));
+    currentWorkflowId = data.workflow_id;
+    currentWebhookUrl = data.webhook_url || null;
+    document.getElementById('workflowName').textContent = data.name || payload.name;
+    document.getElementById('panelTitle').textContent = '💾 已保存';
+    document.getElementById('panelBody').innerHTML =
+      '<div style="font-size:11px;color:var(--green);margin-bottom:8px;">✅ 工作流已保存到服务端</div>' +
+      '<div style="font-size:10px;color:var(--text2);margin-bottom:4px;">ID: <code>' + data.workflow_id + '</code></div>' +
+      (currentWebhookUrl
+        ? '<div style="font-size:10px;color:var(--text3);word-break:break-all;margin-bottom:8px;">Webhook:<br><code>' +
+          currentWebhookUrl + '</code></div>' +
+          '<button class="btn btn-sm" onclick="copyWebhookUrl()">📋 复制 Webhook URL</button>'
+        : '');
+  } catch (e) {
+    alert('保存失败: ' + e.message);
+  }
+}
+
+async function showWorkflowList() {
+  try {
+    const resp = await fetch('/api/workflows');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const workflows = data.workflows || [];
+    document.getElementById('panelTitle').textContent = '📂 已保存工作流';
+    if (!workflows.length) {
+      document.getElementById('panelBody').innerHTML =
+        '<div class="panel-placeholder"><div class="big-icon">📭</div><div>暂无保存的工作流<br><small>在画布上点击「💾 保存」</small></div></div>';
+      return;
+    }
+    let html = '<div style="font-size:11px;color:var(--text2);margin-bottom:8px;">共 ' +
+      workflows.length + ' 个工作流（类似 n8n Workflows）</div>';
+    workflows.slice(0, 30).forEach(wf => {
+      html += '<div class="result-item wf-list-item" role="button" tabindex="0" ' +
+        'data-wf-id="' + wf.workflow_id + '" ' +
+        'onclick="loadWorkflow(\'' + wf.workflow_id + '\')" ' +
+        'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();loadWorkflow(\'' +
+        wf.workflow_id + '\')}">' +
+        '<div class="ri-info"><div class="ri-title">' + (wf.name || '未命名') + '</div>' +
+        '<div class="ri-detail" style="font-family:var(--mono);font-size:9px;">' + wf.workflow_id + '</div>' +
+        '<div class="ri-detail">' + (wf.requirement || '').slice(0, 50) + '</div></div></div>';
+    });
+    document.getElementById('panelBody').innerHTML = html;
+  } catch (e) {
+    alert('无法加载工作流列表: ' + e.message);
+  }
+}
+
+async function loadWorkflow(workflowId) {
+  try {
+    const resp = await fetch('/api/workflows/' + workflowId);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const wf = await resp.json();
+    currentWorkflowId = wf.workflow_id;
+    currentWebhookUrl = wf.webhook_url || null;
+    currentNodes = wf.nodes || [];
+    workflowEdges = wf.edges || [];
+    if (wf.requirement) document.getElementById('reqInput').value = wf.requirement;
+    document.getElementById('workflowName').textContent = wf.name || '未命名工作流';
+    hide('stepWelcome'); hide('stepGenerating'); hide('demoOverlay');
+    show('stepHint'); show('canvasToolbar');
+    step = 2;
+    updateStepUI();
+    renderGrid();
+    updateCanvasCountUI();
+    document.getElementById('panelTitle').textContent = '📂 ' + (wf.name || '工作流');
+    const hook = currentWebhookUrl
+      ? '<div style="margin-top:8px;font-size:9px;color:var(--text3);word-break:break-all;">Webhook: ' +
+        currentWebhookUrl + '</div>'
+      : '';
+    document.getElementById('panelBody').innerHTML =
+      '<div style="font-size:11px;color:var(--text2);">' + (wf.requirement || '') + '</div>' +
+      hook +
+      '<button class="btn btn-sm" style="margin-top:10px;" onclick="copyWebhookUrl()">📋 复制 Webhook URL</button>';
+  } catch (e) {
+    alert('加载工作流失败: ' + e.message);
+  }
+}
+
+function copyWebhookUrl() {
+  if (!currentWebhookUrl) {
+    alert('请先保存工作流以获取 Webhook URL');
+    return;
+  }
+  navigator.clipboard.writeText(currentWebhookUrl).then(() => {
+    alert('Webhook URL 已复制');
+  }).catch(() => {
+    prompt('复制 Webhook URL:', currentWebhookUrl);
+  });
+}
+
+function exportWorkflow() {
+  if (!currentNodes.length) {
+    alert('请先生成或导入工作流');
+    return;
+  }
+  const wf = {
+    name: document.getElementById('workflowName').textContent,
+    requirement: document.getElementById('reqInput')?.value || '',
+    nodes: currentNodes,
+    edges: workflowEdges,
+    meta: { version: 1, exportedAt: new Date().toISOString(), source: 'agentflow' }
+  };
+  const blob = new Blob([JSON.stringify(wf, null, 2)], {type: 'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'agentflow-workflow.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function importWorkflow() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json,application/json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const wf = JSON.parse(reader.result);
+        if (!wf.nodes || !Array.isArray(wf.nodes)) throw new Error('missing nodes');
+        currentNodes = wf.nodes;
+        workflowEdges = wf.edges || [];
+        if (wf.requirement) document.getElementById('reqInput').value = wf.requirement;
+        document.getElementById('workflowName').textContent = wf.name || '导入的工作流';
+        hide('stepWelcome'); hide('stepGenerating'); hide('demoOverlay');
+        show('stepHint'); show('canvasToolbar');
+        step = 2; updateStepUI();
+        renderGrid(); updateCanvasCountUI();
+      } catch (err) {
+        alert('无效的工作流 JSON: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+async function showRunHistory() {
+  try {
+    const resp = await fetch('/api/runs');
+    if (!resp.ok) throw new Error('HTTP '+resp.status);
+    const data = await resp.json();
+    const runs = data.runs || [];
+    document.getElementById('panelTitle').textContent = '📜 执行历史';
+    if (!runs.length) {
+      document.getElementById('panelBody').innerHTML = '<div class="panel-placeholder"><div class="big-icon">📭</div><div>暂无执行记录</div></div>';
+      return;
+    }
+    let html = '<div style="font-size:11px;color:var(--text2);margin-bottom:8px;">共 '+runs.length+' 次运行（类似 n8n Executions）</div>';
+    runs.slice(0, 20).forEach(r => {
+      const statusColor = r.status === 'completed' ? 'var(--green)' : (r.status === 'failed' ? 'var(--orange)' : 'var(--accent)');
+      html += '<div class="result-item" role="button" tabindex="0" style="cursor:pointer;margin-bottom:6px;" '+
+        'onclick="loadRunDetail(\''+r.run_id+'\')" '+
+        'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();loadRunDetail(\''+r.run_id+'\')}">'+
+        '<div class="ri-info"><div class="ri-title" style="font-family:var(--mono);font-size:10px;">'+r.run_id+'</div>'+
+        '<div class="ri-detail">'+(r.requirement||'').slice(0,60)+'</div></div>'+
+        '<span style="color:'+statusColor+';font-size:10px;font-weight:600;">'+r.status+'</span></div>';
+    });
+    document.getElementById('panelBody').innerHTML = html;
+  } catch (e) {
+    alert('无法加载执行历史: ' + e.message);
+  }
+}
+
+async function loadRunDetail(runId) {
+  try {
+    const resp = await fetch('/api/runs/'+runId);
+    if (!resp.ok) throw new Error('HTTP '+resp.status);
+    const run = await resp.json();
+    document.getElementById('panelTitle').textContent = '📋 Run '+runId;
+    let html = '<div style="font-size:11px;margin-bottom:8px;color:var(--text2);">'+run.requirement+'</div>';
+    html += '<div class="result-summary" style="margin-bottom:10px;"><span>状态: <b>'+run.status+'</b></span><span>费用: <b>$'+(run.total_cost||0).toFixed(4)+'</b></span></div>';
+    (run.nodes||[]).forEach(n => {
+      html += '<div style="padding:6px 8px;background:var(--bg);border-radius:4px;margin-bottom:4px;font-size:10px;border:1px solid var(--border);">'+
+        '<b>'+n.node_id+'</b> '+n.label+' — <span style="color:var(--green);">'+n.status+'</span></div>';
+    });
+    document.getElementById('panelBody').innerHTML = html;
+  } catch (e) {
+    alert('无法加载 Run 详情: ' + e.message);
+  }
 }
 
 // ═══════════════════════════════════════════════
@@ -886,8 +1177,7 @@ function updateStepUI() {
 
 function resetDemo() {
   if(genTimer){clearInterval(genTimer);genTimer=null;}
-  
-  step=0; currentNodes=[];
+  step=0; currentNodes=[]; currentWorkflowId=null; currentWebhookUrl=null;
   const ov=document.getElementById('resultOverlay'); if(ov)ov.remove();
   document.getElementById('canvasGridInner').innerHTML='';
   document.getElementById('panelTitle').textContent='📋 节点配置';
