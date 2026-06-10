@@ -8,7 +8,9 @@ authors = [
     {name = "Luwei Liao"},
 ]
 
-dependencies = []
+dependencies = [
+    # 零外部依赖 — 全部使用 Python stdlib
+]
 
 [project.optional-dependencies]
 dev = [

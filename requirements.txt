@@ -1,0 +1,4 @@
+# AgentFlow — 零外部依赖
+# core: 全部使用 Python 3.10+ stdlib（json / http.server / os / threading）
+# dev: 测试和代码质量工具
+# 详见 pyproject.toml

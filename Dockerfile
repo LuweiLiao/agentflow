@@ -1,7 +1,7 @@
 # === Stage 1: Builder ===
 FROM python:3.12-slim AS builder
 
-RUN pip install --no-cache-dir pyyaml
+# 零外部依赖，无需安装任何包
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ RUN chmod +x start-agentflow.sh
 # === Stage 2: Runtime ===
 FROM python:3.12-slim AS runtime
 
-RUN pip install --no-cache-dir pyyaml
+# 零外部依赖，无需安装任何包
 
 WORKDIR /app
 

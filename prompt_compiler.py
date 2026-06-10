@@ -13,7 +13,7 @@ Compiler 是 AgentFlow 的核心转换层：
     tasks = compiler.compile(workflow_json)
 """
 
-import os, yaml, re
+import os, json, re
 from typing import Optional
 from agentflow_schema import (
     WorkflowJSON, PromptTask, NodeDef, EdgeDef,
@@ -26,7 +26,7 @@ class TemplateNotFound(Exception):
 
 
 class TemplateEngine:
-    """YAML 模板加载和变量渲染引擎。"""
+    """JSON 模板加载和变量渲染引擎。"""
 
     def __init__(self, template_dir: str = None):
         self.template_dir = template_dir or os.path.join(
@@ -35,21 +35,21 @@ class TemplateEngine:
         self._cache: dict[str, dict] = {}
 
     def load(self, profile: str) -> dict:
-        """加载 profile 对应的 YAML 模板。"""
+        """加载 profile 对应的 JSON 模板。"""
         if profile in self._cache:
             return self._cache[profile]
 
-        path = os.path.join(self.template_dir, f"{profile}.yaml")
+        path = os.path.join(self.template_dir, f"{profile}.json")
         if not os.path.isfile(path):
             # 尝试默认 dev 模板
-            fallback = os.path.join(self.template_dir, "dev.yaml")
+            fallback = os.path.join(self.template_dir, "dev.json")
             if os.path.isfile(fallback):
                 path = fallback
             else:
                 raise TemplateNotFound(f"模板不存在: {path}")
 
         with open(path) as f:
-            tmpl = yaml.safe_load(f)
+            tmpl = json.load(f)
         self._cache[profile] = tmpl
         return tmpl
 

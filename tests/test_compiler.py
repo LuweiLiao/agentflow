@@ -25,14 +25,14 @@ class TestTemplateEngine:
         assert "tool_set" in tmpl
 
     def test_load_fallback_to_dev(self):
-        """Loading a missing profile should fall back to dev.yaml."""
+        """Loading a missing profile should fall back to dev.json."""
         engine = TemplateEngine(template_dir="/home/llw/agentflow/templates")
         tmpl = engine.load("nonexistent_profile")
-        # Should have loaded dev.yaml as fallback
+        # Should have loaded dev.json as fallback
         assert "prompt_template" in tmpl
 
     def test_load_template_not_found(self):
-        """If neither profile nor dev.yaml exists, raise TemplateNotFound."""
+        """If neither profile nor dev.json exists, raise TemplateNotFound."""
         with tempfile.TemporaryDirectory() as td:
             engine = TemplateEngine(template_dir=td)
             with pytest.raises(TemplateNotFound, match="模板不存在"):
