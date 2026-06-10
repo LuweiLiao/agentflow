@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """API tests for agentflow-backend.py."""
 
-import sys, os, json, time, threading, socket, tempfile
-sys.path.insert(0, '/home/llw/agentflow')
 
+
+import sys, os, json, time, threading, socket, tempfile
 import pytest
 from unittest import mock
 import importlib.util

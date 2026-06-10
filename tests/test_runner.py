@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Sandbox tests for agent_runner.py."""
 
-import sys, os, tempfile
-sys.path.insert(0, '/home/llw/agentflow')
 
+
+import os, tempfile
 import pytest
 from agent_runner import (
     _is_path_safe, _is_command_safe, AgentRunner,

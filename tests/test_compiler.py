@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Compiler tests for prompt_compiler.py."""
 
-import sys, os, tempfile
-sys.path.insert(0, '/home/llw/agentflow')
 
+
+import os, tempfile, json, shutil
 import pytest
 from prompt_compiler import PromptCompiler, TemplateEngine, TemplateNotFound
 from agentflow_schema import (

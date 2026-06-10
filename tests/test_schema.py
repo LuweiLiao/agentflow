@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Unit tests for agentflow_schema.py."""
 
-import sys, os
-sys.path.insert(0, '/home/llw/agentflow')
 
+
+import os
 import pytest
 from agentflow_schema import (
     WorkflowJSON, NodeDef, EdgeDef, PromptTask,
