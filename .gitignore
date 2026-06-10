@@ -45,3 +45,4 @@
     45|
 # Runtime data
 .agentflow/
+node_modules/

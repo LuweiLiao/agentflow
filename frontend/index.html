@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'none'">
+  <title>AgentFlow — Agent 编排平台</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f8fafc; color: #1e293b; min-height: 100vh;
+    }
+    .header {
+      background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+      color: white; padding: 16px 24px; display: flex;
+      align-items: center; justify-content: space-between;
+    }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .header .badge {
+      font-size: 12px; background: #3b82f6; padding: 2px 8px;
+      border-radius: 4px; margin-left: 8px;
+    }
+    .container { display: flex; gap: 16px; padding: 16px; height: calc(100vh - 60px); }
+    .left-panel { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+    .right-panel { width: 380px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
+    .card {
+      background: white; border-radius: 12px; padding: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #e2e8f0;
+    }
+    .card-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #475569; }
+    textarea {
+      width: 100%; height: 60px; border: 1px solid #cbd5e1; border-radius: 8px;
+      padding: 8px; font-size: 14px; resize: vertical; font-family: inherit;
+    }
+    textarea:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+    .btn {
+      padding: 8px 16px; border-radius: 8px; border: none; font-size: 14px;
+      font-weight: 500; cursor: pointer; transition: all 0.15s;
+    }
+    .btn-primary { background: #3b82f6; color: white; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-primary:disabled { background: #94a3b8; cursor: not-allowed; }
+    .btn-success { background: #22c55e; color: white; }
+    .btn-success:hover { background: #16a34a; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-outline { background: white; border: 1px solid #cbd5e1; color: #475569; }
+    .btn-outline:hover { background: #f8fafc; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    #canvas {
+      flex: 1; background: white; border-radius: 12px; border: 1px solid #e2e8f0;
+      position: relative; overflow-y: auto; min-height: 200px;
+    }
+    #log {
+      flex: 1; background: #0f172a; color: #e2e8f0; border-radius: 12px;
+      padding: 12px; font-family: 'Menlo', 'Consolas', monospace; font-size: 12px;
+      overflow-y: auto; line-height: 1.6; min-height: 100px;
+    }
+    .log-info { color: #94a3b8; }
+    .log-success { color: #22c55e; }
+    .log-error { color: #ef4444; }
+    .log-warn { color: #f59e0b; }
+    .log-running { color: #3b82f6; }
+    .log-agent { color: #a78bfa; }
+    select {
+      width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1;
+      border-radius: 6px; font-size: 13px; background: white;
+    }
+    .stats {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    .stat-item {
+      background: #f8fafc; padding: 8px 12px; border-radius: 8px;
+    }
+    .stat-item .label { font-size: 11px; color: #64748b; }
+    .stat-item .value { font-size: 16px; font-weight: 600; color: #1e293b; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    .animate-pulse { animation: pulse 1.5s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>AgentFlow <span class="badge">v5</span></h1>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <select id="exampleSelect" style="width:240px;">
+        <option value="">— 选择示例 —</option>
+      </select>
+      <button class="btn btn-danger" onclick="resetAll()">清空</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- 左侧：画布 -->
+    <div class="left-panel">
+      <div class="card">
+        <div class="card-title">📋 需求</div>
+        <textarea id="requirement" placeholder="描述你想构建的项目，例如：用 PyQt5 实现一个串口调试助手..."></textarea>
+        <div class="actions" style="margin-top:8px;">
+          <button id="submitBtn" class="btn btn-primary" onclick="startSupervisor()">🤖 AI 编排</button>
+          <button id="execBtn" class="btn btn-success" onclick="startExecution()" disabled>▶ 执行</button>
+        </div>
+      </div>
+      <div id="canvas">
+        <div style="display:flex;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:14px;">
+          输入需求并点击"AI 编排"生成工作流
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧：日志 + 状态 -->
+    <div class="right-panel">
+      <div class="card" id="configPanel" style="display:none;">
+        <div class="card-title">📊 工作流统计</div>
+        <div class="stats">
+          <div class="stat-item"><div class="label">节点数</div><div class="value" id="nodeCount">0</div></div>
+          <div class="stat-item"><div class="label">边数</div><div class="value" id="edgeCount">0</div></div>
+          <div class="stat-item"><div class="label">状态</div><div class="value" id="runStatus">-</div></div>
+          <div class="stat-item"><div class="label">费用</div><div class="value" id="runCost">$0</div></div>
+        </div>
+      </div>
+      <div class="card-title" style="padding:0 4px;">📜 执行日志</div>
+      <div id="log">
+        <div class="log-info">AgentFlow v5 前端已加载</div>
+        <div class="log-info">输入需求 → AI 编排 → 确认方案 → 执行</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="dist/main.js"></script>
+</body>
+</html>

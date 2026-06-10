@@ -25,7 +25,10 @@ from supervisor import Supervisor
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9600
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.environ.get("AGENTFLOW_STATIC_DIR", SCRIPT_DIR)
+FRONTEND_DIR = os.path.join(SCRIPT_DIR, "frontend")
+STATIC_DIR = os.environ.get("AGENTFLOW_STATIC_DIR",
+    FRONTEND_DIR if os.path.isfile(os.path.join(FRONTEND_DIR, "index.html"))
+    else SCRIPT_DIR)
 TEMPLATE_DIR = os.environ.get("AGENTFLOW_TEMPLATE_DIR",
     os.path.join(STATIC_DIR, "templates") if os.path.isdir(os.path.join(STATIC_DIR, "templates"))
     else os.path.join(SCRIPT_DIR, "templates"))
@@ -368,10 +371,25 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
 
         # 静态文件
         if url == "/" or url == "":
-            url = "/canvas-demo.html"
+            # 优先尝试 frontend/index.html, 其次 canvas-demo.html
+            fe_path = os.path.join(STATIC_DIR, "index.html")
+            cd_path = os.path.join(SCRIPT_DIR, "canvas-demo.html")
+            if os.path.isfile(fe_path):
+                url = "/index.html"
+            elif os.path.isfile(cd_path):
+                url = "/canvas-demo.html"
+            else:
+                url = "/index.html"  # 兜底
         filepath = os.path.normpath(os.path.join(STATIC_DIR, url.lstrip("/")))
+        # 如果在 STATIC_DIR 找不到，回退到 SCRIPT_DIR
+        if not os.path.isfile(filepath):
+            alt = os.path.normpath(os.path.join(SCRIPT_DIR, url.lstrip("/")))
+            if os.path.isfile(alt):
+                filepath = alt
         allowed_prefix = os.path.normpath(STATIC_DIR) + os.sep
-        if not (filepath.startswith(allowed_prefix) or filepath == os.path.normpath(STATIC_DIR)):
+        script_prefix = os.path.normpath(SCRIPT_DIR) + os.sep
+        if not (filepath.startswith(allowed_prefix) or filepath == os.path.normpath(STATIC_DIR) or
+                filepath.startswith(script_prefix)):
             self.send_error(403, "Forbidden")
             return
 
