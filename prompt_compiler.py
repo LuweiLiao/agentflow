@@ -13,15 +13,20 @@ Compiler 是 AgentFlow 的核心转换层：
     tasks = compiler.compile(workflow_json)
 """
 
-import os, json, re
-from typing import Optional
+import json
+import os
+import re
+
 from agentflow_schema import (
-    WorkflowJSON, PromptTask, NodeDef, EdgeDef,
-    topological_sort, parallel_groups, Profile
+    EdgeDef,
+    NodeDef,
+    PromptTask,
+    WorkflowJSON,
+    topological_sort,
 )
 
 
-class TemplateNotFound(Exception):
+class TemplateNotFoundError(Exception):
     pass
 
 
@@ -46,7 +51,7 @@ class TemplateEngine:
             if os.path.isfile(fallback):
                 path = fallback
             else:
-                raise TemplateNotFound(f"模板不存在: {path}")
+                raise TemplateNotFoundError(f"模板不存在: {path}")
 
         with open(path) as f:
             tmpl = json.load(f)

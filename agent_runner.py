@@ -22,7 +22,15 @@ Multi-Provider Agent Runner — 支持任何 OpenAI 兼容 API 的通用 Agent�
     result = agent.execute("写一个 hello world", work_dir="/tmp/work")
 """
 
-import os, sys, json, subprocess, time, shutil, shlex
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import time
+
+from provider_adapter import ProviderAdapter
 
 # Agent 工具沙箱配置
 # 禁止 Agent 访问的敏感文件/目录模式
@@ -149,6 +157,13 @@ class AgentRunner:
         # Base URL
         self.base_url = (os.environ.get(config["base_env"], config["default_base"]).rstrip("/"))
 
+        # 创建 ProviderAdapter
+        self.adapter = ProviderAdapter(
+            base_url=self.base_url,
+            api_key=self.api_key or "",
+            model=self.model,
+        )
+
         if not self.api_key:
             self._log(f"⚠️ 未配置 {provider_name} API 密钥 ({config['key_env']})", err=True)
 
@@ -212,7 +227,6 @@ class AgentRunner:
                         "content": json.dumps(tr, ensure_ascii=False)[:15000]
                     })
 
-            elapsed = int((time.time() - start) * 1000)
             full_output = "\n".join(all_output)
             result = self._extract_summary(full_output)
 
@@ -345,35 +359,7 @@ class AgentRunner:
     # ── LLM 调用 ─────────────────────────────────────────
 
     def _llm_call(self, messages: list, tools: list = None):
-        url = f"{self.base_url}/chat/completions" if "/chat/completions" not in self.base_url else self.base_url
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": 0.7,
-            "max_tokens": 8192,
-        }
-        if tools:
-            payload["tools"] = tools
-            payload["tool_choice"] = "auto"
-
-        data = json.dumps(payload).encode()
-        import urllib.request, urllib.error
-
-        last_error = None
-        for attempt in range(3):
-            try:
-                req = urllib.request.Request(url, data=data, headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.api_key}"
-                }, method="POST")
-                with urllib.request.urlopen(req, timeout=120) as resp:
-                    return json.loads(resp.read())
-            except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
-                last_error = e
-                self._log(f"LLM call attempt {attempt+1}/3 failed: {e}", err=True)
-                if attempt < 2:
-                    time.sleep(1.5 ** attempt)  # 1.5s → 2.25s 退避
-        raise last_error or RuntimeError("LLM call failed after 3 retries")
+        return self.adapter.chat_completion(messages, tools=tools)
 
     # ── 工具函数 ─────────────────────────────────────────
 
@@ -404,21 +390,22 @@ class AgentRunner:
         if not output:
             return ""
         # 尝试从尾部 JSON 块提取 summary
-        import re
         json_blocks = re.findall(r'```(?:json)?\s*({.*?})\s*```', output, re.DOTALL)
         for block in reversed(json_blocks):
             try:
                 obj = json.loads(block)
                 if "summary" in obj:
                     return obj["summary"]
-            except: pass
+            except Exception:
+                pass
         # 尝试找最后一行的 JSON
         for line in reversed(output.split("\n")):
             line = line.strip()
             if line.startswith("{") and "summary" in line:
                 try:
                     return json.loads(line).get("summary", output[:300])
-                except: pass
+                except Exception:
+                    pass
         return output[:500]
 
     def _make_result(self, result, output, cost, start, status, turns=1):

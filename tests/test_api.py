@@ -3,10 +3,14 @@
 
 
 
-import sys, os, json, time, threading, socket, tempfile
-import pytest
-from unittest import mock
 import importlib.util
+import json
+import os
+import socket
+import sys
+import threading
+import time
+from unittest import mock
 
 # Must mock sys.argv before importing agentflow-backend (it reads argv[1])
 _saved_argv = sys.argv
@@ -20,9 +24,9 @@ agentflow_backend = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(agentflow_backend)
 sys.argv = _saved_argv  # restore
 
-from http.server import HTTPServer
-from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
+from http.server import HTTPServer  # noqa: E402
+from urllib.error import HTTPError  # noqa: E402
+from urllib.request import Request, urlopen  # noqa: E402
 
 
 class _TestServer:

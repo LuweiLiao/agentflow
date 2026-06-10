@@ -3,13 +3,16 @@
 
 
 
-import os, tempfile, json, shutil
-import pytest
-from prompt_compiler import PromptCompiler, TemplateEngine, TemplateNotFound
-from agentflow_schema import (
-    WorkflowJSON, NodeDef, EdgeDef, PromptTask,
-)
+import tempfile
 
+import pytest
+
+from agentflow_schema import (
+    EdgeDef,
+    NodeDef,
+    WorkflowJSON,
+)
+from prompt_compiler import PromptCompiler, TemplateEngine, TemplateNotFoundError
 
 # ═══════════════════════════════════════════════════════
 # TemplateEngine  tests
@@ -32,10 +35,10 @@ class TestTemplateEngine:
         assert "prompt_template" in tmpl
 
     def test_load_template_not_found(self):
-        """If neither profile nor dev.json exists, raise TemplateNotFound."""
+        """If neither profile nor dev.json exists, raise TemplateNotFoundError."""
         with tempfile.TemporaryDirectory() as td:
             engine = TemplateEngine(template_dir=td)
-            with pytest.raises(TemplateNotFound, match="模板不存在"):
+            with pytest.raises(TemplateNotFoundError, match="模板不存在"):
                 engine.load("test_profile")
 
     def test_render_basic_variables(self):

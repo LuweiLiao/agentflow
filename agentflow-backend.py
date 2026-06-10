@@ -1,17 +1,26 @@
 #!/usr/bin/env python3
 """AgentFlow 统一后端 — 静态文件 + API + Compiler + DAG 并行执行引擎"""
-import os, sys, json, http.server, urllib.request, urllib.error, tempfile, shutil, time, uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import http.server
+import json
+import os
+import re
+import shutil
+import sys
+import tempfile
 import threading
+import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from agent_runner import AgentRunner
 from agentflow_schema import (
-    WorkflowJSON, NodeDef, EdgeDef,
-    validate_workflow, parallel_groups, Profile,
-    EnvelopeJSON, ResultMetrics,
+    NodeDef,
+    WorkflowJSON,
+    parallel_groups,
+    validate_workflow,
 )
-from prompt_compiler import PromptCompiler
 from artifact_store import ArtifactStore
+from prompt_compiler import PromptCompiler
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9600
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -131,6 +140,8 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
                 self.handle_decompose()
             elif self.path == "/api/execute":
                 self.handle_execute()
+            elif self.path == "/api/execute/stream":
+                self.handle_execute_stream()
             else:
                 self.send_error(404)
         except Exception as e:
@@ -139,7 +150,7 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             traceback.print_exc(file=sys.stderr)
             try:
                 self.send_error(500, str(e))
-            except:
+            except Exception:
                 pass
 
     # ── /api/decompose — 编排 Agent ──────────────────
@@ -153,13 +164,18 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             requirement = body.get("requirement", "")
             count = int(body.get("count", 4))
-        except:
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError):
             self.send_error(400, "Invalid request")
             return
 
         count = max(1, min(count, 100))
-        zai_key = os.environ.get("ZAI_API_KEY", "")
-        nodes = self.call_llm(requirement, count) if zai_key else self.fallback_template(requirement, count)
+        # 用 AgentRunner 自动检测可用 API key
+        try:
+            test_runner = AgentRunner(model=os.environ.get("AGENT_MODEL", "deepseek-chat"))
+            has_key = bool(test_runner.api_key)
+        except Exception:
+            has_key = False
+        nodes = self.call_llm(requirement, count) if has_key else self.fallback_template(requirement, count)
 
         # 自动生成 edges: 分析→设计→开发→测试→文档→部署（链式串联）
         edges = self._generate_edges(nodes)
@@ -214,8 +230,7 @@ profile 必须是: analysis/design/dev/test/doc/deploy 之一
         )
         content = result.get("output", "[]").strip()
         # 提取 JSON
-        import re as _re
-        json_match = _re.search(r'\[.*?\]', content, _re.DOTALL)
+        json_match = re.search(r'\[.*?\]', content, re.DOTALL)
         if json_match:
             content = json_match.group()
         try:
@@ -290,7 +305,7 @@ profile 必须是: analysis/design/dev/test/doc/deploy 之一
             nodes = body.get("nodes", [])
             edges = body.get("edges", [])
             requirement = body.get("requirement", "")
-        except:
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError):
             self.send_error(400, "Invalid request")
             return
 
@@ -312,6 +327,13 @@ profile 必须是: analysis/design/dev/test/doc/deploy 之一
         errs = validate_workflow(wf)
         if errs:
             print(f"[Execute] Validation errors: {errs}", file=sys.stderr)
+            # 验证失败则中止执行
+            self._send_json(400, {
+                "error": "工作流验证失败",
+                "details": errs,
+                "run_id": run_id,
+            })
+            return
 
         compiler = PromptCompiler(TEMPLATE_DIR)
         work_dir = tempfile.mkdtemp(prefix=f"agentflow_{run_id}_")
@@ -386,7 +408,7 @@ profile 必须是: analysis/design/dev/test/doc/deploy 之一
         # 清理临时工作目录
         try:
             shutil.rmtree(work_dir)
-        except:
+        except OSError:
             pass
 
         self.send_response(200)
@@ -404,6 +426,182 @@ profile 必须是: analysis/design/dev/test/doc/deploy 之一
             "run_id": run_id,
             "artifact_dir": store.run_dir,
         }).encode())
+
+    # ── 流式执行 (SSE) ─────────────────────────────────
+
+    def _stream_send_event(self, event: str, data: dict):
+        """发送 SSE 事件（需在流式响应头之后调用）。"""
+        payload = f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+        try:
+            self.wfile.write(payload.encode())
+            self.wfile.flush()
+        except Exception:
+            pass  # 连接断开，忽略
+
+    def _send_sse_headers(self):
+        """发送 SSE 响应头。"""
+        self.send_response(200)
+        origin = self.headers.get("Origin", "")
+        cors = self._cors_headers(origin)
+        for k, v in cors.items():
+            self.send_header(k, v)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+    def handle_execute_stream(self):
+        """流式执行 — 每个节点完成即发送 SSE 事件。"""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length > MAX_BODY_SIZE:
+                self.send_error(413, f"请求体过大 ({length} > {MAX_BODY_SIZE})")
+                return
+            body = json.loads(self.rfile.read(length))
+            nodes = body.get("nodes", [])
+            edges = body.get("edges", [])
+            requirement = body.get("requirement", "")
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+            self.send_error(400, "Invalid request")
+            return
+
+        if not nodes:
+            self.send_error(400, "No nodes")
+            return
+
+        # ── 初始化 ───────────────────────────────────
+        run_id = f"run_{uuid.uuid4().hex[:12]}"
+        store = ArtifactStore(run_id)
+        store.save_meta({
+            "requirement": requirement[:100],
+            "node_count": len(nodes),
+            "created": time.time(),
+        })
+
+        wf = WorkflowJSON.from_api_request(nodes, requirement, edges)
+        errs = validate_workflow(wf)
+        if errs:
+            self._stream_send_event("error", {
+                "error": "工作流验证失败",
+                "details": errs,
+                "run_id": run_id,
+            })
+            return
+
+        self._send_sse_headers()
+
+        compiler = PromptCompiler(TEMPLATE_DIR)
+        work_dir = tempfile.mkdtemp(prefix=f"agentflow_{run_id}_")
+        node_map = {n.id: n for n in wf.nodes}
+        groups = parallel_groups(wf.nodes, wf.edges)
+        all_results = []
+        upstream_results: dict[str, str] = {}
+
+        self._stream_send_event("workflow_start", {
+            "run_id": run_id,
+            "total_nodes": len(nodes),
+            "total_groups": len(groups),
+        })
+
+        # ── 逐层执行（动态编译） ─────────────────────
+        for group_idx, group_nodes in enumerate(groups):
+            layer_tasks = compiler.compile(wf, upstream_results=upstream_results)
+            group_task_ids = {n.id for n in group_nodes}
+            current_tasks = [t for t in layer_tasks if t.node_id in group_task_ids]
+
+            if not current_tasks:
+                continue
+
+            # 发送 group 开始事件
+            self._stream_send_event("group_start", {
+                "group_idx": group_idx,
+                "total_groups": len(groups),
+                "nodes": [{"id": n.id, "label": n.label} for n in group_nodes],
+            })
+
+            with ThreadPoolExecutor(max_workers=len(group_nodes)) as pool:
+                fut_to_node = {}
+                for task in current_tasks:
+                    node = node_map.get(task.node_id)
+                    if not node:
+                        continue
+                    node_dir = os.path.join(work_dir, f"node_{node.id}")
+                    os.makedirs(node_dir, exist_ok=True)
+
+                    # 发送节点开始事件
+                    self._stream_send_event("node_start", {
+                        "node_id": node.id,
+                        "label": node.label,
+                        "profile": node.profile,
+                        "group_idx": group_idx,
+                    })
+
+                    fut = pool.submit(
+                        self._execute_one_node, node, task, node_dir
+                    )
+                    fut_to_node[fut] = node
+
+                for fut in as_completed(fut_to_node):
+                    node = fut_to_node[fut]
+                    try:
+                        result = fut.result()
+                    except Exception as e:
+                        result = {
+                            "status": "error",
+                            "result": f"执行异常: {e}",
+                            "cost": 0, "duration": 0, "turns": 0,
+                        }
+
+                    node.result = result.get("result", "")
+                    node.output = result.get("output", "")[:2000]
+                    node.status = result.get("status", "error")
+                    node.cost = result.get("cost", 0)
+                    node.duration = result.get("duration", 0)
+                    node.turns = result.get("turns", 0)
+                    node.provider = result.get("provider", "")
+                    node.model = result.get("model", node.model or DEFAULT_AGENT_MODEL)
+
+                    store.save_raw(node.id, result)
+
+                    output_text = result.get("output", "") or result.get("result", "")
+                    upstream_results[node.id] = output_text[:2000]
+
+                    node_dict = node.to_dict()
+                    all_results.append(node_dict)
+
+                    # 发送节点完成事件
+                    self._stream_send_event("node_complete", {
+                        "node_id": node.id,
+                        "label": node.label,
+                        "status": result.get("status", "ok"),
+                        "result": node.result[:500],
+                        "cost": node.cost,
+                        "duration_ms": node.duration,
+                        "turns": node.turns,
+                        "model": node.model,
+                        "provider": node.provider,
+                    })
+
+            self._stream_send_event("group_complete", {
+                "group_idx": group_idx,
+                "completed": len(current_tasks),
+            })
+
+        # 清理
+        try:
+            shutil.rmtree(work_dir)
+        except OSError:
+            pass
+
+        # 发送完成事件
+        self._stream_send_event("workflow_done", {
+            "run_id": run_id,
+            "nodes": all_results,
+            "total_cost": sum(r.get("cost", 0) for r in all_results),
+            "total_duration": sum(r.get("duration", 0) for r in all_results),
+            "groups": [len(g) for g in groups],
+            "artifact_dir": store.run_dir,
+        })
 
     def _execute_one_node(self, node: NodeDef, task, node_dir: str) -> dict:
         """执行单个节点（在 ThreadPool 中运行，受全局并发限流）。"""
@@ -536,11 +734,10 @@ profile 必须是: analysis/design/dev/test/doc/deploy 之一
 if __name__ == "__main__":
     server = http.server.HTTPServer(("127.0.0.1", PORT), AgentFlowHandler)
     print(f"AgentFlow v3 backend running on http://localhost:{PORT}", file=sys.stderr)
-    print(f"API: POST /api/decompose | POST /api/execute", file=sys.stderr)
+    print("API: POST /api/decompose | POST /api/execute | POST /api/execute/stream", file=sys.stderr)
     print(f"Static: {STATIC_DIR}", file=sys.stderr)
     print(f"Default Agent Model: {DEFAULT_AGENT_MODEL}", file=sys.stderr)
-    print(f"ZAI_API_KEY: {'SET' if os.environ.get('ZAI_API_KEY') else 'NOT SET'}", file=sys.stderr)
-    print(f"Agent Engine: Compiler + DAG Parallel + AgentRunner", file=sys.stderr)
+    print("Agent Engine: Provider Adapter + Compiler + DAG Parallel", file=sys.stderr)
     print(f"Support: {len(AgentRunner.PROVIDER_CONFIGS)} providers / 6 profile templates", file=sys.stderr)
     try:
         server.serve_forever()

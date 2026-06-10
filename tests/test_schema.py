@@ -3,14 +3,18 @@
 
 
 
-import os
 import pytest
-from agentflow_schema import (
-    WorkflowJSON, NodeDef, EdgeDef, PromptTask,
-    validate_workflow, validate_prompt_tasks,
-    topological_sort, parallel_groups, Profile,
-)
 
+from agentflow_schema import (
+    EdgeDef,
+    NodeDef,
+    PromptTask,
+    WorkflowJSON,
+    parallel_groups,
+    topological_sort,
+    validate_prompt_tasks,
+    validate_workflow,
+)
 
 # ═══════════════════════════════════════════════════════
 # validate_workflow  tests
@@ -71,23 +75,6 @@ class TestValidateWorkflow:
         wf = WorkflowJSON(nodes=nodes, edges=edges)
         errors = validate_workflow(wf)
         assert any("环" in e for e in errors)
-
-    def test_orphan_nodes(self):
-        """Orphan nodes (no in/out edges) with >1 total nodes should be flagged."""
-        nodes = [
-            NodeDef(id="a1", profile="dev"),
-            NodeDef(id="a2", profile="test"),
-            NodeDef(id="a3", profile="doc"),
-        ]
-        edges = [EdgeDef(source="a1", target="a2")]
-        wf = WorkflowJSON(nodes=nodes, edges=edges)
-        errors = validate_workflow(wf)
-        # a3 is orphaned (no in, no out) and there are 3 nodes > 1, so orphan detection triggers
-        # But orphan detection triggers only if > 1 orphans, so let's check
-        # Actually logic: if len(orphans) > 1, so with one orphan it won't trigger
-        # Let me make 2 orphans: a2 has in from a1, a3 is orphan. Only a3 is orphan = 1, not > 1
-        # So need to adjust — make 2 orphans
-        pass
 
     def test_orphan_nodes_two(self):
         """Two orphans should be flagged."""

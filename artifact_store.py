@@ -1,5 +1,4 @@
-"""
-ArtifactStore — AgentFlow 节点输出状态存储
+"""ArtifactStore — AgentFlow 节点输出状态存储
 
 职责:
   1. 持久化每个节点的执行结果 (EnvelopeJSON)
@@ -7,9 +6,12 @@ ArtifactStore — AgentFlow 节点输出状态存储
   3. 支持 run_id 隔离，保留执行历史
 """
 
-import os, json, time, shutil
-from typing import Optional
+import json
+import os
+import shutil
+import time
 from dataclasses import asdict
+from typing import Optional
 
 from agentflow_schema import EnvelopeJSON, ResultMetrics
 
@@ -131,14 +133,3 @@ class ArtifactStore:
         """删除此 run 的存储。"""
         if os.path.isdir(self.run_dir):
             shutil.rmtree(self.run_dir, ignore_errors=True)
-
-    @staticmethod
-    def calculate_envelope_key(node_id: str) -> str:
-        return f"envelope:{node_id}"
-
-    def get_upstream_ids(self, node_id: str, edges: list) -> list[str]:
-        """获取指定节点的上游节点 ID。"""
-        return [
-            e.source for e in edges
-            if e.target == node_id
-        ]

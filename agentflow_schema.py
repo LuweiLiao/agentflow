@@ -15,10 +15,9 @@ AgentFlow 数据契约 — WorkflowJSON / PromptTask / Envelope JSON
     validate_workflow(wf)
 """
 
-import json, enum, dataclasses
-from dataclasses import dataclass, field, asdict
-from typing import Optional, Any
-
+import enum
+from dataclasses import asdict, dataclass, field
+from typing import Optional
 
 # ═══════════════════════════════════════════════════════
 # 枚举
@@ -276,9 +275,9 @@ def validate_workflow(wf: WorkflowJSON) -> list[str]:
             break
 
     # 最大节点限制
-    MAX_NODES = 200
-    if len(wf.nodes) > MAX_NODES:
-        errors.append(f"节点数 ({len(wf.nodes)}) 超过最大限制 ({MAX_NODES})")
+    max_nodes = 200
+    if len(wf.nodes) > max_nodes:
+        errors.append(f"节点数 ({len(wf.nodes)}) 超过最大限制 ({max_nodes})")
 
     node_ids = {n.id for n in wf.nodes}
     for e in wf.edges:
@@ -326,7 +325,6 @@ def validate_prompt_tasks(tasks: list[PromptTask]) -> list[str]:
     if not tasks:
         errors.append("tasks 为空")
         return errors
-    task_ids = {t.task_id for t in tasks}
     node_ids = {t.node_id for t in tasks}
     for t in tasks:
         if not t.prompt:
