@@ -11,16 +11,17 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue
 
-from artifact_broker import get_broker
 from agent_runner import AgentRunner
 from agentflow_schema import (
     NodeDef,
     WorkflowJSON,
     validate_workflow,
 )
+from artifact_broker import get_broker
 from prompt_compiler import PromptCompiler
+from provider_registry import get_registry
 from run_store import extract_json, get_store, startup_scan
-from sandbox_runner import get_runner
+from supervisor import Supervisor
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9600
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -51,6 +52,7 @@ SAFE_EXTENSIONS = frozenset({
 # ── 后台执行引擎 ────────────────────────────────────
 _executor_queue: Queue = Queue()
 _store = get_store()
+_supervisor = Supervisor()
 
 
 def _background_worker():
@@ -233,7 +235,7 @@ def _execute_run(run_id: str):
                             "summary": summary,
                             "artifact": art_ref.to_dict(),
                         }, ensure_ascii=False)
-                    except Exception as e:
+                    except Exception:
                         # fallback: 仍用文件路径
                         summary = (full_output[:500] + "...") if len(full_output) > 500 else full_output
                         upstream_summaries[nid] = json.dumps({
@@ -352,6 +354,9 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         if url == "/api/runs":
             self._handle_list_runs()
             return
+        if url == "/api/providers":
+            self._handle_list_providers()
+            return
         if url.startswith("/api/runs/"):
             parts = url.split("/")
             run_id = parts[-1]
@@ -403,6 +408,8 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         url = self.path
         if url == "/api/decompose":
             self.handle_decompose()
+        elif url == "/api/supervisor":
+            self.handle_supervisor()
         elif url == "/api/execute" or url == "/api/runs":
             self.handle_execute()
         elif url == "/api/execute/stream":
@@ -865,6 +872,45 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
 
+    # ── Supervisor 多 Agent 路由 ────────────────────
+
+    def handle_supervisor(self):
+        """POST /api/supervisor — 多轮对话式编排。"""
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length > MAX_BODY_SIZE:
+                self._send_json(413, {"error": "Request too large"})
+                return
+            body = json.loads(self.rfile.read(length))
+            message = body.get("message", "")
+            session_id = body.get("session_id", "")
+        except (json.JSONDecodeError, ValueError, TypeError):
+            self._send_json(400, {"error": "Invalid request"})
+            return
+
+        if not message:
+            self._send_json(400, {"error": "Message is empty"})
+            return
+
+        try:
+            result = _supervisor.process(message, session_id)
+            self._send_json(200, result)
+        except Exception as e:
+            self._send_json(500, {"error": str(e)[:200]})
+
+    # ── Provider 信息 ──────────────────────────────
+
+    def _handle_list_providers(self):
+        """GET /api/providers — 列出所有 provider 状态。"""
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        registry = get_registry()
+        self._send_json(200, registry.to_dict())
+
     def log_message(self, format, *args):
         print(f"[AgentFlow] {args[0] if args else ''}", file=sys.stderr)
 
@@ -880,10 +926,12 @@ if __name__ == "__main__":
     print(f"AgentFlow v5 backend running on http://{HOST}:{PORT}", file=sys.stderr)
     print("API:", file=sys.stderr)
     print("  POST /api/decompose    — 编排分解 (同步)", file=sys.stderr)
+    print("  POST /api/supervisor    — 多轮对话编排 (Supervisor Agent)", file=sys.stderr)
     print("  POST /api/runs         — 异步执行 (返回 run_id)", file=sys.stderr)
     print("  GET  /api/runs/<id>/events — SSE 实时事件流", file=sys.stderr)
     print("  GET  /api/runs         — 执行历史", file=sys.stderr)
     print("  GET  /api/runs/<id>    — 单 run 详情", file=sys.stderr)
+    print("  GET  /api/providers    — Provider 能力矩阵", file=sys.stderr)
     print(f"Model: {DEFAULT_AGENT_MODEL}", file=sys.stderr)
     print("Features: Async exec + SQLite persistence + ThreadingHTTPServer", file=sys.stderr)
     print("           Bracket-balanced JSON + Static file whitelist", file=sys.stderr)
