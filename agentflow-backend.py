@@ -160,6 +160,9 @@ def _execute_run(run_id: str):
                     os.makedirs(node_dir, exist_ok=True)
 
                     # 编译当前节点的任务
+                    from agentflow_schema import EdgeDef
+                    edge_objs = [EdgeDef(source=str(e.get("source","")), target=str(e.get("target","")))
+                                 for e in edges_real]
                     wf = WorkflowJSON(
                         workflow_id=run_id,
                         name=requirement[:100],
@@ -169,7 +172,7 @@ def _execute_run(run_id: str):
                             "constraints": [],
                         },
                         nodes=node_defs,
-                        edges=edges_real,
+                        edges=edge_objs,
                     )
                     layer_tasks = compiler.compile(wf, upstream_results=upstream_summaries)
                     task = next((t for t in layer_tasks if t.node_id == nid), None)
@@ -495,6 +498,13 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         except Exception:
             nodes = self._fallback_template(requirement, count)
 
+        # 归一化：确保所有 id/depends_on 为字符串
+        def _normalize_node(n):
+            n["id"] = str(n.get("id", ""))
+            n["depends_on"] = [str(d) for d in n.get("depends_on", [])]
+            return n
+        nodes = [_normalize_node(n) for n in nodes]
+
         # 生成边
         edges = self._generate_edges(nodes)
         self._send_json(200, {"nodes": nodes, "edges": edges, "count": len(nodes)})
@@ -603,14 +613,21 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
             return
 
         # DAG 校验
+        from agentflow_schema import EdgeDef
+        edge_objs = []
+        for e in edges:
+            if isinstance(e, dict):
+                edge_objs.append(EdgeDef(source=str(e.get("source","")), target=str(e.get("target",""))))
+            elif hasattr(e, 'source'):
+                edge_objs.append(e)
         wf_check = WorkflowJSON(
             workflow_id="validate",
             name=requirement[:100],
             global_context={"goal": requirement, "language": "zh-CN", "constraints": []},
-            nodes=[NodeDef(id=n.get("id",""), icon=n.get("icon",""), label=n.get("label",""),
+            nodes=[NodeDef(id=str(n.get("id","")), icon=n.get("icon",""), label=n.get("label",""),
                            desc=n.get("desc",""), color=n.get("color",""), profile=n.get("profile","dev"))
                    for n in nodes],
-            edges=edges,
+            edges=edge_objs,
         )
         validation_errors = validate_workflow(wf_check)
         if validation_errors:

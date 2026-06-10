@@ -86,7 +86,7 @@ class NodeDef:
     @classmethod
     def from_dict(cls, d: dict) -> "NodeDef":
         return cls(
-            id=d["id"],
+            id=str(d["id"]),
             icon=d.get("icon", "🤖"),
             label=d.get("label", ""),
             desc=d.get("desc", ""),

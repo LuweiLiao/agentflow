@@ -209,7 +209,7 @@ class Supervisor:
 3. 如果足够，回答 "INFO_SUFFICIENT"
 
 输出格式（纯 JSON，不要其他文字）：
-{"intent": "clarify"|"sufficient", "questions": ["问句1", ...], "summary": "需求摘要"}"""
+{{"intent": "clarify"|"sufficient", "questions": ["问句1", ...], "summary": "需求摘要"}}"""
 
         try:
             raw = self._llm_ask(DISCOVERY_SYSTEM_PROMPT, prompt, timeout=30)
