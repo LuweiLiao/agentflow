@@ -6,7 +6,7 @@ FROM python:3.12-slim AS builder
 WORKDIR /app
 
 COPY pyproject.toml ./
-COPY agentflow-backend.py agent_runner.py agentflow_schema.py prompt_compiler.py artifact_store.py ./
+COPY agentflow-backend.py agent_runner.py agentflow_schema.py prompt_compiler.py artifact_store.py run_store.py provider_adapter.py output_validator.py ./
 COPY templates/ templates/
 COPY *.html ./
 COPY *.png ./
@@ -28,5 +28,8 @@ EXPOSE 9600
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:9600/')"
+
+ENV AGENTFLOW_HOST=0.0.0.0
+ENV AGENT_MODEL=deepseek-v4-flash
 
 CMD ["./start-agentflow.sh"]

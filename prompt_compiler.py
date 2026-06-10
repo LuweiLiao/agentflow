@@ -53,7 +53,7 @@ class TemplateEngine:
             else:
                 raise TemplateNotFoundError(f"模板不存在: {path}")
 
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             tmpl = json.load(f)
         self._cache[profile] = tmpl
         return tmpl

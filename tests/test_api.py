@@ -17,8 +17,10 @@ _saved_argv = sys.argv
 sys.argv = ['agentflow-backend.py', '19600']  # use a dummy non-standard port
 
 # Load agentflow-backend.py (name has a hyphen, so use spec_from_file_location)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_backend_path = os.path.join(PROJECT_ROOT, "agentflow-backend.py")
 _spec = importlib.util.spec_from_file_location(
-    "agentflow_backend", "/home/llw/agentflow/agentflow-backend.py"
+    "agentflow_backend", _backend_path
 )
 agentflow_backend = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(agentflow_backend)
@@ -359,3 +361,57 @@ class TestStaticFileWhitelist:
             req = Request(srv.url("/canvas-demo.html"))
             resp = urlopen(req, timeout=5)
             assert resp.status == 200
+
+
+# ═══════════════════════════════════════════════════════
+# Execute async + validation tests
+# ═══════════════════════════════════════════════════════
+
+class TestExecuteAsync:
+    def test_execute_returns_202_with_run_id(self):
+        with _TestServer() as srv:
+            nodes = [{"id": "n1", "profile": "dev", "label": "test"}]
+            status, data, _ = srv.post(
+                "/api/execute", {"nodes": nodes, "requirement": "test req"}
+            )
+            assert status == 202
+            assert data.get("run_id")
+            assert data.get("status") == "pending"
+
+    def test_decompose_empty_requirement_returns_400(self):
+        with _TestServer() as srv:
+            status, data, _ = srv.post("/api/decompose", {"requirement": "", "count": 3})
+            assert status == 400
+            assert "empty" in data.get("error", "").lower()
+
+    def test_execute_run_completes_with_mock_agent(self):
+        with _TestServer() as srv:
+            nodes = [{"id": "n1", "profile": "dev", "label": "test"}]
+            status, data, _ = srv.post(
+                "/api/execute", {"nodes": nodes, "requirement": "integration test"}
+            )
+            assert status == 202
+            run_id = data["run_id"]
+            final = None
+            for _ in range(60):
+                time.sleep(0.1)
+                code, raw, _ = srv.get(f"/api/runs/{run_id}")
+                assert code == 200
+                final = json.loads(raw)
+                if final.get("status") in ("completed", "failed"):
+                    break
+            assert final is not None
+            assert final["status"] in ("completed", "failed")
+            assert final["nodes"][0]["status"] in ("completed", "failed", "skipped")
+
+    def test_build_workflow_edges_from_depends_on(self):
+        nodes_data = [
+            {"node_id": "a1", "depends_on": ""},
+            {"node_id": "a2", "depends_on": "a1"},
+            {"node_id": "a3", "depends_on": "a1,a2"},
+        ]
+        edges = agentflow_backend._build_workflow_edges(nodes_data)
+        assert len(edges) == 3
+        assert edges[0].source == "a1" and edges[0].target == "a2"
+        assert edges[1].source == "a1" and edges[1].target == "a3"
+        assert edges[2].source == "a2" and edges[2].target == "a3"

@@ -13,6 +13,7 @@ from queue import Queue
 
 from agent_runner import AgentRunner
 from agentflow_schema import (
+    EdgeDef,
     NodeDef,
     WorkflowJSON,
 )
@@ -26,6 +27,7 @@ TEMPLATE_DIR = os.environ.get("AGENTFLOW_TEMPLATE_DIR",
     os.path.join(STATIC_DIR, "templates") if os.path.isdir(os.path.join(STATIC_DIR, "templates"))
     else os.path.join(SCRIPT_DIR, "templates"))
 DEFAULT_AGENT_MODEL = os.environ.get("AGENT_MODEL", "deepseek-v4-flash")
+HOST = os.environ.get("AGENTFLOW_HOST", "127.0.0.1")
 
 # 全局并发控制
 MAX_CONCURRENT_AGENTS = int(os.environ.get("AGENTFLOW_MAX_CONCURRENT", "10"))
@@ -45,6 +47,19 @@ SAFE_EXTENSIONS = frozenset({
 # ── 后台执行引擎 ────────────────────────────────────
 _executor_queue: Queue = Queue()
 _store = get_store()
+
+
+def _build_workflow_edges(nodes_data: list) -> list[EdgeDef]:
+    """从节点 depends_on 字段构建 WorkflowJSON 边列表，供 PromptCompiler 解析上游依赖。"""
+    edges: list[EdgeDef] = []
+    for n in nodes_data:
+        nid = n["node_id"]
+        deps_raw = (n.get("depends_on") or "").split(",")
+        for dep in deps_raw:
+            dep = dep.strip()
+            if dep:
+                edges.append(EdgeDef(source=dep, target=nid))
+    return edges
 
 
 def _background_worker():
@@ -127,7 +142,9 @@ def _execute_run(run_id: str):
                     node_dir = os.path.join(work_dir, f"node_{nid}")
                     os.makedirs(node_dir, exist_ok=True)
 
-                    # 编译当前节点的任务
+                    store.update_node(run_id, nid, status="running")
+
+                    # 编译当前节点的任务（注入 DAG 边以传递上游上下文）
                     wf = WorkflowJSON(
                         workflow_id=run_id,
                         name=requirement[:100],
@@ -137,7 +154,7 @@ def _execute_run(run_id: str):
                             "constraints": [],
                         },
                         nodes=node_defs,
-                        edges=[],
+                        edges=_build_workflow_edges(nodes_data),
                     )
                     layer_tasks = compiler.compile(wf, upstream_results=upstream_summaries)
                     task = next((t for t in layer_tasks if t.node_id == nid), None)
@@ -189,7 +206,7 @@ def _execute_run(run_id: str):
                         "outputs")
                     os.makedirs(output_dir, exist_ok=True)
                     full_output = result.get("output", "") or result.get("result", "")
-                    with open(os.path.join(output_dir, f"{nid}.txt"), "w") as f:
+                    with open(os.path.join(output_dir, f"{nid}.txt"), "w", encoding="utf-8") as f:
                         f.write(full_output)
 
                     # 向上游注入摘要 + artifact 引用（替代 2000 截断）
@@ -200,8 +217,8 @@ def _execute_run(run_id: str):
                         "artifact": output_path,
                     }, ensure_ascii=False)
 
-                    # 失败传播
-                    if status in ("error", "timeout"):
+                    # 失败传播（status 已标准化为 completed/failed/skipped）
+                    if status in ("failed", "error", "timeout"):
                         deps = store.get_dependents(run_id, nid)
                         for dep_id in deps:
                             store.update_node(run_id, dep_id,
@@ -387,6 +404,7 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
 
         if not requirement:
             self._send_json(400, {"error": "Requirement is empty"})
+            return
 
         # 尝试用 LLM 分解，无 key 则 fallback
         model = os.environ.get("AGENT_MODEL", DEFAULT_AGENT_MODEL)
@@ -750,8 +768,9 @@ if not hasattr(_background_worker, "_started"):
     _background_worker._started = True  # type: ignore[attr-defined]
 
 if __name__ == "__main__":
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), AgentFlowHandler)
-    print(f"AgentFlow v4 backend running on http://localhost:{PORT}", file=sys.stderr)
+    server = http.server.ThreadingHTTPServer((HOST, PORT), AgentFlowHandler)
+    bind_label = "localhost" if HOST in ("127.0.0.1", "::1") else HOST
+    print(f"AgentFlow v4 backend running on http://{bind_label}:{PORT}", file=sys.stderr)
     print("API:", file=sys.stderr)
     print("  POST /api/decompose    — 编排分解 (同步)", file=sys.stderr)
     print("  POST /api/execute      — 异步执行 (返回 run_id)", file=sys.stderr)

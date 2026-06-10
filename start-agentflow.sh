@@ -21,7 +21,7 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
 fi
 set +a
 
-AGENT_MODEL="${AGENT_MODEL:-glm-5-turbo}"
+AGENT_MODEL="${AGENT_MODEL:-deepseek-v4-flash}"
 PORT="${1:-9600}"
 
 echo "=== AgentFlow ==="
