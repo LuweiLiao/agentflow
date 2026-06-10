@@ -299,13 +299,22 @@ class AgentRunner:
 
         data = json.dumps(payload).encode()
         import urllib.request, urllib.error
-        req = urllib.request.Request(url, data=data, headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
-        }, method="POST")
 
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            return json.loads(resp.read())
+        last_error = None
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(url, data=data, headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.api_key}"
+                }, method="POST")
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    return json.loads(resp.read())
+            except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
+                last_error = e
+                self._log(f"LLM call attempt {attempt+1}/3 failed: {e}", err=True)
+                if attempt < 2:
+                    time.sleep(1.5 ** attempt)  # 1.5s → 2.25s 退避
+        raise last_error or RuntimeError("LLM call failed after 3 retries")
 
     # ── 工具函数 ─────────────────────────────────────────
 

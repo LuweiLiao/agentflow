@@ -135,6 +135,8 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
 
     def call_llm(self, requirement, count):
         zai_key = os.environ.get("ZAI_API_KEY", "")
+        if not zai_key:
+            return self.fallback_template(requirement, count)
         payload = json.dumps({
             "model": "glm-5-turbo",
             "messages": [
@@ -142,31 +144,36 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
                 {"role": "user", "content": f"需求：{requirement}\nAgent数量：{count}个"}
             ],
             "temperature": 0.7,
-            "max_tokens": 3000,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 2000,
         }).encode()
 
-        req = urllib.request.Request(
-            "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {zai_key}"
-            }, method="POST")
-
-        try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                data = json.loads(resp.read())
-            content = data["choices"][0]["message"]["content"]
-            nodes = json.loads(content)
-            if isinstance(nodes, dict) and "nodes" in nodes:
-                nodes = nodes["nodes"]
-            if isinstance(nodes, list):
-                return self.adjust_nodes(nodes, count)
-            return self.fallback_template(requirement, count)
-        except Exception as e:
-            print(f"LLM call failed: {e}", file=sys.stderr)
-            return self.fallback_template(requirement, count)
+        # 重试 2 次，每次 45s 超时
+        last_error = None
+        for attempt in range(3):  # 第一次 + 2 次重试
+            try:
+                req = urllib.request.Request(
+                    "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+                    data=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {zai_key}"
+                    }, method="POST")
+                with urllib.request.urlopen(req, timeout=45) as resp:
+                    data = json.loads(resp.read())
+                content = data["choices"][0]["message"]["content"]
+                nodes = json.loads(content)
+                if isinstance(nodes, dict) and "nodes" in nodes:
+                    nodes = nodes["nodes"]
+                if isinstance(nodes, list):
+                    return self.adjust_nodes(nodes, count)
+                return self.fallback_template(requirement, count)
+            except Exception as e:
+                last_error = e
+                print(f"LLM call attempt {attempt+1} failed: {e}", file=sys.stderr)
+                if attempt < 2:
+                    time.sleep(1.5)  # 退避
+        print(f"LLM call all 3 attempts failed, using fallback: {last_error}", file=sys.stderr)
+        return self.fallback_template(requirement, count)
 
     def adjust_nodes(self, nodes, target):
         """调整节点数量至 target，确保最后一个节点是 doc 或 deploy。"""

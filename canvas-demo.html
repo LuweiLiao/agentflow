@@ -192,6 +192,9 @@
   .result-item .ri-icon { width:24px; height:24px; border-radius:5px; display:flex; align-items:center; justify-content:center; font-size:12px; flex-shrink:0; }
   .result-item .ri-info { flex:1; } .result-item .ri-title { font-size:11px; font-weight:500; }
   .result-item .ri-detail { font-size:10px; color:var(--text3); }
+  .result-summary { display:flex; gap:12px; justify-content:center; margin-top:14px; padding:8px; background:var(--surface2); border-radius:6px; font-size:11px; color:var(--text2); }
+  .result-summary span { white-space:nowrap; }
+  .result-summary b { color:var(--accent); }
   .result-footer { display:flex; gap:8px; justify-content:center; margin-top:14px; }
   
   .hidden { display:none !important; }
@@ -261,13 +264,13 @@
             <span class="hint" onclick="setReq(this)">机器学习模型训练流水线</span>
             <span class="hint" onclick="setReq(this)">自动驾驶感知模块</span>
           </div>
-          <textarea id="reqInput" placeholder="描述你的需求，编排Agent会自动拆解为多个子任务...">为四旋翼无人机设计PID控制器并生成C++代码，然后编译测试</textarea>
+          <textarea id="reqInput" oninput="updateRecCount()" placeholder="描述你的需求，编排Agent会自动拆解为多个子任务...">为四旋翼无人机设计PID控制器并生成C++代码，然后编译测试</textarea>
           <div style="margin:10px 0; display:flex; align-items:center; justify-content:center; gap:8px;">
             <span style="font-size:12px; color:var(--text2);">🤖 Agent 数量</span>
             <button class="btn btn-icon" onclick="adjustWelcomeCount(-1)">−</button>
-            <span id="welcomeCount" style="font-size:18px;font-weight:700;color:var(--accent);min-width:28px;text-align:center;">6</span>
+            <span id="welcomeCount" style="font-size:18px;font-weight:700;color:var(--accent);min-width:28px;text-align:center;">4</span>
             <button class="btn btn-icon" onclick="adjustWelcomeCount(1)">+</button>
-            <span style="font-size:9px;color:var(--text3);">（编排推荐 <span id="recCount">6</span>）</span>
+            <span style="font-size:9px;color:var(--text3);">（编排推荐 <span id="recCount">—</span>）</span>
           </div>
           <div class="actions">
             <button class="btn btn-primary" onclick="startGenerate()">🚀 AI 自动生成工作流</button>
@@ -334,16 +337,21 @@ function setReq(el) {
   updateRecCount();
 }
 
+function getRecommendedCount(text) {
+  const val = text || document.getElementById('reqInput').value.trim();
+  if (!val) return 4;
+  let rec = Math.max(3, Math.min(12, Math.ceil(val.length / 15)));
+  const kws = ['分析','设计','开发','测试','部署','文档','前端','后端','训练','编译','仿真','验证','优化','调试','集成','模型'];
+  const kwCount = kws.filter(k => val.toLowerCase().includes(k)).length;
+  if (kwCount > 0) rec = Math.max(rec, kwCount + 2);
+  return rec;
+}
+
 function updateRecCount() {
-  const t = document.getElementById('reqInput').value.toLowerCase();
-  let rec = 6;
-  if (t.includes('pid')||t.includes('控制器')||t.includes('四旋翼')||t.includes('无人机')) rec = 6;
-  else if (t.includes('网站')||t.includes('官网')||t.includes('web')||t.includes('前端')||t.includes('后端')) rec = 7;
-  else if (t.includes('机器')||t.includes('训练')||t.includes('模型')||t.includes('ml')||t.includes('预测')) rec = 7;
-  else if (t.includes('自动')||t.includes('感知')||t.includes('驾驶')||t.includes('lidar')) rec = 8;
+  const rec = getRecommendedCount();
   document.getElementById('recCount').textContent = rec;
-  const cur = parseInt(document.getElementById('welcomeCount').textContent);
-  if (cur < rec) document.getElementById('welcomeCount').textContent = rec;
+  if (!document.getElementById('welcomeCount').dataset.manual)
+    document.getElementById('welcomeCount').textContent = rec;
 }
 
 function adjustWelcomeCount(delta) {
@@ -416,19 +424,28 @@ function startGenerate() {
 }
 
 async function callDecomposeAPI(req, cnt) {
-  const resp = await fetch(API_URL, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({requirement: req, count: cnt})
-  });
-  const data = await resp.json();
-  // 全局存储 edges（DAG 依赖关系）
-  workflowEdges = data.edges || [];
-  // 给每个节点分配 profile（后端返回的 profile 或自动推导）
-  return (data.nodes || []).map(n => {
-    if (!n.profile) n.profile = inferProfile(n);
-    return n;
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120000); // 2min timeout for GLM
+  try {
+    const resp = await fetch(API_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      signal: controller.signal,
+      body: JSON.stringify({requirement: req, count: cnt})
+    });
+    clearTimeout(timeoutId);
+    const data = await resp.json();
+    // 全局存储 edges（DAG 依赖关系）
+    workflowEdges = data.edges || [];
+    // 给每个节点分配 profile（后端返回的 profile 或自动推导）
+    return (data.nodes || []).map(n => {
+      if (!n.profile) n.profile = inferProfile(n);
+      return n;
+    });
+  } catch (e) {
+    clearTimeout(timeoutId);
+    throw e;
+  }
 }
 
 function inferProfile(n) {
@@ -768,7 +785,13 @@ function showResults() {
       '<span style="color:var(--green);font-weight:600;margin-left:6px;">✓</span></div>';
   });
   ov.innerHTML = '<div class="result-modal slide-up"><h2>✅ 工作流执行完成</h2>'+
-    '<div class="sub">'+currentNodes.length+' 个 Agent · 动态编排 · Agent Runner 执行</div>'+items+
+    '<div class="sub">'+currentNodes.length+' 个 Agent · 动态编排 · Agent Runner 执行</div>'+
+    items+
+    '<div class="result-summary">'+
+      '<span>总费用: <b>$'+(currentNodes.reduce((s,n)=>s+(n.cost||0),0)).toFixed(4)+'</b></span>'+
+      '<span>总耗时: <b>'+(Math.round(currentNodes.reduce((s,n)=>s+(n.duration||0),0)/1000))+'s</b></span>'+
+      '<span>总轮次: <b>'+currentNodes.reduce((s,n)=>s+(n.turns||0),0)+'</b></span>'+
+    '</div>'+
     '<div class="result-footer"><button class="btn btn-sm" onclick="this.closest(\'.result-overlay\').remove()">关闭</button></div></div>';
   document.getElementById('canvasWrap').appendChild(ov); updateStepUI();
 }
