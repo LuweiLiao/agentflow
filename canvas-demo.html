@@ -309,6 +309,7 @@
 // ═══════════════════════════════════════════════
 let step = 0, genTimer = null, execTimer = null;
 let currentNodes = [];
+let workflowEdges = [];
 
 const AGENT_PROFILES = {
   'analysis': {icon:'🧮', color:'blue', label:'分析型'},
@@ -403,7 +404,13 @@ function startGenerate() {
     log.innerHTML += '<div style="color:var(--orange);">⚠️ GLM-5-Turbo 调用失败，使用本地模板降级</div>';
     log.scrollTop = log.scrollHeight;
     const tpl = findTemplateLocal(val);
-    currentNodes = adjustTemplateToCount(tpl, userCount).nodes;
+    const r = adjustTemplateToCount(tpl, userCount);
+    currentNodes = r.nodes;
+    // 对本地模板生成链式 edges
+    workflowEdges = [];
+    for (let i = 1; i < currentNodes.length; i++) {
+      workflowEdges.push({source: currentNodes[i-1].id, target: currentNodes[i].id});
+    }
     setTimeout(showCanvas, 400);
   });
 }
@@ -415,6 +422,8 @@ async function callDecomposeAPI(req, cnt) {
     body: JSON.stringify({requirement: req, count: cnt})
   });
   const data = await resp.json();
+  // 全局存储 edges（DAG 依赖关系）
+  workflowEdges = data.edges || [];
   // 给每个节点分配 profile（后端返回的 profile 或自动推导）
   return (data.nodes || []).map(n => {
     if (!n.profile) n.profile = inferProfile(n);
@@ -591,13 +600,13 @@ function adjustCanvasCount(delta) {
 // ═══════════════════════════════════════════════
 function startExecution() {
   step = 3; updateStepUI();
-  document.getElementById('panelTitle').textContent = '💻 执行中 — Claude Code ACP';
+  document.getElementById('panelTitle').textContent = '💻 执行中 — Multi-Provider Agent';
   document.getElementById('panelBody').innerHTML =
     '<div class="exec-log" id="execLog"></div>'+
     '<div style="margin-top:8px;"><button class="btn btn-sm btn-outline" style="width:100%;" onclick="showResults()">📊 查看所有结果</button></div>';
 
   const log = document.getElementById('execLog');
-  log.innerHTML = '<div class="line"><span class="ts">[00:00]</span><span class="info">Orch 启动 — '+currentNodes.length+' Agents（Claude Code ACP）</span></div>';
+  log.innerHTML = '<div class="line"><span class="ts">[00:00]</span><span class="info">Orch 启动 — '+currentNodes.length+' Agents（Multi-Provider Agent）</span></div>';
 
   // 显示所有节点为执行中
   currentNodes.forEach((n, i) => {
@@ -638,7 +647,7 @@ function startExecution() {
     }, 1000 + nodes.length * 600);
 
   }).catch(e => {
-    log.innerHTML += '<div class="line"><span class="ts">[错误]</span><span style="color:var(--orange);">⚠️ ACP 调用失败: '+e.message+'</span></div>';
+    log.innerHTML += '<div class="line"><span class="ts">[错误]</span><span style="color:var(--orange);">⚠️ AgentRunner 执行失败: '+e.message+'</span></div>';
     log.scrollTop = log.scrollHeight;
     // 降级到模拟执行
     fallbackExecution(log);
@@ -646,13 +655,26 @@ function startExecution() {
 }
 
 async function callExecuteAPI(nodes) {
-  const resp = await fetch(API_URL.replace('/decompose','/execute'), {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({nodes: nodes})
-  });
-  if (!resp.ok) throw new Error('HTTP '+resp.status);
-  return await resp.json();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 300000); // 5min timeout
+  try {
+    const resp = await fetch(API_URL.replace('/decompose','/execute'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      signal: controller.signal,
+      body: JSON.stringify({
+        nodes: nodes,
+        edges: workflowEdges || [],
+        requirement: document.getElementById('reqInput')?.value || ''
+      })
+    });
+    clearTimeout(timeoutId);
+    if (!resp.ok) throw new Error('HTTP '+resp.status);
+    return await resp.json();
+  } catch (e) {
+    clearTimeout(timeoutId);
+    throw e;
+  }
 }
 
 function fallbackExecution(log) {
@@ -719,7 +741,7 @@ function showConfig(n) {
     '<hr style="border:none;border-top:1px solid var(--border);margin:12px 0;">'+
     '<div style="display:flex;gap:8px;">'+
       '<div class="config-row" style="flex:1;"><label>超时(秒)</label><input value="'+(n.color==='green'?300:120)+'"></div>'+
-      '<div class="config-row" style="flex:1;"><label>模型</label><input value="Claude Code ACP"></div>'+
+      '<div class="config-row" style="flex:1;"><label>模型</label><input value="Multi-Provider Agent"></div>'+
     '</div>';
 }
 
@@ -731,13 +753,22 @@ function showResults() {
   ov.onclick=function(e){if(e.target===ov)ov.remove();};
   let items = '';
   currentNodes.forEach(n => {
+    const costStr = n.cost ? `$${n.cost.toFixed(4)}` : '';
+    const durStr = n.duration ? `${(n.duration/1000).toFixed(1)}s` : '';
+    const turnStr = n.turns ? `${n.turns}轮` : '';
+    const modelStr = n.model ? ` [${n.model}]` : '';
     items += '<div class="result-item" onclick="showConfig(currentNodes.find(x=>x.id===\''+n.id+'\'));this.closest(\'.result-overlay\').remove();">'+
       '<div class="ri-icon" style="background:rgba(59,130,246,0.12)">'+n.icon+'</div>'+
       '<div class="ri-info"><div class="ri-title">'+n.label+'</div><div class="ri-detail">'+(n.result||'完成')+'</div></div>'+
-      '<span style="color:var(--green);font-weight:600;">✓</span></div>';
+      '<div style="text-align:right;font-size:9px;color:var(--text3);line-height:1.4;">'+
+        (costStr ? costStr+'<br>': '')+
+        (durStr ? durStr+'<br>': '')+
+        (turnStr ? turnStr+'<br>': '')+
+      '</div>'+
+      '<span style="color:var(--green);font-weight:600;margin-left:6px;">✓</span></div>';
   });
   ov.innerHTML = '<div class="result-modal slide-up"><h2>✅ 工作流执行完成</h2>'+
-    '<div class="sub">'+currentNodes.length+' 个 Agent · 动态编排 · ACP 执行</div>'+items+
+    '<div class="sub">'+currentNodes.length+' 个 Agent · 动态编排 · Agent Runner 执行</div>'+items+
     '<div class="result-footer"><button class="btn btn-sm" onclick="this.closest(\'.result-overlay\').remove()">关闭</button></div></div>';
   document.getElementById('canvasWrap').appendChild(ov); updateStepUI();
 }
@@ -754,7 +785,7 @@ function updateStepUI() {
   const btn=document.getElementById('stepNextBtn');
   if(step>=3){ document.getElementById('stepHintText').textContent='✅ 全部完成'; btn.textContent='🔄 重新演示'; btn.onclick=resetDemo; }
   else if(step===0){ document.getElementById('stepHintText').textContent='步骤 1/4：输入需求'; btn.textContent='⏭ 跳过 → AI 生成'; btn.onclick=startGenerate; }
-  else if(step===1){ document.getElementById('stepHintText').textContent='步骤 2/4：AI 生成中'; btn.textContent='⏭ 跳过 → 画布'; btn.onclick=function(){if(genTimer){clearInterval(genTimer);genTimer=null;}const tpl=findTemplateLocal(document.getElementById('reqInput').value);currentNodes=adjustTemplateToCount(tpl,parseInt(document.getElementById('welcomeCount').textContent)||6).nodes;showCanvas();}; }
+  else if(step===1){ document.getElementById('stepHintText').textContent='步骤 2/4：AI 生成中'; btn.textContent='⏭ 跳过 → 画布'; btn.onclick=function(){if(genTimer){clearInterval(genTimer);genTimer=null;}const tpl=findTemplateLocal(document.getElementById('reqInput').value);const r=adjustTemplateToCount(tpl,parseInt(document.getElementById('welcomeCount').textContent)||6);currentNodes=r.nodes;workflowEdges=[];for(let i=1;i<currentNodes.length;i++)workflowEdges.push({source:currentNodes[i-1].id,target:currentNodes[i].id});showCanvas();}; }
   else if(step===2){ document.getElementById('stepHintText').textContent='步骤 3/4：查看画布'; btn.textContent='▶ 运行工作流'; btn.onclick=startExecution; }
 }
 

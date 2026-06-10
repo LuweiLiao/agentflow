@@ -80,8 +80,10 @@ class NodeDef:
     output:  Optional[str]          = None        # 详细输出
     status:  str                    = "pending"   # NodeStatus
     cost:    float                  = 0.0
+    duration: int                   = 0
     turns:   int                    = 0
     provider: str                   = ""
+    model:   Optional[str]          = None   # 执行模型名，None 表示使用默认
 
     @classmethod
     def from_dict(cls, d: dict) -> "NodeDef":
@@ -92,16 +94,16 @@ class NodeDef:
             desc=d.get("desc", ""),
             color=d.get("color", "blue"),
             profile=d.get("profile", "dev"),
-            model=d.get("model"),
             params=d.get("params", {}),
             result=d.get("result"),
             output=d.get("output"),
             status=d.get("status", "pending"),
             cost=d.get("cost", 0.0),
+            duration=d.get("duration", 0),
             turns=d.get("turns", 0),
             provider=d.get("provider", ""),
+            model=d.get("model"),
         )
-
     def to_dict(self) -> dict:
         d = asdict(self)
         return {k: v for k, v in d.items() if v is not None}

@@ -169,24 +169,53 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             return self.fallback_template(requirement, count)
 
     def adjust_nodes(self, nodes, target):
+        """调整节点数量至 target，确保最后一个节点是 doc 或 deploy。"""
+        # 确保最后一个节点是 doc/deploy
+        if nodes and nodes[-1].get("profile") not in ("doc", "deploy"):
+            # 找已存在的 doc 节点
+            doc_idx = None
+            for i in range(len(nodes)-2, -1, -1):
+                if nodes[i].get("profile") in ("doc", "deploy"):
+                    doc_idx = i
+                    break
+            if doc_idx is not None and doc_idx != len(nodes)-1:
+                # 把 doc 节点移到末尾
+                doc = nodes.pop(doc_idx)
+                nodes.append(doc)
+            else:
+                # 加一个 doc 节点在末尾
+                nodes.append({
+                    "id": "output", "icon": "📝",
+                    "label": "输出报告", "desc": "汇总生成交付文档",
+                    "color": "orange", "profile": "doc",
+                })
+
+        # 截取到 target
         nodes = nodes[:target]
+
+        # 如果截取后最后一个不是 doc/deploy 且还有空间，替换或追加
+        if nodes and nodes[-1].get("profile") not in ("doc", "deploy"):
+            if target > len(nodes):
+                nodes.append({
+                    "id": "output", "icon": "📝",
+                    "label": "输出报告", "desc": "汇总生成交付文档",
+                    "color": "orange", "profile": "doc",
+                })
+            else:
+                # 把最后一个改成 doc
+                nodes[-1]["profile"] = "doc"
+                nodes[-1]["label"] = "输出报告"
+
+        # 不够 target 就补
         while len(nodes) < target:
             idx = len(nodes) + 1
+            profile = "test" if len(nodes) < target - 1 else "doc"
             nodes.append({
                 "id": f"auto_{idx}", "icon": "🔧",
                 "label": f"子任务 #{idx}", "desc": "细化子任务",
-                "color": "blue", "profile": "test"
+                "color": "blue", "profile": profile,
             })
-        last = nodes[-1]
-        if last.get("profile") not in ("doc", "deploy"):
-            nodes.append({
-                "id": "output", "icon": "📝",
-                "label": "输出报告", "desc": "汇总生成交付文档",
-                "color": "orange", "profile": "doc",
-                "result": "等待执行"
-            })
-            if len(nodes) > target:
-                nodes.pop(-2)
+
         return nodes[:target]
 
     # ── /api/execute — Compiler + DAG 并行执行 ──────
@@ -259,8 +288,10 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
                     node.output = result.get("output", "")[:2000]
                     node.status = result.get("status", "error")
                     node.cost = result.get("cost", 0)
+                    node.duration = result.get("duration_ms", 0)
                     node.turns = result.get("turns", 0)
                     node.provider = result.get("provider", "")
+                    node.model = result.get("model", agent_model)
                     all_envelopes[node.id] = result
                     all_results.append(node.to_dict())
                     print(f"[Execute] Node {node.id} done: ${node.cost:.4f} / {result.get('duration',0)}ms", file=sys.stderr)
