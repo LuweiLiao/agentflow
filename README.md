@@ -4,6 +4,7 @@
 ![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![DeepSeek V4 Flash](https://img.shields.io/badge/tested-DeepSeek%20V4%20Flash-success)
+![Tests](https://img.shields.io/badge/tests-103%2F103%20%7C%208%20eval-brightgreen)
 
 **AgentFlow** 是一个零外部依赖的 Agent 编排平台。用户描述需求 → AI 自动拆解为有向无环图(DAG) → 逐层并行执行 → 实时 SSE 流式推送。
 
@@ -29,25 +30,30 @@ open http://localhost:9600
 
 ## 架构
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    AgentFlow Backend                     │
-│                                                         │
-│  POST /api/decompose      → 编排 Agent 拆解需求          │
-│  POST /api/execute        → 全量 JSON 执行               │
-│  POST /api/execute/stream → SSE 流式逐节点推送            │
-│  GET  /api/runs           → Run 历史                     │
-│                                                         │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐               │
-│  │Compiler  │→ │Orchestra-│→ │Provider  │               │
-│  │(模板引擎) │  │tor (DAG) │  │Adapter   │               │
-│  └──────────┘  └──────────┘  └──────────┘               │
-│                                                         │
-│  ┌──────────┐  ThreadingHTTPServer (多线程不阻塞)         │
-│  │Artifact  │  ProviderAdapter (重试/熔断/限流/SSE)      │
-│  │Store     │  max_turns=25, timeout_s=300 (复杂任务)    │
-│  └──────────┘                                           │
-└─────────────────────────────────────────────────────────┘
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                    AgentFlow v5 Backend                         │
+│                                                                 │
+│  POST /api/decompose      → 编排 Agent 拆解需求                  │
+│  POST /api/runs           → 异步执行 (202 + run_id)             │
+│  GET  /api/runs/<id>/events → SSE 实时逐节点事件流               │
+│  GET  /api/runs           → Run 历史                            │
+│                                                                 │
+│  ┌──────────┐  ┌──────────────┐  ┌──────────────┐               │
+│  │Compiler  │→ │Async Engine  │→ │SandboxRunner │               │
+│  │(模板引擎) │  │(后台 worker)  │  │(Local/Docker)│               │
+│  └──────────┘  └──────┬───────┘  └──────────────┘               │
+│                       │                                         │
+│  ┌──────────┐  ┌──────▼───────┐  ┌──────────────┐               │
+│  │Artifact  │  │SQLite v2     │  │ArtifactBroker│               │
+│  │Broker    │  │(per-conn+WAL │  │(content-addr)│               │
+│  │          │  │ +snapshots)  │  │              │               │
+│  └──────────┘  └──────────────┘  └──────────────┘               │
+│                                                                 │
+│  Features: 95+95 passing · 0 dep · Workflow snapshots          │
+│             Normalized edges table · Heartbeat/Lease            │
+│             Startup recovery · Bracket-balanced JSON            │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## 支持 12 个 Provider
@@ -329,6 +335,9 @@ agentflow/
 ├── prompt_compiler.py      # 模板引擎 + 动态编译
 ├── provider_adapter.py     # Provider 抽象层：重试/熔断/限流/SSE
 ├── artifact_store.py       # 文件型 Artifact 存储
+├── run_store.py            # SQLite v2: 规范化边表+快照+Heartbeat+启动扫描
+├── artifact_broker.py      # 内容寻址 Artifact 管理 + 节点间访问控制
+├── sandbox_runner.py       # LocalRunner / DockerRunner 沙箱抽象
 ├── output_validator.py     # JSON 模糊提取 + Schema 校验
 ├── templates/              # 6 个 profile 模板 (JSON)
 │   ├── analysis.json       # timeout_s=180, max_turns=15
@@ -337,7 +346,11 @@ agentflow/
 │   ├── test.json           # timeout_s=240, max_turns=20
 │   ├── doc.json            # timeout_s=120, max_turns=10
 │   └── deploy.json         # timeout_s=180, max_turns=15
-├── tests/                  # 92 测试，覆盖全部模块
+├── tests/                  # 95 测试，覆盖全部模块
+├── evals/                  # Eval Harness: 8 DAG结构验证 + 基准测试
+│   ├── conftest.py         # 验证工具 + 结果记录
+│   ├── run_benchmark.py    # 端到端基准测试（需后端）
+│   └── test_dag_validation.py  # DAG 结构验证测试
 ├── start-agentflow.sh      # 启动脚本
 ├── Dockerfile              # 多阶段构建，零 pip install
 └── .env.example            # 12 provider 环境变量模板

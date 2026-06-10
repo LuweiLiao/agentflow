@@ -11,6 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue
 
+from artifact_broker import get_broker
 from agent_runner import AgentRunner
 from agentflow_schema import (
     NodeDef,
@@ -18,7 +19,8 @@ from agentflow_schema import (
     validate_workflow,
 )
 from prompt_compiler import PromptCompiler
-from run_store import extract_json, get_store
+from run_store import extract_json, get_store, startup_scan
+from sandbox_runner import get_runner
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9600
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -53,6 +55,20 @@ _store = get_store()
 
 def _background_worker():
     """后台工作线程：消费队列里的 run_id，异步执行 DAG。"""
+    # 启动时扫描残留状态
+    try:
+        scan_result = startup_scan()
+        if scan_result["pending_resumed"]:
+            print(f"[StartupScan] 发现 {len(scan_result['pending_resumed'])} 个 pending run",
+                  file=sys.stderr)
+            for rid in scan_result["pending_resumed"]:
+                _executor_queue.put(rid)
+        if scan_result["stale_marked"]:
+            print(f"[StartupScan] 标记 {len(scan_result['stale_marked'])} 个 stale run 为 failed",
+                  file=sys.stderr)
+    except Exception as e:
+        print(f"[StartupScan] 异常: {e}", file=sys.stderr)
+
     while True:
         run_id = _executor_queue.get()
         try:
@@ -91,9 +107,16 @@ def _execute_run(run_id: str):
     edges_real = store.get_run_edges(run_id)
     work_dir = tempfile.mkdtemp(prefix=f"agentflow_{run_id}_")
     compiler = PromptCompiler(TEMPLATE_DIR)
+    broker = get_broker()
     total_cost = 0.0
     total_dur = 0.0
     upstream_summaries: dict[str, str] = {}
+
+    # 为 ArtifactBroker 注入下游关系缓存
+    for n in nodes_data:
+        nid = n["node_id"]
+        downstream_ids = set(store.get_dependents(run_id, nid))
+        broker.set_downstream_cache(run_id, nid, downstream_ids)
 
     try:
         while not store.all_nodes_done(run_id):
@@ -102,20 +125,19 @@ def _execute_run(run_id: str):
                 # 检查是否有 failed 节点需要跳过其下游
                 failed = store.count_status(run_id).get("failed", 0)
                 if failed > 0:
-                    # 标记所有 pending 的下游为 skipped
+                    # 标记所有 pending 的下游为 skipped（使用 workflow_edges 表）
                     for n in nodes_data:
                         if n["status"] == "pending":
-                            deps_raw = (n.get("depends_on") or "").split(",")
-                            deps = [d.strip() for d in deps_raw if d.strip()]
-                            if deps:
-                                dep_statuses = [
-                                    store.get_run(run_id)["nodes"][i]["status"]
-                                    for i, dn in enumerate(nodes_data)
-                                    if dn["node_id"] in deps
-                                ]
-                                if any(s == "failed" for s in dep_statuses):
-                                    store.update_node(run_id, n["node_id"],
-                                        status="skipped", result="上游节点失败，跳过")
+                            upstream_ids = store.get_upstream(run_id, n["node_id"])
+                            if upstream_ids:
+                                for uid in upstream_ids:
+                                    upstream_status = store.get_run(run_id)["nodes"]
+                                    us = next((nn["status"] for nn in upstream_status
+                                               if nn["node_id"] == uid), None)
+                                    if us == "failed":
+                                        store.update_node(run_id, n["node_id"],
+                                            status="skipped", result=f"上游节点 {uid} 失败，跳过")
+                                        break
                     # 再检查一次
                     ready = store.get_pending_nodes(run_id)
                 if not ready:
@@ -188,22 +210,36 @@ def _execute_run(run_id: str):
                         error=result.get("error", ""),
                     )
 
-                    # 保存完整输出到文件（供下游按需读取）
+                    # 通过 ArtifactBroker 发布产物
                     output_dir = os.path.join(
                         store.envelopes_dir(run_id).replace("/envelopes", ""),
                         "outputs")
                     os.makedirs(output_dir, exist_ok=True)
                     full_output = result.get("output", "") or result.get("result", "")
-                    with open(os.path.join(output_dir, f"{nid}.txt"), "w") as f:
+                    output_path = os.path.join(output_dir, f"{nid}.txt")
+                    with open(output_path, "w") as f:
                         f.write(full_output)
 
-                    # 向上游注入摘要 + artifact 引用（替代 2000 截断）
-                    output_path = os.path.join(output_dir, f"{nid}.txt")
-                    summary = (full_output[:500] + "...") if len(full_output) > 500 else full_output
-                    upstream_summaries[nid] = json.dumps({
-                        "summary": summary,
-                        "artifact": output_path,
-                    }, ensure_ascii=False)
+                    # 发布 artifact（受控引用替代直接文件路径）
+                    try:
+                        art_ref = broker.publish(
+                            source_run=run_id, source_node=nid,
+                            file_path=output_path,
+                            name=f"{nid}.txt",
+                            mime_type="text/plain",
+                        )
+                        summary = (full_output[:500] + "...") if len(full_output) > 500 else full_output
+                        upstream_summaries[nid] = json.dumps({
+                            "summary": summary,
+                            "artifact": art_ref.to_dict(),
+                        }, ensure_ascii=False)
+                    except Exception as e:
+                        # fallback: 仍用文件路径
+                        summary = (full_output[:500] + "...") if len(full_output) > 500 else full_output
+                        upstream_summaries[nid] = json.dumps({
+                            "summary": summary,
+                            "artifact": output_path,
+                        }, ensure_ascii=False)
 
                     # 失败传播
                     if status == "failed":
@@ -841,7 +877,7 @@ if not hasattr(_background_worker, "_started"):
 
 if __name__ == "__main__":
     server = http.server.ThreadingHTTPServer((HOST, PORT), AgentFlowHandler)
-    print(f"AgentFlow v4 backend running on http://{HOST}:{PORT}", file=sys.stderr)
+    print(f"AgentFlow v5 backend running on http://{HOST}:{PORT}", file=sys.stderr)
     print("API:", file=sys.stderr)
     print("  POST /api/decompose    — 编排分解 (同步)", file=sys.stderr)
     print("  POST /api/runs         — 异步执行 (返回 run_id)", file=sys.stderr)
@@ -852,6 +888,10 @@ if __name__ == "__main__":
     print("Features: Async exec + SQLite persistence + ThreadingHTTPServer", file=sys.stderr)
     print("           Bracket-balanced JSON + Static file whitelist", file=sys.stderr)
     print("           Failure propagation + Artifact references", file=sys.stderr)
+    print("           Workflow snapshots + Normalized edges table", file=sys.stderr)
+    print("           ArtifactBroker (content-addressed + access control)", file=sys.stderr)
+    print("           SandboxRunner (Local + Docker) + Heartbeat/Lease", file=sys.stderr)
+    print("           StartupScan + SSE streaming + Failure propagation", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
