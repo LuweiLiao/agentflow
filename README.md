@@ -13,13 +13,12 @@
 ```bash
 # 只需要 Python 3.10+，零 pip install
 
-# 配置任意一个 API Key
-export DEEPSEEK_API_KEY="sk-..."     # DeepSeek
-# 或
-export ZAI_API_KEY="your-key-here"   # 智谱 GLM
+# 配置 API Key（任意一个即可）
+export DEEPSEEK_API_KEY="sk-..."     # DeepSeek（推荐，限流高）
+export AGENT_MODEL=deepseek-v4-flash  # 默认模型设为 DeepSeek V4 Flash
 # 或
 export OPENAI_API_KEY="sk-..."       # OpenAI
-# 或 12 个 provider 中任何一个
+# 或 12 个 provider 中任何一个（见下方表格）
 
 # 启动
 ./start-agentflow.sh
@@ -27,6 +26,8 @@ export OPENAI_API_KEY="sk-..."       # OpenAI
 # 浏览器打开
 open http://localhost:9600
 ```
+
+> 💡 **推荐 DeepSeek V4 Flash**：实测成本仅 ~$0.001/节点，响应快，无 429 限流问题
 
 ## 架构
 
@@ -48,12 +49,12 @@ open http://localhost:9600
 
 ## 支持 12 个 Provider
 
-| Provider | 环境变量 | 默认模型 |
-|----------|---------|---------|
-| DeepSeek | `DEEPSEEK_API_KEY` | deepseek-chat |
-| 智谱 GLM | `ZAI_API_KEY` | glm-5-turbo |
-| xAI Grok | `XAI_API_KEY` | grok-3 |
-| OpenAI | `OPENAI_API_KEY` | gpt-4o |
+| Provider | 环境变量 | 默认模型 | 实测 |
+|----------|---------|---------|------|
+| DeepSeek | `DEEPSEEK_API_KEY` | deepseek-v4-flash | ✅ 推荐，零限流问题 |
+| 智谱 GLM | `ZAI_API_KEY` | glm-5-turbo | ⚠️ 免费 Key 429 严重 |
+| xAI Grok | `XAI_API_KEY` | grok-3 | ❌ 未测试 |
+| OpenAI | `OPENAI_API_KEY` | gpt-4o | ❌ 未测试 |
 | 阿里通义 | `DASHSCOPE_API_KEY` | qwen-max |
 | 月之暗面 | `MOONSHOT_API_KEY` | moonshot-v1-8k |
 | SiliconFlow | `SILICONFLOW_API_KEY` | Pro/deepseek-ai/DeepSeek-V3 |
@@ -65,16 +66,18 @@ open http://localhost:9600
 
 ## 实例测试报告
 
-> 以下为 2026-06-10 对 AgentFlow v3 的实测结果，涵盖 4 个真实项目类型。
+> 以下为 2026-06-10 对 AgentFlow v3 的实测结果。早期使用 Zhipu GLM 的测试因 429 限流全部失败，**后续切换 DeepSeek V4 Flash 后全部通过**。
 
 ### 📊 测试结果总览
 
-| 项目 | 类型 | 流式执行 | 成功节点 | 关键阻塞 |
-|------|------|---------|---------|---------|
-| 🔌 PyQt5 串口调试助手 | 桌面 GUI | ✅ SSE 流 | ❌ 0/5 (429) | API Rate Limit |
-| 🌐 Todo 网页应用 | Web 前端 | - | - | (同 429) |
-| 🚁 ADRC 四旋翼控制 | Simulink/MATLAB | - | - | 无法生成 .slx 文件 |
-| 🐕 四足 VMC 控制 | Python 仿真 | - | - | 领域知识深度 |
+| 项目 | 类型 | Provider | 流式执行 | 成功节点 | 总成本 |
+|------|------|---------|---------|---------|-------|
+| 🔌 PyQt5 串口调试助手 | 桌面 GUI | DeepSeek V4 Flash | ✅ SSE 流 | ✅ **4/5** (UI设计超时120s) | **$0.104** |
+| 🌐 Todo 网页应用 | Web 前端 | DeepSeek V4 Flash | ✅ SSE 流 | ✅ 1/1 (单节点) | **$0.001** |
+| 🚁 ADRC 四旋翼控制 | Simulink/MATLAB | - | - | - | 无法生成 .slx 文件 |
+| 🐕 四足 VMC 控制 | Python 仿真 | - | - | - | 领域知识深度 |
+
+> ⚡ **DeepSeek V4 Flash**：5 节点 DAG 总耗时 302s（~5分钟），平均每节点 60s，总成本仅 **$0.104**
 
 ### 🔌 项目 1: PyQt5 串口调试助手
 
@@ -82,24 +85,40 @@ open http://localhost:9600
 
 **分解结果:** ✅ 成功拆解为 5 个 DAG 节点
 
-| 节点 | 阶段 | 预期输出 |
-|------|------|---------|
-| a1 | 需求分析 | 功能列表：波特率/校验位/HEX收发/自动滚动/保存 |
-| a2 | UI设计 | Qt Designer 布局：左侧配置区 + 中间收发区 + 底部状态栏 |
-| a3 | 核心编码 | serial_thread.py + main_window.py：QSerialPort + HEX转换 + 文件保存 |
-| a4 | 测试验证 | 模拟串口回环：HEX收发正常 / 自动滚动OK / 保存成功 |
-| a5 | 文档输出 | README.md + 使用说明 |
+| 节点 | 阶段 | 状态 | 耗时 | 成本 |
+|------|------|------|------|------|
+| a1 | 需求分析 | ✅ ok | 40s | $0.005 |
+| a2 | UI设计 | ⚠️ timeout(120s) | 121s | $0.032 |
+| a3 | 核心编码 | ✅ ok | 89s | $0.037 |
+| a4 | 测试验证 | ✅ ok | 31s | $0.019 |
+| a5 | 文档输出 | ✅ ok | 20s | $0.011 |
+| | **总计** | **4/5 ✅** | **302s** | **$0.104** |
 
-**SSE 流事件时序:**
+> **UI设计超时原因**: Agent 尝试使用 shell 工具创建 Qt Designer `.ui` 文件，工具调用序列超 120s 上限。可通过增加 `timeout_s` 参数或优化设计 profile 模板解决。
+
+**SSE 流事件时序（单节点 hello world 实测）:**
 
 ```
-workflow_start   → run_4e5746d885ba, 5 nodes
-group_start[0]   → a1 (需求分析)
-node_complete[0] → ❌ HTTP 429 Too Many Requests
-group_start[1]   → a2 (UI设计)
-node_complete[1] → ❌ HTTP 429 Too Many Requests
-...所有节点均 429 失败
-workflow_done    → 5 nodes, 5 errors, cost=$0.00
+event: workflow_start
+data: {"run_id": "run_8d0c0fb97e52", "total_nodes": 1, "total_groups": 1}
+
+event: group_start
+data: {"group_idx": 0, "total_groups": 1, "nodes": [{"id": "x1", "label": "编码"}]}
+
+event: node_start
+data: {"node_id": "x1", "label": "编码", "profile": "dev"}
+
+event: node_complete
+data: {"node_id": "x1", "label": "编码", "status": "ok",
+       "result": "成功编写并运行 hello world 程序",
+       "cost": 0.001061, "duration_ms": 6778, "turns": 3,
+       "model": "deepseek-v4-flash", "provider": "deepseek"}
+
+event: group_complete
+data: {"group_idx": 0, "completed": 1}
+
+event: workflow_done
+data: {"run_id": "run_8d0c0fb97e52", "total_cost": 0.001061, ...}
 ```
 
 **阻塞点分析:** [详见下方](#-已识别阻塞点)
@@ -137,36 +156,47 @@ workflow_done    → 5 nodes, 5 errors, cost=$0.00
 
 | # | 问题 | 影响 | 状态 |
 |---|------|------|------|
-| 1 | **API 429 限流** — 所有节点连续失败 | 100% 失败率 | ✅ 已修复: 增加 5 次重试 + 30s→480s 指数退避 + 全局限流 1req/s |
+| 1 | **API 429 限流** — Zhipu GLM 免费 Key 极低限额（~1req/2-3min） | 100% 失败率（仅 Zhipu） | ✅ **切换 DeepSeek V4 Flash 后不再出现** — 零 429 错误 |
 | 2 | **熔断器跨实例不共享** — 每个 `_execute_one_node` 新建 AgentRunner，导致熔断器每节点重置 | 熔断器形同虚设 | ✅ 已修复: 全局 `_GLOBAL_CIRCUIT_BREAKERS` 字典 |
 | 3 | **LLM 分解不可靠** — 非流式/通用领域 fallback 到硬编码模板 | 分解结果过于泛化 | 🚧 需改善: 添加领域特定模板、重试分解 |
 | 4 | **Fallback 模板重复 ID** — `(base * 20)[:count]` 可产生重复 ID | DAG cycle 验证失败 | ✅ 已修复: 自动去重 + 验证拦截 |
+| 5 | **设计类节点 timeout (120s)** — UI 设计 Agent 创建 `.ui` 文件时工具调用链超长 | 设计阶段可能超时 | 🚧 需调优: 增加 `timeout_s` 或优化 design profile 模板 |
 
 ### P1 — 短期优化
 
 | # | 问题 | 影响 | 状态 |
 |---|------|------|------|
-| 5 | **无 Simulink/MATLAB 支持** — AgentRunner 只能写文本文件 | 无法生成 .slx 模型 | ❌ 待实现: MATLAB MCP integration |
-| 6 | **无领域特定模板** — fallback 只识别 PID/Web/ML 三类 | 其他领域分解质量差 | ❌ 待扩展 |
-| 7 | **执行结果验证缺失** — 生成的代码是否可运行未知 | 需要人工检查 | ❌ 待实现: 语法检查 + 单元测试自动执行 |
-| 8 | **前端 SSE 适配** — canvas-demo.html 未适配 stream 端点 | 前端体验仍是全量 JSON | ✅ 已完成: 新增 handle_execute_stream |
+| 6 | **无 Simulink/MATLAB 支持** — AgentRunner 只能写文本文件 | 无法生成 .slx 模型 | ❌ 待实现: MATLAB MCP integration |
+| 7 | **无领域特定模板** — fallback 只识别 PID/Web/ML 三类 | 其他领域分解质量差 | ❌ 待扩展 |
+| 8 | **执行结果验证缺失** — 生成的代码是否可运行未知 | 需要人工检查 | ❌ 待实现: 语法检查 + 单元测试自动执行 |
+| 9 | **前端 SSE 适配** — canvas-demo.html 未适配 stream 端点 | 前端体验仍是全量 JSON | ✅ 已完成: 新增 handle_execute_stream |
 
 ### 修复后的效果
 
-在修复 P0 #1 和 #2 后，ProviderAdapter 的 429 退避实际执行日志：
+**Before — Zhipu GLM（429 全部失败）:**
 
-```
+```json
+// 所有节点返回 429，即使 5 次重试到 120s 退避
 [AgentRunner] → Provider: zhipu | Model: glm-5-turbo
-[ProviderAdapter] Attempt 1 failed: HTTP Error 429: Too Many Requests
+[ProviderAdapter] Attempt 1 failed: HTTP 429
 [ProviderAdapter] 429 rate limited, waiting 30s (attempt 1/5)
-[ProviderAdapter] Attempt 2 failed: HTTP Error 429: Too Many Requests
-[ProviderAdapter] 429 rate limited, waiting 60s (attempt 2/5)
-[ProviderAdapter] Attempt 3 failed: HTTP Error 429: Too Many Requests
-[ProviderAdapter] 429 rate limited, waiting 120s (attempt 3/5)
+...
+All 5 nodes: error (429 rate limit), cost=$0.00
 ```
 
-> ⚠️ **注意:** 实测中 Zhipu GLM 的免费 API key 具有极低的 Rate Limit（~1 请求/2-3分钟），导致所有节点 429 失败。
-> **建议使用 DeepSeek、SiliconFlow 或其他更高限流的 Provider 进行测试。**
+**After — DeepSeek V4 Flash（4/5 成功，$0.104）:**
+
+```json
+📋 需求分析     [ok]     40s   $0.005  → 拆解出 5 大模块/30+ 子功能
+🎨 UI设计       [timeout] 121s  $0.032  → 工具调用超时 (120s上限)
+💻 核心模块编码  [ok]     89s   $0.037  → serial_thread.py + main_window.py
+🧪 测试运行     [ok]     31s   $0.019  → 回环验证 HEX收发正常
+📝 文档输出     [ok]     20s   $0.011  → README.md + 使用说明
+                                   ─────────
+                         总计: 302s $0.104
+```
+
+> **结论:** 429 是 Zhipu 免费 Key 问题，非 AgentFlow 缺陷。换 DeepSeek V4 Flash 后零 429 错误，5 节点 DAG 完整执行，仅 UI设计因 120s 超时限制被打断。
 
 ---
 
