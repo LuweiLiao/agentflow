@@ -331,3 +331,31 @@ class TestStaticPathTraversal:
             except HTTPError as e:
                 # 404 is OK if file doesn't exist
                 assert e.code in (404, 500)  # but not 403
+
+
+class TestStaticFileWhitelist:
+    """Phase 0-1: .env 等不安全文件不应被静态服务泄露。"""
+
+    def test_env_file_blocked(self):
+        with _TestServer() as srv:
+            req = Request(srv.url("/.env"))
+            try:
+                resp = urlopen(req, timeout=5)
+                assert False, f"Expected 403, got {resp.status}"
+            except HTTPError as e:
+                assert e.code == 403, f"Expected 403, got {e.code}"
+
+    def test_pyc_file_blocked(self):
+        with _TestServer() as srv:
+            req = Request(srv.url("/agentflow-backend.pyc"))
+            try:
+                resp = urlopen(req, timeout=5)
+                assert False, f"Expected 403, got {resp.status}"
+            except HTTPError as e:
+                assert e.code == 403
+
+    def test_html_file_allowed(self):
+        with _TestServer() as srv:
+            req = Request(srv.url("/canvas-demo.html"))
+            resp = urlopen(req, timeout=5)
+            assert resp.status == 200
