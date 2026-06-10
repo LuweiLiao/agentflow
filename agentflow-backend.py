@@ -2,6 +2,7 @@
 """AgentFlow 统一后端 — 静态文件 + API + Compiler + DAG 并行执行引擎"""
 import os, sys, json, http.server, urllib.request, urllib.error, tempfile, shutil, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 from agent_runner import AgentRunner
 from agentflow_schema import (
@@ -11,9 +12,17 @@ from agentflow_schema import (
 from prompt_compiler import PromptCompiler
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9600
-STATIC_DIR = "/home/llw/www/agentflow"
-TEMPLATE_DIR = os.path.join(STATIC_DIR, "templates")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.environ.get("AGENTFLOW_STATIC_DIR", SCRIPT_DIR)
+TEMPLATE_DIR = os.environ.get("AGENTFLOW_TEMPLATE_DIR",
+    os.path.join(STATIC_DIR, "templates") if os.path.isdir(os.path.join(STATIC_DIR, "templates"))
+    else os.path.join(SCRIPT_DIR, "templates"))
 DEFAULT_AGENT_MODEL = os.environ.get("AGENT_MODEL", "glm-5-turbo")
+
+# 全局并发控制
+MAX_CONCURRENT_AGENTS = int(os.environ.get("AGENTFLOW_MAX_CONCURRENT", "10"))
+MAX_BODY_SIZE = int(os.environ.get("AGENTFLOW_MAX_BODY_SIZE", str(512 * 1024)))  # 512KB
+_global_semaphore = threading.Semaphore(MAX_CONCURRENT_AGENTS)
 
 SYSTEM_PROMPT = """你是一个工作流编排专家。你的任务是将用户的需求拆解为多个子任务（Agent），每个子任务由独立的 AI Agent 执行。
 
@@ -49,21 +58,67 @@ profile 含义：
 记住：返回的数组长度必须 = count"""
 
 
+# 从 .env 或环境变量读取 API 鉴权 Token（可选）
+# 设置后，所有 API 请求必须在 Authorization header 中携带此 Token
+AGENTFLOW_API_TOKEN = os.environ.get("AGENTFLOW_API_TOKEN", "")
+
+
 class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
+    def _cors_headers(self, origin: str = "") -> dict:
+        """生成安全的 CORS 头。生产环境应设置 AGENTFLOW_ALLOWED_ORIGIN。"""
+        allowed = os.environ.get("AGENTFLOW_ALLOWED_ORIGIN", "")
+        if allowed and origin and origin == allowed:
+            origin_val = origin
+        elif allowed and origin and allowed == "*":
+            origin_val = origin
+        else:
+            # 默认只允许本地
+            origin_val = origin if origin in (
+                "http://localhost",
+                f"http://localhost:{PORT}",
+                "http://127.0.0.1",
+                f"http://127.0.0.1:{PORT}",
+            ) else "http://localhost"
+        return {
+            "Access-Control-Allow-Origin": origin_val,
+            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        }
+
+    def _require_auth(self) -> bool:
+        """检查 API Token 鉴权。如果 AGENTFLOW_API_TOKEN 为空则不要求鉴权。"""
+        if not AGENTFLOW_API_TOKEN:
+            return True
+        auth = self.headers.get("Authorization", "")
+        expected = f"Bearer {AGENTFLOW_API_TOKEN}"
+        if auth == expected:
+            return True
+        # 也支持 X-API-Key header
+        api_key = self.headers.get("X-API-Key", "")
+        if api_key == AGENTFLOW_API_TOKEN:
+            return True
+        return False
+
     def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        origin = self.headers.get("Origin", "")
+        cors = self._cors_headers(origin)
+        self.send_response(204)
+        for k, v in cors.items():
+            self.send_header(k, v)
+        self.send_header("Access-Control-Max-Age", "86400")
         self.end_headers()
 
     def do_GET(self):
         url = self.path
         if url == "/" or url == "":
             url = "/canvas-demo.html"
-        filepath = STATIC_DIR + url
+        filepath = os.path.normpath(os.path.join(STATIC_DIR, url.lstrip("/")))
+        # 路径穿越防护
+        if not filepath.startswith(os.path.normpath(STATIC_DIR) + os.sep) and filepath != os.path.normpath(STATIC_DIR):
+            self.send_error(403, "Forbidden")
+            return
         if not os.path.isfile(filepath):
-            filepath = STATIC_DIR + "/canvas-demo.html"
+            filepath = os.path.join(STATIC_DIR, "canvas-demo.html")
         try:
             with open(filepath, "rb") as f:
                 content = f.read()
@@ -74,7 +129,10 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
                     "ico":"image/x-icon"}.get(ext, "application/octet-stream")
             self.send_response(200)
             self.send_header("Content-Type", mime + "; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            origin = self.headers.get("Origin", "")
+            cors = self._cors_headers(origin)
+            for k, v in cors.items():
+                self.send_header(k, v)
             self.end_headers()
             self.wfile.write(content)
         except Exception as e:
@@ -82,6 +140,16 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            # API 鉴权（仅对 /api/* 路径）
+            if self.path.startswith("/api") and not self._require_auth():
+                self.send_response(401)
+                cors = self._cors_headers(self.headers.get("Origin", ""))
+                for k, v in cors.items():
+                    self.send_header(k, v)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "Unauthorized. Set AGENTFLOW_API_TOKEN or provide Bearer token."}).encode())
+                return
             if self.path == "/api/decompose":
                 self.handle_decompose()
             elif self.path == "/api/execute":
@@ -102,6 +170,9 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
     def handle_decompose(self):
         try:
             length = int(self.headers.get("Content-Length", 0))
+            if length > MAX_BODY_SIZE:
+                self.send_error(413, f"请求体过大 ({length} > {MAX_BODY_SIZE})")
+                return
             body = json.loads(self.rfile.read(length))
             requirement = body.get("requirement", "")
             count = int(body.get("count", 4))
@@ -117,8 +188,10 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         edges = self._generate_edges(nodes)
 
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        origin = self.headers.get("Origin", "")
+        cors = self._cors_headers(origin)
+        for k, v in cors.items():
+            self.send_header(k, v)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps({
@@ -230,6 +303,9 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
     def handle_execute(self):
         try:
             length = int(self.headers.get("Content-Length", 0))
+            if length > MAX_BODY_SIZE:
+                self.send_error(413, f"请求体过大 ({length} > {MAX_BODY_SIZE})")
+                return
             body = json.loads(self.rfile.read(length))
             nodes = body.get("nodes", [])
             edges = body.get("edges", [])
@@ -310,8 +386,10 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             pass
 
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        origin = self.headers.get("Origin", "")
+        cors = self._cors_headers(origin)
+        for k, v in cors.items():
+            self.send_header(k, v)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps({
@@ -322,9 +400,10 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         }).encode())
 
     def _execute_one_node(self, node: NodeDef, task, node_dir: str) -> dict:
-        """执行单个节点（在 ThreadPool 中运行）。"""
-        agent_model = node.model or DEFAULT_AGENT_MODEL
-        agent = AgentRunner(model=agent_model)
+        """执行单个节点（在 ThreadPool 中运行，受全局并发限流）。"""
+        with _global_semaphore:
+            agent_model = node.model or DEFAULT_AGENT_MODEL
+            agent = AgentRunner(model=agent_model)
 
         # 用 Compiler 生成的完整提示词
         prompt = task.prompt
@@ -397,7 +476,7 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = http.server.HTTPServer(("0.0.0.0", PORT), AgentFlowHandler)
+    server = http.server.HTTPServer(("127.0.0.1", PORT), AgentFlowHandler)
     print(f"AgentFlow v3 backend running on http://localhost:{PORT}", file=sys.stderr)
     print(f"API: POST /api/decompose | POST /api/execute", file=sys.stderr)
     print(f"Static: {STATIC_DIR}", file=sys.stderr)

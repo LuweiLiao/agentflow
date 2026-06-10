@@ -74,7 +74,7 @@ class NodeDef:
     desc:    str                    = ""
     color:   str                    = "blue"
     profile: str                    = "dev"       # Profile 枚举字符串
-    model:   Optional[str]          = None        # 指定模型名，None=用全局默认
+    model:   Optional[str]          = None        # 执行模型名，None=使用全局默认
     params:  dict                   = field(default_factory=dict)  # 节点自定义参数
     result:  Optional[str]          = None        # 执行结果
     output:  Optional[str]          = None        # 详细输出
@@ -83,7 +83,6 @@ class NodeDef:
     duration: int                   = 0
     turns:   int                    = 0
     provider: str                   = ""
-    model:   Optional[str]          = None   # 执行模型名，None 表示使用默认
 
     @classmethod
     def from_dict(cls, d: dict) -> "NodeDef":
@@ -262,6 +261,25 @@ def validate_workflow(wf: WorkflowJSON) -> list[str]:
     if not wf.nodes:
         errors.append("nodes 为空")
         return errors
+
+    # 重复 node id
+    seen = {}
+    for n in wf.nodes:
+        if n.id in seen:
+            errors.append(f"重复 node id: '{n.id}' (第 {seen[n.id]+1} 和当前节点)")
+        seen[n.id] = seen.get(n.id, 0) + 1
+
+    # 空 id
+    for n in wf.nodes:
+        if not n.id.strip():
+            errors.append("节点包含空 id")
+            break
+
+    # 最大节点限制
+    MAX_NODES = 200
+    if len(wf.nodes) > MAX_NODES:
+        errors.append(f"节点数 ({len(wf.nodes)}) 超过最大限制 ({MAX_NODES})")
+
     node_ids = {n.id for n in wf.nodes}
     for e in wf.edges:
         if e.source not in node_ids:
@@ -270,23 +288,53 @@ def validate_workflow(wf: WorkflowJSON) -> list[str]:
             errors.append(f"edges.target '{e.target}' 不存在")
         if e.source == e.target:
             errors.append(f"自环: {e.source} → {e.target}")
+
+    # 孤儿节点（无入边也无出边，且不是唯一节点）
+    if len(wf.nodes) > 1:
+        has_in = {n.id: False for n in wf.nodes}
+        has_out = {n.id: False for n in wf.nodes}
+        for e in wf.edges:
+            if e.source in has_out:
+                has_out[e.source] = True
+            if e.target in has_in:
+                has_in[e.target] = True
+        orphans = [nid for nid in node_ids if not has_in[nid] and not has_out[nid]]
+        if len(orphans) > 1:
+            errors.append(f"孤儿节点（无上下游连接）: {orphans}")
+
+    # DAG 环检测
+    try:
+        sorted_nodes, _ = topological_sort(wf.nodes, wf.edges)
+        if len(sorted_nodes) != len(wf.nodes):
+            unsorted = set(node_ids) - {n.id for n in sorted_nodes}
+            errors.append(f"DAG 中存在环，无法排序的节点: {list(unsorted)}")
+    except Exception as e:
+        errors.append(f"拓扑排序异常: {e}")
+
+    # Profile 校验
     profiles = {p.value for p in Profile}
     for n in wf.nodes:
         if n.profile not in profiles:
             errors.append(f"节点 {n.id}: 未知 profile '{n.profile}'")
+
     return errors
 
 
 def validate_prompt_tasks(tasks: list[PromptTask]) -> list[str]:
     """校验 PromptTask[] 完整性。"""
     errors = []
+    if not tasks:
+        errors.append("tasks 为空")
+        return errors
     task_ids = {t.task_id for t in tasks}
+    node_ids = {t.node_id for t in tasks}
     for t in tasks:
         if not t.prompt:
-            errors.append(f"任务 {t.task_id}: prompt 为空")
+            errors.append(f"任务 {t.task_id} (node={t.node_id}): prompt 为空")
+        # depends_on 存的是 node_id[]，不是 task_id[]
         for dep in t.depends_on:
-            if dep not in task_ids:
-                errors.append(f"任务 {t.task_id}: 依赖 '{dep}' 不存在")
+            if dep not in node_ids:
+                errors.append(f"任务 {t.task_id}: 依赖 node_id '{dep}' 不存在")
     return errors
 
 
@@ -333,6 +381,10 @@ def topological_sort(nodes: list[NodeDef],
             if in_degree[downstream] == 0:
                 depth[downstream] = max(depth.get(downstream, 0), depth.get(nid, 0) + 1)
                 queue.append(downstream)
+
+    # 环检测：如果排好序的节点数不等于总节点数，说明有环
+    if len(sorted_ids) != len(nodes):
+        raise ValueError(f"DAG 包含环: {len(nodes) - len(sorted_ids)} 个节点无法排序")
 
     sorted_nodes = [node_map[nid] for nid in sorted_ids]
     return sorted_nodes, depth
