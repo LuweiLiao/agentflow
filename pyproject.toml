@@ -3,7 +3,7 @@ name = "agentflow"
 version = "0.1.0"
 description = "Multi-Provider Agent Orchestration — from natural language to executable DAG"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Luwei Liao"},
 ]
@@ -22,7 +22,7 @@ dev = [
 ]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py310"
 
 [tool.ruff.lint]
@@ -36,3 +36,6 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+
+[tool.setuptools]
+packages = []

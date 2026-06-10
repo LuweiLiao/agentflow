@@ -373,6 +373,31 @@ def _submit_run(
     return run_id
 
 
+def _build_workflow_edges(nodes_data: list) -> list:
+    """从节点定义（含 depends_on）构建 EdgeDef 列表。
+
+    Args:
+        nodes_data: [{"node_id": "a1", "depends_on": ""},
+                     {"node_id": "a2", "depends_on": "a1"},
+                     {"node_id": "a3", "depends_on": "a1,a2"}]
+
+    Returns:
+        [EdgeDef(source="a1", target="a2"), EdgeDef(source="a1", target="a3"), ...]
+    """
+    from agentflow_schema import EdgeDef
+
+    edges = []
+    for node in nodes_data:
+        nid = node.get("node_id", "")
+        deps = node.get("depends_on", "")
+        if deps:
+            for dep in deps.split(","):
+                dep = dep.strip()
+                if dep:
+                    edges.append(EdgeDef(source=dep, target=nid))
+    return edges
+
+
 # ── HTTP Handler ──────────────────────────────────
 class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
     server_version = "AgentFlow/3"
@@ -564,6 +589,7 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
 
         if not requirement:
             self._send_json(400, {"error": "Requirement is empty"})
+            return
 
         # 尝试用 LLM 分解，无 key 则 fallback
         model = os.environ.get("AGENT_MODEL", DEFAULT_AGENT_MODEL)

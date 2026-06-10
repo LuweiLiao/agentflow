@@ -55,6 +55,11 @@ class _TestServer:
         self._mock_runner = mock.MagicMock()
         self._mock_runner_cls.return_value = self._mock_runner
         self._mock_runner.api_key = "sk-test"
+        self._mock_runner.provider_name = "test-provider"
+        self._mock_runner_cls.PROVIDER_CONFIGS = {
+            "deepseek": {"key_env": "DEEPSEEK_API_KEY", "base_env": "DEEPSEEK_BASE_URL", "default_base": "https://api.deepseek.com/v1"},
+            "test-provider": {"key_env": "TEST_API_KEY", "base_env": "TEST_BASE_URL", "default_base": "http://test.local/v1"},
+        }
         # Configure mock execute to return a proper dict
         # The output should be parseable JSON for call_llm to work
         self._mock_runner.execute.return_value = {

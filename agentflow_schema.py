@@ -149,7 +149,7 @@ class WorkflowJSON:
     @classmethod
     def from_api_request(cls, nodes: list[dict],
                          requirement: str = "",
-                         edges: list[dict] = None) -> "WorkflowJSON":
+                         edges: list[dict] | None = None) -> "WorkflowJSON":
         """从 /api/decompose 或前端请求构建。"""
         return cls(
             workflow_id=f"wf_{id(nodes):x}",
@@ -262,7 +262,7 @@ def validate_workflow(wf: WorkflowJSON) -> list[str]:
         return errors
 
     # 重复 node id
-    seen = {}
+    seen: dict[str, int] = {}
     for n in wf.nodes:
         if n.id in seen:
             errors.append(f"重复 node id: '{n.id}' (第 {seen[n.id]+1} 和当前节点)")
@@ -358,7 +358,7 @@ def topological_sort(nodes: list[NodeDef],
     """
     node_map = {n.id: n for n in nodes}
     in_degree = {n.id: 0 for n in nodes}
-    adjacency = {n.id: [] for n in nodes}
+    adjacency: dict[str, list[str]] = {n.id: [] for n in nodes}
 
     for e in edges:
         if e.source in adjacency and e.target in adjacency:
