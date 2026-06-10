@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """RunStore — SQLite 持久化层，替代 ArtifactStore 文件存储。"""
+import json
 import os
 import sqlite3
 import time
@@ -21,8 +22,8 @@ def _init():
         CREATE TABLE IF NOT EXISTS runs (
             run_id      TEXT PRIMARY KEY,
             requirement TEXT NOT NULL DEFAULT '',
-            status      TEXT NOT NULL DEFAULT 'pending'
-                        CHECK(status IN ('pending','running','completed','failed')),
+            status      TEXT NOT NULL DEFAULT 'pending',
+            edges_json  TEXT DEFAULT '[]',   -- 完整边信息
             total_cost  REAL NOT NULL DEFAULT 0.0,
             total_dur   REAL NOT NULL DEFAULT 0.0,
             created_at  REAL NOT NULL,
@@ -39,7 +40,7 @@ def _init():
             color       TEXT DEFAULT '',
             profile     TEXT NOT NULL DEFAULT 'dev',
             status      TEXT NOT NULL DEFAULT 'pending'
-                        CHECK(status IN ('pending','running','completed','failed','skipped')),
+                        CHECK(status IN ('pending','running','completed','failed','skipped','timed_out','cancelled')),
             result      TEXT DEFAULT '',
             output      TEXT DEFAULT '',
             cost        REAL NOT NULL DEFAULT 0.0,
@@ -67,14 +68,15 @@ class RunStore:
 
     # ── Run 层面 ────────────────────────────────────
 
-    def create_run(self, requirement: str, nodes: list) -> str:
+    def create_run(self, requirement: str, nodes: list, edges: list | None = None) -> str:
         """创建新 run，返回 run_id。"""
         run_id = f"run_{os.urandom(6).hex()}"
         now = time.time()
+        edges_json = json.dumps(edges or [])
         self._conn.execute(
-            ("INSERT INTO runs (run_id, requirement, status, created_at, updated_at)"
-             " VALUES (?,?,?,?,?)"),
-            (run_id, requirement[:500], "pending", now, now),
+            ("INSERT INTO runs (run_id, requirement, status, edges_json, created_at, updated_at)"
+             " VALUES (?,?,?,?,?,?)"),
+            (run_id, requirement[:500], "pending", edges_json, now, now),
         )
         for n in nodes:
             raw_deps = n.get("depends_on", [])
@@ -100,6 +102,18 @@ class RunStore:
             "SELECT * FROM nodes WHERE run_id=? ORDER BY rowid", (run_id,)
         ).fetchall()]
         return run
+
+    def get_run_edges(self, run_id: str) -> list:
+        """获取 run 的边信息。"""
+        row = self._conn.execute(
+            "SELECT edges_json FROM runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        if not row:
+            return []
+        try:
+            return json.loads(row["edges_json"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            return []
 
     def list_runs(self, limit: int = 50) -> list:
         rows = self._conn.execute(
@@ -154,7 +168,7 @@ class RunStore:
                 f"SELECT status FROM nodes WHERE run_id=? AND node_id IN ({placeholders})",
                 [run_id] + deps,
             ).fetchall()
-            if all(r["status"] == "completed" for r in dep_rows):
+            if len(dep_rows) == len(deps) and all(r["status"] == "completed" for r in dep_rows):
                 ready.append(dict(n))
         return ready
 
@@ -162,7 +176,7 @@ class RunStore:
         """检查是否所有节点都已结束。"""
         pending = self._conn.execute(
             "SELECT COUNT(*) FROM nodes WHERE run_id=?"
-            " AND status NOT IN ('completed','failed','skipped')",
+            " AND status NOT IN ('completed','failed','skipped','timed_out')",
             (run_id,),
         ).fetchone()[0]
         return pending == 0

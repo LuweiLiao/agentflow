@@ -6,7 +6,7 @@ FROM python:3.12-slim AS builder
 WORKDIR /app
 
 COPY pyproject.toml ./
-COPY agentflow-backend.py agent_runner.py agentflow_schema.py prompt_compiler.py artifact_store.py ./
+COPY agentflow-backend.py agent_runner.py agentflow_schema.py prompt_compiler.py artifact_store.py run_store.py provider_adapter.py output_validator.py ./
 COPY templates/ templates/
 COPY *.html ./
 COPY *.png ./

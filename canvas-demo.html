@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AgentFlow — 画布交互 Demo v6</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'none'">
+  <title>AgentFlow — Multi-Provider Agent 编排平台</title>
 <style>
   :root {
     --bg: #0f1117; --surface: #1a1d2e; --surface2: #232742;
@@ -308,9 +309,17 @@
 
 <script>
 // ═══════════════════════════════════════════════
+// Security: HTML 转义（防 LLM 数据 XSS）
+// ═══════════════════════════════════════════════
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ═══════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════
-let step = 0, genTimer = null, execTimer = null;
+let step = 0, genTimer = null;
 let currentNodes = [];
 let workflowEdges = [];
 
@@ -559,9 +568,8 @@ function renderGrid() {
     card.onclick = () => showConfig(n);
     card.innerHTML =
       '<div class="ai '+n.color+'">'+n.icon+'</div>'+
-      '<div class="al">'+n.label+
-        '<span class="sub">'+ (prof.label||'') +'</span>'+
-      '</div>'+
+      '<div class="al">'+esc(n.label)+'</div>'+
+      '<div class="ad">'+esc(n.desc||'')+'</div>'+
       '<span class="sbadge run">▶</span><span class="sbadge ok">✓</span>';
     
     // Arrow
@@ -617,102 +625,166 @@ function adjustCanvasCount(delta) {
 // ═══════════════════════════════════════════════
 function startExecution() {
   step = 3; updateStepUI();
-  document.getElementById('panelTitle').textContent = '💻 执行中 — Multi-Provider Agent';
+  // 两阶段执行：POST /api/runs → 202 + run_id → SSE /api/runs/{run_id}/events
+  document.getElementById('panelTitle').textContent = '⏳ 提交中 — 等待后端...';
   document.getElementById('panelBody').innerHTML =
     '<div class="exec-log" id="execLog"></div>'+
     '<div style="margin-top:8px;"><button class="btn btn-sm btn-outline" style="width:100%;" onclick="showResults()">📊 查看所有结果</button></div>';
 
   const log = document.getElementById('execLog');
-  log.innerHTML = '<div class="line"><span class="ts">[00:00]</span><span class="info">Orch 启动 — '+currentNodes.length+' Agents（Multi-Provider Agent）</span></div>';
+  log.innerHTML = ''; // 清空，防止 XSS
 
-  // 显示所有节点为执行中
-  currentNodes.forEach((n, i) => {
-    setTimeout(() => {
-      markExec(n.id);
-      const p = AGENT_PROFILES[n.profile]||{label:''};
-      log.innerHTML += '<div class="line"><span class="ts">['+String(i+1).padStart(2,'0')+':00]</span><span class="info">启动 Agent '+n.id+' ('+p.label+') — '+n.label+'</span></div>';
-      log.scrollTop = log.scrollHeight;
-    }, 500 + i*300);
-  });
-
-  // 调用真实执行引擎
-  callExecuteAPI(currentNodes).then(data => {
-    const nodes = data.nodes || [];
-    nodes.forEach((n, i) => {
-      setTimeout(() => {
-        // 更新节点状态
-        const idx = currentNodes.findIndex(x => x.id === n.id);
-        if (idx >= 0) currentNodes[idx] = n;
-        markDone(n.id);
-        fillOutput(n);
-        const costStr = n.cost ? `$${n.cost.toFixed(4)}` : '';
-        const durStr = n.duration ? `${(n.duration/1000).toFixed(1)}s` : '';
-        const modelStr = n.model ? ` [${n.model}]` : '';
-        const turnStr = n.turns ? ` (${n.turns}轮)` : '';
-        log.innerHTML += '<div class="line"><span class="ts">[完成]</span><span class="ok">✅ '+n.label+modelStr+turnStr+' '+costStr+' '+durStr+'</span></div>';
-        log.scrollTop = log.scrollHeight;
-      }, 1000 + i*500);
-    });
-
-    // 全部完成
-    setTimeout(() => {
-      const totalCost = data.total_cost ? `$${data.total_cost.toFixed(4)}` : '';
-      const totalDur = data.total_duration ? `${(data.total_duration/1000).toFixed(1)}s` : '';
-      log.innerHTML += '<div class="line"><span class="ts">[完成]</span><span class="ok">✅ 全部完成 — '+nodes.length+' Agents · 总费用 '+totalCost+' · 总耗时 '+totalDur+(data.run_id?' [run: '+data.run_id+']':'')+'</span></div>';
-      log.scrollTop = log.scrollHeight;
-      document.getElementById('panelTitle').textContent = '✅ 执行完成 — Multi-Provider Agent 真实输出';
-    }, 1000 + nodes.length * 600);
-
-  }).catch(e => {
-    log.innerHTML += '<div class="line"><span class="ts">[错误]</span><span style="color:var(--orange);">⚠️ AgentRunner 执行失败: '+e.message+'</span></div>';
-    log.scrollTop = log.scrollHeight;
-    // 降级到模拟执行
-    fallbackExecution(log);
-  });
-}
-
-async function callExecuteAPI(nodes) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 300000); // 5min timeout
+  // 1) 提交 run
+  let runId = null;
   try {
-    const resp = await fetch(API_URL.replace('/decompose','/execute'), {
+    const resp = await fetch(API_URL.replace('/decompose','/runs'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      signal: controller.signal,
       body: JSON.stringify({
-        nodes: nodes,
+        nodes: currentNodes,
         edges: workflowEdges || [],
         requirement: document.getElementById('reqInput')?.value || ''
       })
     });
-    clearTimeout(timeoutId);
     if (!resp.ok) throw new Error('HTTP '+resp.status);
-    return await resp.json();
+    const data = await resp.json();
+    runId = data.run_id;
+    addLog(log, 'info', '🧬 任务已提交，run_id: ' + runId + '，共 ' + currentNodes.length + ' 个节点');
+    document.getElementById('panelTitle').textContent = '⏳ 等待调度...';
+
+    // 2) 连接 SSE 事件流
+    const apiBase = API_URL.replace('/decompose','');
+    const es = new EventSource(apiBase + '/runs/' + runId + '/events');
+
+    let completedCount = 0;
+    const totalNodes = currentNodes.length;
+
+    es.addEventListener('node_start', function(e) {
+      const ev = JSON.parse(e.data);
+      const nodeId = ev.node_id;
+      document.getElementById('panelTitle').textContent = '▶️ 执行中 — ' + (ev.label||nodeId);
+      markExec(nodeId);
+      addLog(log, 'info', '▶️ 启动 ' + (ev.label||nodeId));
+    });
+
+    es.addEventListener('node_complete', function(e) {
+      const ev = JSON.parse(e.data);
+      const nodeId = ev.node_id;
+      completedCount++;
+
+      // 更新节点数据
+      const idx = currentNodes.findIndex(x => x.id === nodeId);
+      if (idx >= 0) {
+        currentNodes[idx].status = ev.status;
+        currentNodes[idx].result = ev.result;
+        currentNodes[idx].cost = ev.cost;
+        currentNodes[idx].duration = ev.duration_ms;
+        currentNodes[idx].turns = ev.turns;
+      }
+
+      markDone(nodeId);
+      fillOutput(currentNodes[idx] || {id: nodeId, label: ev.label});
+
+      const costStr = ev.cost ? '$' + ev.cost.toFixed(4) : '';
+      const durStr = ev.duration_ms ? (ev.duration_ms/1000).toFixed(1) + 's' : '';
+      const modelStr = ev.model ? ' [' + ev.model + ']' : '';
+      const turnStr = ev.turns ? ' (' + ev.turns + '轮)' : '';
+
+      if (ev.status === 'completed') {
+        addLog(log, 'ok', '✅ ' + (ev.label||nodeId) + modelStr + turnStr + ' ' + costStr + ' ' + durStr);
+      } else if (ev.status === 'failed') {
+        addLog(log, 'err', '❌ ' + (ev.label||nodeId) + ' — 失败');
+      } else if (ev.status === 'skipped') {
+        addLog(log, 'warn', '⏭️ ' + (ev.label||nodeId) + ' — 跳过');
+      }
+
+      document.getElementById('panelTitle').textContent = completedCount + '/' + totalNodes + ' 完成';
+    });
+
+    es.addEventListener('workflow_done', function(e) {
+      const ev = JSON.parse(e.data);
+      es.close();
+
+      const totalCost = ev.total_cost ? '$' + ev.total_cost.toFixed(4) : '';
+      const totalDur = ev.total_duration ? (ev.total_duration/1000).toFixed(1) + 's' : '';
+
+      if (ev.status === 'completed') {
+        addLog(log, 'ok', '✅ 全部完成 — ' + completedCount + ' Agents · 总费用 ' + totalCost + ' · 总耗时 ' + totalDur);
+        document.getElementById('panelTitle').textContent = '✅ 执行完成 — 真实 Agent 输出';
+      } else if (ev.status === 'failed') {
+        addLog(log, 'err', '❌ 执行失败');
+        document.getElementById('panelTitle').textContent = '❌ 执行失败';
+      } else {
+        addLog(log, 'warn', '⚠️ Run 状态: ' + ev.status);
+      }
+    });
+
+    es.addEventListener('error', function(e) {
+      // EventSource 自动重连，如果连不上最终会 here
+      addLog(log, 'warn', '⚠️ SSE 连接异常，将轮询');
+      es.close();
+      // 降级为轮询
+      pollRunStatus(runId, log, completedCount, totalNodes);
+    });
+
   } catch (e) {
-    clearTimeout(timeoutId);
-    throw e;
+    addLog(log, 'err', '❌ 提交失败: ' + (e.message||'unknown'));
+    document.getElementById('panelTitle').textContent = '❌ 提交失败';
+    // 不再静默模拟。如需 Demo 模式，刷新页面后点击 "🔄 Demo 模式" 按钮
   }
 }
 
-function fallbackExecution(log) {
-  log.innerHTML += '<div class="line"><span class="ts">[降级]</span><span style="color:var(--text3);">使用模拟执行...</span></div>';
-  let idx = 0; const N = currentNodes.length;
-  execTimer = setInterval(() => {
-    if (idx >= N+2) { clearInterval(execTimer); execTimer=null;
-      document.getElementById('panelTitle').textContent = '✅ 执行完成'; return; }
-    if (idx === 0) { /* skip - already logged */ }
-    else if (idx <= N) {
-      const n = currentNodes[idx-1];
-      if (idx > 1) { markDone(currentNodes[idx-2].id); fillOutput(currentNodes[idx-2]); }
-      markExec(n.id);
-    } else {
-      const last = currentNodes[N-1];
-      markDone(last.id); fillOutput(last);
-      log.innerHTML += '<div class="line"><span class="ts">[完成]</span><span class="ok">✅ 全部完成 — '+N+' Agents（模拟）</span></div>';
-      document.getElementById('panelTitle').textContent = '✅ 执行完成';
-    }
-    log.scrollTop = log.scrollHeight; idx++;
-  }, 1300);
+/** 轮询降级（SSE 断开时使用） */
+async function pollRunStatus(runId, log, completedCount, totalNodes) {
+  const apiBase = API_URL.replace('/decompose','');
+  const maxPolls = 300; // 5min
+  for (let i = 0; i < maxPolls; i++) {
+    try {
+      const resp = await fetch(apiBase + '/runs/' + runId);
+      if (!resp.ok) break;
+      const run = await resp.json();
+
+      let changed = false;
+      for (const node of (run.nodes||[])) {
+        const idx = currentNodes.findIndex(x => x.id === node.node_id);
+        if (idx >= 0 && node.status !== currentNodes[idx].status) {
+          currentNodes[idx].status = node.status;
+          currentNodes[idx].result = node.result;
+          if (node.status === 'completed') {
+            markDone(node.node_id);
+            fillOutput(currentNodes[idx]);
+            addLog(log, 'ok', '✅ ' + (node.label||node.node_id) + ' 完成');
+          } else if (node.status === 'running') {
+            markExec(node.node_id);
+            addLog(log, 'info', '▶️ ' + (node.label||node.node_id));
+          }
+          changed = true;
+        }
+      }
+
+      if (run.status === 'completed' || run.status === 'failed') {
+        addLog(log, run.status === 'completed' ? 'ok' : 'err',
+          run.status === 'completed' ? '✅ 全部完成' : '❌ 执行失败');
+        document.getElementById('panelTitle').textContent =
+          run.status === 'completed' ? '✅ 执行完成' : '❌ 执行失败';
+        return;
+      }
+    } catch (e) { /* 继续轮询 */ }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  addLog(log, 'warn', '⚠️ 轮询超时');
+}
+
+/** 安全追加日志行（纯文本，防 XSS） */
+function addLog(el, cls, text) {
+  var div = document.createElement('div');
+  div.className = 'line';
+  var span = document.createElement('span');
+  span.className = cls;
+  span.textContent = text;
+  div.appendChild(span);
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
 }
 
 function markExec(id) {
@@ -742,19 +814,19 @@ function fillOutput(n) {
 // ═══════════════════════════════════════════════
 function showConfig(n) {
   const prof = AGENT_PROFILES[n.profile]||{label:'通用',icon:'🔧',color:'blue'};
-  document.getElementById('panelTitle').textContent = '⚙️ '+n.label;
+  document.getElementById('panelTitle').textContent = '⚙️ '+esc(n.label);
   document.getElementById('panelBody').innerHTML =
     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'+
       '<div class="ai '+n.color+'" style="width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:16px;">'+n.icon+'</div>'+
-      '<div><div style="font-weight:600;font-size:13px;">'+n.label+'</div><div style="font-size:10px;color:var(--text3);">'+n.desc+'</div></div>'+
+      '<div><div style="font-weight:600;font-size:13px;">'+esc(n.label)+'</div><div style="font-size:10px;color:var(--text3);">'+esc(n.desc||'')+'</div></div>'+
     '</div>'+
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">'+
-      '<div class="config-row"><label>节点 ID</label><input value="'+n.id+'" readonly></div>'+
-      '<div class="config-row"><label>Agent Profile</label><input value="'+prof.label+'" readonly style="color:var(--accent);"></div>'+
+      '<div class="config-row"><label>节点 ID</label><input value="'+esc(n.id)+'" readonly></div>'+
+      '<div class="config-row"><label>Agent Profile</label><input value="'+esc(prof.label)+'" readonly style="color:var(--accent);"></div>'+
     '</div>'+
     '<hr style="border:none;border-top:1px solid var(--border);margin:12px 0;">'+
     '<div style="font-size:10px;color:var(--text3);margin-bottom:4px;">📝 Agent 提示词（PromptTask）</div>'+
-    '<div style="background:var(--bg);border-radius:4px;padding:8px 10px;font-size:9px;color:var(--text2);line-height:1.6;border:1px solid var(--border);white-space:pre-wrap;">你是一个 '+prof.label+' Agent。\n节点：'+n.label+'\n目标：'+n.desc+'\n输出格式：JSON</div>'+
+    '<div style="background:var(--bg);border-radius:4px;padding:8px 10px;font-size:9px;color:var(--text2);line-height:1.6;border:1px solid var(--border);white-space:pre-wrap;">你是一个 '+esc(prof.label)+' Agent。\n节点：'+esc(n.label)+'\n目标：'+esc(n.desc||'')+'\n输出格式：JSON</div>'+
     '<hr style="border:none;border-top:1px solid var(--border);margin:12px 0;">'+
     '<div style="display:flex;gap:8px;">'+
       '<div class="config-row" style="flex:1;"><label>超时(秒)</label><input value="'+(n.color==='green'?300:120)+'"></div>'+
@@ -774,9 +846,9 @@ function showResults() {
     const durStr = n.duration ? `${(n.duration/1000).toFixed(1)}s` : '';
     const turnStr = n.turns ? `${n.turns}轮` : '';
     const modelStr = n.model ? ` [${n.model}]` : '';
-    items += '<div class="result-item" onclick="showConfig(currentNodes.find(x=>x.id===\''+n.id+'\'));this.closest(\'.result-overlay\').remove();">'+
+    items += '<div class="result-item" onclick="showConfig(currentNodes.find(x=>x.id===\''+esc(n.id)+'\'));this.closest(\'.result-overlay\').remove();">'+
       '<div class="ri-icon" style="background:rgba(59,130,246,0.12)">'+n.icon+'</div>'+
-      '<div class="ri-info"><div class="ri-title">'+n.label+'</div><div class="ri-detail">'+(n.result||'完成')+'</div></div>'+
+      '<div class="ri-info"><div class="ri-title">'+esc(n.label)+'</div><div class="ri-detail">'+esc(n.result||'完成')+'</div></div>'+
       '<div style="text-align:right;font-size:9px;color:var(--text3);line-height:1.4;">'+
         (costStr ? costStr+'<br>': '')+
         (durStr ? durStr+'<br>': '')+
@@ -814,7 +886,7 @@ function updateStepUI() {
 
 function resetDemo() {
   if(genTimer){clearInterval(genTimer);genTimer=null;}
-  if(execTimer){clearInterval(execTimer);execTimer=null;}
+  
   step=0; currentNodes=[];
   const ov=document.getElementById('resultOverlay'); if(ov)ov.remove();
   document.getElementById('canvasGridInner').innerHTML='';

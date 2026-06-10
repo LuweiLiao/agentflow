@@ -15,6 +15,7 @@ from agent_runner import AgentRunner
 from agentflow_schema import (
     NodeDef,
     WorkflowJSON,
+    validate_workflow,
 )
 from prompt_compiler import PromptCompiler
 from run_store import extract_json, get_store
@@ -26,6 +27,9 @@ TEMPLATE_DIR = os.environ.get("AGENTFLOW_TEMPLATE_DIR",
     os.path.join(STATIC_DIR, "templates") if os.path.isdir(os.path.join(STATIC_DIR, "templates"))
     else os.path.join(SCRIPT_DIR, "templates"))
 DEFAULT_AGENT_MODEL = os.environ.get("AGENT_MODEL", "deepseek-v4-flash")
+
+# 服务监听地址
+HOST = os.environ.get("AGENTFLOW_HOST", "127.0.0.1")
 
 # 全局并发控制
 MAX_CONCURRENT_AGENTS = int(os.environ.get("AGENTFLOW_MAX_CONCURRENT", "10"))
@@ -84,6 +88,7 @@ def _execute_run(run_id: str):
         node_defs.append(nd)
 
     requirement = run["requirement"]
+    edges_real = store.get_run_edges(run_id)
     work_dir = tempfile.mkdtemp(prefix=f"agentflow_{run_id}_")
     compiler = PromptCompiler(TEMPLATE_DIR)
     total_cost = 0.0
@@ -137,7 +142,7 @@ def _execute_run(run_id: str):
                             "constraints": [],
                         },
                         nodes=node_defs,
-                        edges=[],
+                        edges=edges_real,
                     )
                     layer_tasks = compiler.compile(wf, upstream_results=upstream_summaries)
                     task = next((t for t in layer_tasks if t.node_id == nid), None)
@@ -201,7 +206,7 @@ def _execute_run(run_id: str):
                     }, ensure_ascii=False)
 
                     # 失败传播
-                    if status in ("error", "timeout"):
+                    if status == "failed":
                         deps = store.get_dependents(run_id, nid)
                         for dep_id in deps:
                             store.update_node(run_id, dep_id,
@@ -214,9 +219,7 @@ def _execute_run(run_id: str):
         # 结算
         final_status = "completed"
         counts = store.count_status(run_id)
-        if counts.get("failed", 0) > 0:
-            final_status = "failed"
-        elif counts.get("timeout", 0) > 0:
+        if counts.get("failed", 0) > 0 or counts.get("timed_out", 0) > 0:
             final_status = "failed"
         store.update_run_totals(run_id, total_cost, total_dur)
         store.update_run_status(run_id, final_status)
@@ -314,8 +317,12 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             self._handle_list_runs()
             return
         if url.startswith("/api/runs/"):
-            run_id = url.split("/")[-1]
-            self._handle_get_run(run_id)
+            parts = url.split("/")
+            run_id = parts[-1]
+            if len(parts) >= 5 and parts[-2] == "events":
+                self._handle_run_events(run_id)
+            else:
+                self._handle_get_run(run_id)
             return
 
         # 静态文件
@@ -360,7 +367,7 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         url = self.path
         if url == "/api/decompose":
             self.handle_decompose()
-        elif url == "/api/execute":
+        elif url == "/api/execute" or url == "/api/runs":
             self.handle_execute()
         elif url == "/api/execute/stream":
             self.handle_execute_stream()
@@ -534,6 +541,21 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
             self._send_json(400, {"error": "No nodes"})
             return
 
+        # DAG 校验
+        wf_check = WorkflowJSON(
+            workflow_id="validate",
+            name=requirement[:100],
+            global_context={"goal": requirement, "language": "zh-CN", "constraints": []},
+            nodes=[NodeDef(id=n.get("id",""), icon=n.get("icon",""), label=n.get("label",""),
+                           desc=n.get("desc",""), color=n.get("color",""), profile=n.get("profile","dev"))
+                   for n in nodes],
+            edges=edges,
+        )
+        validation_errors = validate_workflow(wf_check)
+        if validation_errors:
+            self._send_json(422, {"error": "invalid_workflow", "details": validation_errors})
+            return
+
         # 将 edges 转为 depends_on 字段
         dep_map: dict[str, list[str]] = {}
         for e in edges:
@@ -549,7 +571,7 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
 
         # 持久化到 SQLite
         store = get_store()
-        run_id = store.create_run(requirement, nodes)
+        run_id = store.create_run(requirement, nodes, edges)
 
         # 入队异步执行
         _executor_queue.put(run_id)
@@ -634,7 +656,7 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
                                 "profile": node.get("profile", ""),
                                 "group_idx": 0,
                             })
-                        elif new_status in ("completed", "failed", "skipped"):
+                        elif new_status in ("completed", "failed", "skipped", "timed_out"):
                             self._stream_send("node_complete", {
                                 "node_id": nid,
                                 "label": node.get("label", ""),
@@ -711,6 +733,74 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         except (BrokenPipeError, OSError):
             pass
 
+    # ── Run 状态 SSE 事件流 ────────────────────────
+
+    def _handle_run_events(self, run_id: str):
+        """SSE 端点：实时推送 run 内节点状态变更。"""
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        run = get_store().get_run(run_id)
+        if not run:
+            self._send_json(404, {"error": f"Run {run_id} not found"})
+            return
+
+        self._send_sse_headers()
+
+        last_states: dict[str, str] = {}
+        poll_interval = 1.0
+        max_wait = 600
+        waited = 0
+
+        try:
+            while waited < max_wait:
+                run = get_store().get_run(run_id)
+                if not run:
+                    break
+
+                # 推送 run 级状态变更
+                run_status = run.get("status", "unknown")
+                for node in run.get("nodes", []):
+                    nid = node["node_id"]
+                    new_status = node["status"]
+                    old_status = last_states.get(nid)
+                    if new_status != old_status:
+                        last_states[nid] = new_status
+                        if new_status == "running":
+                            self._stream_send("node_start", {
+                                "node_id": nid,
+                                "label": node.get("label", ""),
+                                "profile": node.get("profile", ""),
+                            })
+                        elif new_status in ("completed", "failed", "skipped", "timed_out"):
+                            self._stream_send("node_complete", {
+                                "node_id": nid,
+                                "label": node.get("label", ""),
+                                "status": new_status,
+                                "result": (node.get("result") or "")[:200],
+                                "cost": node.get("cost", 0),
+                                "duration_ms": node.get("duration_ms", 0),
+                                "turns": node.get("turns", 0),
+                                "model": node.get("model", ""),
+                                "provider": node.get("provider", ""),
+                            })
+
+                # run 完成时推送 workflow_done
+                if run_status in ("completed", "failed"):
+                    self._stream_send("workflow_done", {
+                        "run_id": run_id,
+                        "status": run_status,
+                        "total_cost": run.get("total_cost", 0),
+                        "total_duration": run.get("total_dur", 0),
+                        "nodes": run.get("nodes", []),
+                    })
+                    break
+
+                time.sleep(poll_interval)
+                waited += poll_interval
+        except BrokenPipeError:
+            pass
+
     # ── Run 历史 API ───────────────────────────────
 
     def _handle_list_runs(self):
@@ -750,12 +840,12 @@ if not hasattr(_background_worker, "_started"):
     _background_worker._started = True  # type: ignore[attr-defined]
 
 if __name__ == "__main__":
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), AgentFlowHandler)
-    print(f"AgentFlow v4 backend running on http://localhost:{PORT}", file=sys.stderr)
+    server = http.server.ThreadingHTTPServer((HOST, PORT), AgentFlowHandler)
+    print(f"AgentFlow v4 backend running on http://{HOST}:{PORT}", file=sys.stderr)
     print("API:", file=sys.stderr)
     print("  POST /api/decompose    — 编排分解 (同步)", file=sys.stderr)
-    print("  POST /api/execute      — 异步执行 (返回 run_id)", file=sys.stderr)
-    print("  POST /api/execute/stream — SSE 流式执行", file=sys.stderr)
+    print("  POST /api/runs         — 异步执行 (返回 run_id)", file=sys.stderr)
+    print("  GET  /api/runs/<id>/events — SSE 实时事件流", file=sys.stderr)
     print("  GET  /api/runs         — 执行历史", file=sys.stderr)
     print("  GET  /api/runs/<id>    — 单 run 详情", file=sys.stderr)
     print(f"Model: {DEFAULT_AGENT_MODEL}", file=sys.stderr)
