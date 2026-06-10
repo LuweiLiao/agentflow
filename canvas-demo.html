@@ -658,7 +658,7 @@ function startExecution() {
     setTimeout(() => {
       const totalCost = data.total_cost ? `$${data.total_cost.toFixed(4)}` : '';
       const totalDur = data.total_duration ? `${(data.total_duration/1000).toFixed(1)}s` : '';
-      log.innerHTML += '<div class="line"><span class="ts">[完成]</span><span class="ok">✅ 全部完成 — '+nodes.length+' Agents · 总费用 '+totalCost+' · 总耗时 '+totalDur+'</span></div>';
+      log.innerHTML += '<div class="line"><span class="ts">[完成]</span><span class="ok">✅ 全部完成 — '+nodes.length+' Agents · 总费用 '+totalCost+' · 总耗时 '+totalDur+(data.run_id?' [run: '+data.run_id+']':'')+'</span></div>';
       log.scrollTop = log.scrollHeight;
       document.getElementById('panelTitle').textContent = '✅ 执行完成 — Multi-Provider Agent 真实输出';
     }, 1000 + nodes.length * 600);

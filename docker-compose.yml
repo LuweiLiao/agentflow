@@ -1,0 +1,10 @@
+services:
+  agentflow:
+    build: .
+    ports:
+      - "9600:9600"
+    env_file:
+      - .env
+    restart: unless-stopped
+    volumes:
+      - .agentflow:/app/.agentflow

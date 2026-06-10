@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """AgentFlow 统一后端 — 静态文件 + API + Compiler + DAG 并行执行引擎"""
-import os, sys, json, http.server, urllib.request, urllib.error, tempfile, shutil, time
+import os, sys, json, http.server, urllib.request, urllib.error, tempfile, shutil, time, uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
@@ -8,8 +8,10 @@ from agent_runner import AgentRunner
 from agentflow_schema import (
     WorkflowJSON, NodeDef, EdgeDef,
     validate_workflow, parallel_groups, Profile,
+    EnvelopeJSON, ResultMetrics,
 )
 from prompt_compiler import PromptCompiler
+from artifact_store import ArtifactStore
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9600
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -110,6 +112,15 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         url = self.path
+
+        # API 路由
+        if url == "/api/runs":
+            self._handle_list_runs()
+            return
+        if url.startswith("/api/runs/"):
+            run_id = url.split("/")[-1]
+            self._handle_get_run(run_id)
+            return
         if url == "/" or url == "":
             url = "/canvas-demo.html"
         filepath = os.path.normpath(os.path.join(STATIC_DIR, url.lstrip("/")))
@@ -207,45 +218,48 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         return edges
 
     def call_llm(self, requirement, count):
-        zai_key = os.environ.get("ZAI_API_KEY", "")
-        if not zai_key:
-            return self.fallback_template(requirement, count)
-        payload = json.dumps({
-            "model": "glm-5-turbo",
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"需求：{requirement}\nAgent数量：{count}个"}
-            ],
-            "temperature": 0.7,
-            "max_tokens": 2000,
-        }).encode()
-
-        # 重试 2 次，每次 45s 超时
-        last_error = None
-        for attempt in range(3):  # 第一次 + 2 次重试
-            try:
-                req = urllib.request.Request(
-                    "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-                    data=payload,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {zai_key}"
-                    }, method="POST")
-                with urllib.request.urlopen(req, timeout=45) as resp:
-                    data = json.loads(resp.read())
-                content = data["choices"][0]["message"]["content"]
-                nodes = json.loads(content)
-                if isinstance(nodes, dict) and "nodes" in nodes:
-                    nodes = nodes["nodes"]
-                if isinstance(nodes, list):
-                    return self.adjust_nodes(nodes, count)
+        """用 AgentRunner 调用 LLM 进行工作流编排，替代手写 urllib。"""
+        model = os.environ.get("AGENT_MODEL", "glm-5-turbo")
+        try:
+            agent = AgentRunner(model=model)
+            if not agent.api_key:
+                print("[call_llm] No API key available", file=sys.stderr)
                 return self.fallback_template(requirement, count)
-            except Exception as e:
-                last_error = e
-                print(f"LLM call attempt {attempt+1} failed: {e}", file=sys.stderr)
-                if attempt < 2:
-                    time.sleep(1.5)  # 退避
-        print(f"LLM call all 3 attempts failed, using fallback: {last_error}", file=sys.stderr)
+        except Exception as e:
+            print(f"[call_llm] Agent init failed: {e}", file=sys.stderr)
+            return self.fallback_template(requirement, count)
+
+        prompt = f"""你是一个工作流编排专家。将以下需求拆解为 {count} 个子任务。
+
+需求: {requirement}
+Agent数量: {count}
+
+返回格式: **纯 JSON 数组，不要其他文字，不要 markdown 代码块**
+每个元素包含: id, icon, label, desc, color, profile
+profile 必须是: analysis/design/dev/test/doc/deploy 之一
+
+返回的数组长度必须 = {count}"""
+
+        result = agent.execute(
+            prompt=prompt,
+            tools_enabled=False,
+            max_turns=1,
+            timeout=45,
+        )
+        content = result.get("output", "[]").strip()
+        # 提取 JSON
+        import re as _re
+        json_match = _re.search(r'\[.*?\]', content, _re.DOTALL)
+        if json_match:
+            content = json_match.group()
+        try:
+            nodes = json.loads(content)
+            if isinstance(nodes, dict) and "nodes" in nodes:
+                nodes = nodes["nodes"]
+            if isinstance(nodes, list):
+                return self.adjust_nodes(nodes, count)
+        except json.JSONDecodeError as e:
+            print(f"[call_llm] JSON parse failed: {e}", file=sys.stderr)
         return self.fallback_template(requirement, count)
 
     def adjust_nodes(self, nodes, target):
@@ -318,36 +332,52 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(400, "No nodes")
             return
 
+        # ── 初始化 ───────────────────────────────────
+        run_id = f"run_{uuid.uuid4().hex[:12]}"
+        store = ArtifactStore(run_id)
+        store.save_meta({
+            "requirement": requirement[:100],
+            "node_count": len(nodes),
+            "created": time.time(),
+        })
+
         # 构建 WorkflowJSON
         wf = WorkflowJSON.from_api_request(nodes, requirement, edges)
         errs = validate_workflow(wf)
         if errs:
             print(f"[Execute] Validation errors: {errs}", file=sys.stderr)
 
-        # Compiler: 编译 PromptTask[]
         compiler = PromptCompiler(TEMPLATE_DIR)
-        tasks = compiler.compile(wf)
-        print(f"[Execute] Compiled {len(tasks)} PromptTasks for {len(nodes)} nodes", file=sys.stderr)
-
-        # DAG 分组: 按拓扑深度分组，同组可并行
-        groups = parallel_groups(wf.nodes, wf.edges)
-        print(f"[Execute] DAG groups: {[len(g) for g in groups]}", file=sys.stderr)
-
-        # 执行
-        work_dir = tempfile.mkdtemp(prefix="agentflow_")
+        work_dir = tempfile.mkdtemp(prefix=f"agentflow_{run_id}_")
         node_map = {n.id: n for n in wf.nodes}
-        all_results = []
-        all_envelopes = {}
 
+        # DAG 分组
+        groups = parallel_groups(wf.nodes, wf.edges)
+        print(f"[Execute] {run_id}: {len(groups)} groups / {len(nodes)} nodes", file=sys.stderr)
+
+        all_results = []
+        upstream_results: dict[str, str] = {}  # {node_id: output_text}
+
+        # ── 逐层执行（动态编译） ─────────────────────
         for group_idx, group_nodes in enumerate(groups):
             print(f"[Execute] Group {group_idx}: {[n.id for n in group_nodes]}", file=sys.stderr)
 
-            # 并行执行同组节点
+            # 每层开始前重新编译（注入已执行的上游真实输出）
+            layer_tasks = compiler.compile(wf, upstream_results=upstream_results)
+            # 只取当前层的 task
+            group_task_ids = {n.id for n in group_nodes}
+            current_tasks = [t for t in layer_tasks if t.node_id in group_task_ids]
+
+            if not current_tasks:
+                print(f"[Execute] Group {group_idx}: no tasks found, skipping", file=sys.stderr)
+                continue
+
+            # 并行执行同层节点
             with ThreadPoolExecutor(max_workers=len(group_nodes)) as pool:
                 fut_to_node = {}
-                for node in group_nodes:
-                    task = next((t for t in tasks if t.node_id == node.id), None)
-                    if not task:
+                for task in current_tasks:
+                    node = node_map.get(task.node_id)
+                    if not node:
                         continue
                     node_dir = os.path.join(work_dir, f"node_{node.id}")
                     os.makedirs(node_dir, exist_ok=True)
@@ -366,6 +396,7 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
                             "result": f"执行异常: {e}",
                             "cost": 0, "duration": 0, "turns": 0,
                         }
+
                     # 更新节点
                     node.result = result.get("result", "")
                     node.output = result.get("output", "")[:2000]
@@ -375,11 +406,18 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
                     node.turns = result.get("turns", 0)
                     node.provider = result.get("provider", "")
                     node.model = result.get("model", node.model or DEFAULT_AGENT_MODEL)
-                    all_envelopes[node.id] = result
+
+                    # 保存到 ArtifactStore（持久化，下游可读）
+                    store.save_raw(node.id, result)
+
+                    # 注入到 upstream_results（供下一层编译使用）
+                    output_text = result.get("output", "") or result.get("result", "")
+                    upstream_results[node.id] = output_text[:2000]
+
                     all_results.append(node.to_dict())
                     print(f"[Execute] Node {node.id} done: ${node.cost:.4f} / {result.get('duration',0)}ms", file=sys.stderr)
 
-        # 清理
+        # 清理临时工作目录
         try:
             shutil.rmtree(work_dir)
         except:
@@ -397,6 +435,8 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             "total_cost": sum(r.get("cost", 0) for r in all_results),
             "total_duration": sum(r.get("duration", 0) for r in all_results),
             "groups": [len(g) for g in groups],
+            "run_id": run_id,
+            "artifact_dir": store.run_dir,
         }).encode())
 
     def _execute_one_node(self, node: NodeDef, task, node_dir: str) -> dict:
@@ -470,6 +510,58 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
                 {"id":"g5","icon":"📝","label":"输出报告","desc":"交付文档","color":"orange","profile":"doc","result":"报告已生成"},
             ]
         return (base * 20)[:count]
+
+    # ── Run History API ──────────────────────────────────
+
+    def _handle_list_runs(self):
+        """GET /api/runs — 列出所有执行历史。"""
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        runs = ArtifactStore.list_runs()
+        self._send_json(200, {"runs": runs, "count": len(runs)})
+
+    def _handle_get_run(self, run_id: str):
+        """GET /api/runs/<run_id> — 获取指定 run 的完整结果。"""
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        store = ArtifactStore(run_id)
+        meta_path = os.path.join(store.run_dir, "meta.json")
+        if not os.path.isfile(meta_path):
+            self._send_json(404, {"error": f"Run {run_id} not found"})
+            return
+        with open(meta_path) as f:
+            meta = json.load(f)
+        # 读取所有节点结果
+        nodes = []
+        if os.path.isdir(store.envelopes_dir):
+            for fname in sorted(os.listdir(store.envelopes_dir)):
+                if fname.endswith(".json"):
+                    node_id = fname[:-5]
+                    env = store.load(node_id)
+                    if env:
+                        nodes.append({
+                            "node_id": node_id,
+                            "status": env.status,
+                            "summary": env.summary,
+                            "cost": env.metrics.cost,
+                            "duration_ms": env.metrics.duration_ms,
+                            "model": env.metrics.model,
+                            "provider": env.metrics.provider,
+                        })
+        self._send_json(200, {"run_id": run_id, "meta": meta, "nodes": nodes})
+
+    def _send_json(self, status: int, data: dict):
+        """发送 JSON 响应。"""
+        self.send_response(status)
+        origin = self.headers.get("Origin", "")
+        cors = self._cors_headers(origin)
+        for k, v in cors.items():
+            self.send_header(k, v)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(data, ensure_ascii=False, indent=2).encode())
 
     def log_message(self, format, *args):
         print(f"[AgentFlow] {args[0] if args else ''}", file=sys.stderr)

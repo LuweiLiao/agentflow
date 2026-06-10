@@ -229,7 +229,7 @@ class AgentRunner:
         return f"""你是 AgentFlow 工作流中的 {profile} 角色 Agent。
 
 ## 可用工具
-- execute_command: 在终端执行命令（支持 bash/sh）
+- execute_command: 在沙箱终端中执行命令（无 sudo/rm -rf/网络等高危操作）
 - read_file: 读取文件内容
 - write_file: 写入文件内容
 - list_files: 列出目录内容
@@ -254,7 +254,7 @@ class AgentRunner:
         return [
             {"type": "function", "function": {
                 "name": "execute_command",
-                "description": "在终端执行 bash 命令",
+                "description": "在沙箱终端执行命令（高危操作被禁止）",
                 "parameters": {"type": "object", "properties": {
                     "command": {"type": "string", "description": "要执行的 Shell 命令"}
                 }, "required": ["command"]}

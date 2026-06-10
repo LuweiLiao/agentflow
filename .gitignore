@@ -1,44 +1,47 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-*.egg-info/
-dist/
-build/
-*.egg
-.eggs/
-
-# Environment
-.env
-.env.local
-.env.*.local
-*.env
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Runtime
-*.pid
-*.log
-/tmp/
-/out/
-
-# Testing
-.coverage
-htmlcov/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# Git
-!.gitignore
+     1|# Python
+     2|__pycache__/
+     3|*.py[cod]
+     4|*$py.class
+     5|*.so
+     6|*.egg-info/
+     7|dist/
+     8|build/
+     9|*.egg
+    10|.eggs/
+    11|
+    12|# Environment
+    13|.env
+    14|.env.local
+    15|.env.*.local
+    16|*.env
+    17|
+    18|# IDE
+    19|.vscode/
+    20|.idea/
+    21|*.swp
+    22|*.swo
+    23|*~
+    24|.DS_Store
+    25|
+    26|# OS
+    27|.DS_Store
+    28|Thumbs.db
+    29|
+    30|# Runtime
+    31|*.pid
+    32|*.log
+    33|/tmp/
+    34|/out/
+    35|
+    36|# Testing
+    37|.coverage
+    38|htmlcov/
+    39|.pytest_cache/
+    40|.mypy_cache/
+    41|.ruff_cache/
+    42|
+    43|# Git
+    44|!.gitignore
+    45|
+# Runtime data
+.agentflow/

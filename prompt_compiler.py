@@ -117,8 +117,15 @@ class PromptCompiler:
     def __init__(self, template_dir: str = None):
         self.templates = TemplateEngine(template_dir)
 
-    def compile(self, wf: WorkflowJSON) -> list[PromptTask]:
-        """编译工作流定义为 PromptTask 列表。"""
+    def compile(self, wf: WorkflowJSON,
+                upstream_results: dict[str, str] = None) -> list[PromptTask]:
+        """编译工作流定义为 PromptTask 列表。
+
+        Args:
+            wf: 工作流定义
+            upstream_results: 可选，已执行节点的 {node_id: output_text} 映射。
+                              当提供时，上游上下文使用真实输出而非静态描述。
+        """
         tasks = []
         node_map = {n.id: n for n in wf.nodes}
 
@@ -127,9 +134,22 @@ class PromptCompiler:
 
         # 为每个节点生成 PromptTask
         for i, node in enumerate(sorted_nodes):
-            upstream_context = self._build_upstream_context(
-                node.id, wf.nodes, wf.edges
-            )
+            # 使用真实上游输出（如果可用）代替静态描述
+            if upstream_results:
+                deps = self._get_dependencies(node.id, wf.edges)
+                parts = []
+                for dep_id in deps:
+                    output = upstream_results.get(dep_id, "")
+                    label = node_map[dep_id].label if dep_id in node_map else dep_id
+                    if output:
+                        parts.append(f"## {label} ({dep_id})\n输出:\n{output[:1500]}")
+                    else:
+                        parts.append(f"## {label} ({dep_id})\n(等待执行)")
+                upstream_context = "\n\n".join(parts) if parts else "无上游依赖"
+            else:
+                upstream_context = self._build_upstream_context(
+                    node.id, wf.nodes, wf.edges
+                )
 
             task = self._compile_node(
                 node=node,
