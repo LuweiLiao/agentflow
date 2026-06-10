@@ -1,70 +1,95 @@
 # 06 — Agent 运行时
 
-Agent 运行时是 AgentFlow 的核心执行层，负责 Agent 实例的创建、调度、监控和安全隔离。运行时将 Agent 定义（注册表中的类型元数据）转化为可在隔离沙箱中执行的进程，并管理其完整的生命周期。
+> 文档版本：v0.2 | 最后更新：2026-06-10
 
----
+## 概述
 
-## 职责范围
+Agent 运行时是 AgentFlow 的核心执行层，负责将 Compiler 编译的 PromptTask 转换为实际的 Agent 执行。运行时采用 **Multi-Provider Agent Runner** 架构，支持 12+ 大模型供应商，Think→Act→Observe 循环驱动执行。
 
-| 模块 | 职责 |
-|------|------|
-| **类型注册表** | 管理 Agent 类型的定义、元数据、约束与默认配置 |
-| **生命周期引擎** | 负责 Agent 实例从创建到销毁的状态转换 |
-| **调度器** | 将 Agent 任务分配到可用的容器执行节点 |
-| **安全沙箱** | 基于容器的强隔离执行环境 |
-| **密钥管理** | 内部 KMS 签发 Session Token，不持有原始凭证 |
-| **审计日志** | append-only 审计流，记录所有 Agent 执行事件 |
+## 核心组件
 
----
+| 组件 | 文件 | 说明 |
+|------|------|------|
+| **AgentRunner** | `agent_runner.py` | 通用 Agent 执行器，支持任意 OpenAI 兼容 API |
+| **Provider 配置** | `agent_runner.py:PROVIDER_CONFIGS` | 12 个供应商的 API 密钥/地址配置 |
+| **Model→Provider 映射** | `agent_runner.py:MODEL_PROVIDER_MAP` | 模型名前缀自动匹配供应商 |
+| **工具系统** | `agent_runner.py:_tool_definitions()` | 4 个内置工具：execute_command/read_file/write_file/list_files |
 
-## Agent 生命周期
+## 执行模型
+
+### Think→Act→Observe 循环
 
 ```
-                    ┌──────────┐
-                    │  pending  │
-                    └────┬─────┘
-                         │ 调度
-                    ┌────▼─────┐
-                    │  running  │
-                    └────┬─────┘
-                    ┌────┴──────┐
-                    │           │
-               ┌────▼───┐  ┌───▼────┐
-               │completed│  │ failed  │
-               └────┬───┘  └───┬────┘
-                    │           │
-               ┌────▼──────────▼────┐
-               │      cleaned       │
-               └────────────────────┘
+用户输入 → System Prompt + User Prompt
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  LLM Call (任意 Provider)           │
+│  返回: {content, tool_calls}        │
+└─────────┬───────────┬──────────────┘
+          │           │
+    有 content   有 tool_calls
+          │           │
+          ▼           ▼
+    收集输出    执行工具 (subprocess)
+          │           │
+          │           ▼
+          │    工具结果→消息队列
+          │           │
+          └─────┬─────┘
+                │
+                ▼
+        是否还有 tool_calls?
+            Yes → 继续循环
+            No  → 输出结果
 ```
 
-| 状态 | 说明 |
-|------|------|
-| `pending` | Agent 实例已创建，等待调度资源 |
-| `running` | 已在容器中执行，可通过流式接口获取实时输出 |
-| `completed` | 执行成功，输出已持久化 |
-| `failed` | 执行失败（超时、重试耗尽、异常退出） |
-| `cleaned` | 容器已销毁，临时卷已清理，仅保留审计记录与输出 |
+### 关键技术参数
 
----
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `max_turns` | 10 | 最多 Think→Act 循环次数 |
+| `timeout` | 120s | 单节点最大执行时间 |
+| `max_tokens` | 8192 | LLM 输出最大 Token |
+| `temperature` | 0.7 | LLM 生成温度 |
 
-## 核心设计原则
+## 支持的 Provider
 
-1. **最小权限** — 每个 Agent 只拥有完成任务所需的最小权限集
-2. **默认安全** — 容器默认 `--network none`、`--read-only-root-filesystem`、`--cap-drop=ALL`
-3. **零信任密钥** — 运行时层不接触原始 API Key，仅使用 KMS 签发的限时 Session Token
-4. **可审计** — 所有执行事件写入 append-only 审计日志，不可篡改
-5. **资源硬限制** — 内存、CPU、PID、超时、重试次数均有硬上限
+通过设置环境变量即可切换 Provider 和模型：
 
----
+| Provider | 环境变量 | 模型示例 |
+|----------|---------|---------|
+| DeepSeek | `DEEPSEEK_API_KEY` | deepseek-chat, deepseek-reasoner |
+| 智谱 GLM | `ZAI_API_KEY` | glm-5-turbo, glm-4-plus |
+| xAI Grok | `XAI_API_KEY` | grok-3, grok-2 |
+| OpenAI | `OPENAI_API_KEY` | gpt-4o, gpt-4o-mini |
+| 阿里通义 | `DASHSCOPE_API_KEY` | qwen-max, qwen-plus |
+| 月之暗面 | `MOONSHOT_API_KEY` | moonshot-v1-8k |
+| SiliconFlow | `SILICONFLOW_API_KEY` | Pro/deepseek-ai/DeepSeek-V3 |
+| 零一万物 | `YI_API_KEY` | yi-large, yi-lightning |
+| MiniMax | `MINIMAX_API_KEY` | minimax-4 |
+| 百度千帆 | `BAIDU_API_KEY` | ernie-4.5 |
+| 腾讯混元 | `TENCENT_API_KEY` | hunyuan-turbo |
+| 阶跃星辰 | `STEP_API_KEY` | step-2 |
 
-## 文件索引
+## 成本估算
 
-| 文件 | 内容 |
-|------|------|
-| [06.1-registry.md](./06.1-registry.md) | Agent 类型注册表 — 格式定义、字段说明、预置类型 |
-| [06.2-security.md](./06.2-security.md) | 安全架构 — KMS、容器沙箱、风险矩阵、审计日志 |
+AgentRunner 内置按 Token 计费的成本估算：
 
----
+```
+cost = prompt_tokens × input_price + completion_tokens × output_price
+```
 
-> **下一步阅读**：[07-agent-communication](../07-agent-communication/README.md) — Agent 间通信协议与消息路由
+价格表在 `agent_runner.py:PROVIDER_PRICES` 中定义（单位：美元/Token）。
+
+## 安全注意事项
+
+- AgentRunner 使用 `subprocess.run(cmd, shell=True)` 执行命令，Agent 可执行任意 Shell 命令
+- 当前无容器隔离，Agent 直接运行在宿主机 Python 进程中
+- API Key 从环境变量读取，建议使用 systemd EnvironmentFile 而非 start-agentflow.sh 硬编码
+- Phase 3 计划引入 Docker 容器隔离
+
+## 相关文档
+
+- [06.1-registry.md](./06.1-registry.md) — Provider 注册与模型映射
+- [06.2-security.md](./06.2-security.md) — 运行时安全架构

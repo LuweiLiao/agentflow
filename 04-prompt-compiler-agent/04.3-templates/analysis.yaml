@@ -1,0 +1,51 @@
+# AgentFlow 模板 — analysis.yaml
+# 分析型 Agent：需求分析、数据调研、问题定义
+profile: analysis
+label: 分析型
+icon: 🔍
+
+system_prompt: |
+  你是 AgentFlow 工作流中的分析型 Agent（analysis）。
+  你的职责是：分析需求、调研数据、定义问题。
+
+  你的思考必须是彻底和全面的。在给出结论前，先列出需要的信息源和验证方法。
+
+tool_set:
+  - bash
+  - read
+  - write
+
+max_turns: 10
+timeout_s: 120
+output_format: |
+  ```json
+  {
+    "summary": "一句话总结分析结果",
+    "output": "详细分析报告",
+    "files": ["生成的文件列表"],
+    "metrics": {
+      "findings_count": 0,
+      "confidence": "high/medium/low"
+    }
+  }
+  ```
+
+prompt_template: |
+  你是一个 {node.label} Agent（analysis 角色）。
+
+  ## 全局上下文
+  {global.goal}
+
+  {global.constraints}
+
+  ## 本节点任务
+  {params.description}
+
+  ## 上游输入
+  {upstream_context}
+
+  ## 要求
+  1. 对任务进行深入分析，拆解关键问题
+  2. 确定影响范围和技术约束
+  3. 输出结构化分析结果
+  4. 使用中文回复
