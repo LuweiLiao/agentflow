@@ -18,48 +18,28 @@ import "@xyflow/react/dist/style.css";
 
 import AgentNode, { type AgentNodeData } from "./AgentNode";
 import InspectorPanel from "./InspectorPanel";
+import LogPanel from "./LogPanel";
 import { api } from "./api";
-import type { WorkflowNode, WorkflowEdge, NodeStatus } from "./types";
+import {
+  PROFILE_COLORS,
+  DEFAULT_COLOR,
+  toRfNodes,
+  rfNodeToWorkflowNode,
+  rfEdgeToWorkflowEdge,
+} from "./utils";
+import {
+  containerStyle,
+  toolbarStyle,
+  reqInputStyle,
+  btnStyle,
+  btnMiniStyle,
+  selectMiniStyle,
+  runBtnStyle,
+} from "./styles";
+import type { WorkflowNode, NodeStatus } from "./types";
 
 // ── 节点类型注册 ──
 const nodeTypes = { agent: AgentNode };
-
-// ── 颜色映射 ──
-const PROFILE_COLORS: Record<string, string> = {
-  analysis: "#3b82f6",
-  design: "#8b5cf6",
-  dev: "#10b981",
-  test: "#f59e0b",
-  doc: "#f97316",
-  deploy: "#06b6d4",
-};
-const DEFAULT_COLOR = "#6366f1";
-
-let nodeCounter = 0;
-function nextId() {
-  nodeCounter++;
-  return `n${nodeCounter}`;
-}
-
-function rfNodeToWorkflowNode(rfNode: Node<AgentNodeData>): WorkflowNode {
-  return {
-    id: rfNode.id,
-    icon: rfNode.data.icon,
-    label: rfNode.data.label,
-    desc: rfNode.data.desc,
-    color: rfNode.data.color,
-    profile: rfNode.data.profile as WorkflowNode["profile"],
-    depends_on: [],
-    status: rfNode.data.status as NodeStatus,
-    cost: rfNode.data.cost,
-    duration_ms: rfNode.data.duration_ms,
-    model: rfNode.data.model,
-  };
-}
-
-function rfEdgeToWorkflowEdge(e: Edge): WorkflowEdge {
-  return { source: e.source, target: e.target };
-}
 
 // ── 示例需求 ──
 const EXAMPLES = [
@@ -78,39 +58,87 @@ function CanvasInner() {
   const [isDecomposing, setIsDecomposing] = useState(false);
   const currentRunId = useRef("");
   const sseController = useRef<AbortController | null>(null);
+
+  // ── Undo/Redo 栈 ──
+  const UNDO_MAX = 50;
+  const [undoStack, setUndoStack] = useState<{ nodes: Node<AgentNodeData>[]; edges: Edge[] }[]>([]);
+  const [redoStack, setRedoStack] = useState<{ nodes: Node<AgentNodeData>[]; edges: Edge[] }[]>([]);
+  const undoLockRef = useRef(false);
+  const stateRef = useRef({ nodes, edges });
+  stateRef.current = { nodes, edges }; // 始终持有最新快照
+
+  /** 保存当前状态到 undo 栈（通过 ref 读取最新 state，避免 deps 抖动） */
+  const pushUndo = useCallback(() => {
+    if (undoLockRef.current) return;
+    const cur = stateRef.current;
+    setUndoStack((prev) => {
+      const last = prev[prev.length - 1];
+      if (
+        last &&
+        last.nodes.length === cur.nodes.length &&
+        last.edges.length === cur.edges.length
+      ) {
+        return prev; // 无变化则跳过
+      }
+      const snapshot = { nodes: [...cur.nodes], edges: [...cur.edges] };
+      return [...prev.slice(-(UNDO_MAX - 1)), snapshot];
+    });
+    setRedoStack([]);
+  }, []);
+
+  /** 撤销 */
+  const handleUndo = useCallback(() => {
+    const cur = stateRef.current;
+    setUndoStack((prev) => {
+      if (prev.length === 0) return prev;
+      const prevState = prev[prev.length - 1];
+      setRedoStack((r) => [...r.slice(-(UNDO_MAX - 1)), { nodes: [...cur.nodes], edges: [...cur.edges] }]);
+      undoLockRef.current = true;
+      setNodes(prevState.nodes);
+      setEdges(prevState.edges);
+      setTimeout(() => { undoLockRef.current = false; }, 0);
+      return prev.slice(0, -1);
+    });
+  }, [setNodes, setEdges]);
+
+  /** 重做 */
+  const handleRedo = useCallback(() => {
+    const cur = stateRef.current;
+    setRedoStack((prev) => {
+      if (prev.length === 0) return prev;
+      const nextState = prev[prev.length - 1];
+      setUndoStack((u) => [...u.slice(-(UNDO_MAX - 1)), { nodes: [...cur.nodes], edges: [...cur.edges] }]);
+      undoLockRef.current = true;
+      setNodes(nextState.nodes);
+      setEdges(nextState.edges);
+      setTimeout(() => { undoLockRef.current = false; }, 0);
+      return prev.slice(0, -1);
+    });
+  }, [setNodes, setEdges]);
+
+  // ── 键盘快捷键 ──
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) handleRedo();
+        else handleUndo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleUndo, handleRedo]);
   const rf = useReactFlow();
 
   const addLog = useCallback((text: string) => {
     setLogs((prev) => [...prev.slice(-200), `[${new Date().toLocaleTimeString()}] ${text}`]);
   }, []);
 
-  // ── 从 Supervisor 结果重建画布 ──
+  /** 加载工作流到画布 */
   const loadWorkflow = useCallback(
-    (wfNodes: WorkflowNode[], wfEdges: WorkflowEdge[]) => {
-      const rfNodes: Node<AgentNodeData>[] = wfNodes.map((n, i) => ({
-        id: n.id,
-        type: "agent",
-        position: { x: 250, y: i * 160 },
-        data: {
-          icon: n.icon || "🤖",
-          label: n.label,
-          desc: n.desc,
-          color: PROFILE_COLORS[n.profile] || DEFAULT_COLOR,
-          profile: n.profile,
-          status: n.status,
-          cost: n.cost,
-          duration_ms: n.duration_ms,
-          model: n.model,
-        },
-      }));
-      const rfEdges: Edge[] = wfEdges.map((e, i) => ({
-        id: `e${i}`,
-        source: e.source,
-        target: e.target,
-        style: { stroke: "#4b5563", strokeWidth: 2 },
-        markerEnd: { type: "arrowclosed", color: "#4b5563" },
-      }));
-
+    (wfNodes: WorkflowNode[], wfEdges: import("./types").WorkflowEdge[]) => {
+      pushUndo();
+      const { rfNodes, rfEdges } = toRfNodes(wfNodes, wfEdges);
       setNodes(rfNodes);
       setEdges(rfEdges);
       addLog(`📋 工作流加载: ${rfNodes.length} 节点 · ${rfEdges.length} 条边`);
@@ -135,7 +163,6 @@ function CanvasInner() {
 
         if (resp.done && resp.nodes && resp.nodes.length > 0) {
           loadWorkflow(resp.nodes, resp.edges || []);
-          // 自动适配画布
           setTimeout(() => rf.fitView({ padding: 0.2 }), 100);
           done = true;
         } else if (resp.step === "planning" && resp.nodes) {
@@ -171,6 +198,7 @@ function CanvasInner() {
       addLog(`✅ 已提交: run_id=${run_id}`);
 
       // 重置状态
+      pushUndo();
       setNodes((nds) =>
         nds.map((n) => ({
           ...n,
@@ -178,7 +206,7 @@ function CanvasInner() {
         }))
       );
 
-      // SSE 订阅
+      // SSE 订阅（AbortController 模式）
       if (sseController.current) sseController.current.abort();
       sseController.current = api.subscribeRunEvents(run_id, {
         onNodeStart: (evt: any) => {
@@ -224,18 +252,18 @@ function CanvasInner() {
     }
   }, [nodes, edges, requirement, addLog, setNodes]);
 
-  // ── 连接（React Flow 原生）──
+  // ── 连线（含环检测）──
   const onConnect = useCallback(
     (connection: Connection) => {
-      // 环检测
       if (connection.source === connection.target) return;
+      pushUndo();
       setEdges((eds) => {
         const alreadyExists = eds.some(
           (e) => e.source === connection.source && e.target === connection.target
         );
         if (alreadyExists) return eds;
 
-        // 快速环检测：如果 target 已有路径到 source，拒绝
+        // 快速环检测 DFS
         const adj = new Map<string, string[]>();
         for (const e of eds) {
           if (!adj.has(e.source)) adj.set(e.source, []);
@@ -244,17 +272,14 @@ function CanvasInner() {
         if (!adj.has(connection.source!)) adj.set(connection.source!, []);
         adj.get(connection.source!)!.push(connection.target!);
 
-        // DFS from target back to source
         const visited = new Set<string>();
         const stack = [connection.target!];
         while (stack.length > 0) {
           const cur = stack.pop()!;
-          if (cur === connection.source) return eds; // cycle detected
+          if (cur === connection.source) return eds;
           if (visited.has(cur)) continue;
           visited.add(cur);
-          for (const next of adj.get(cur) || []) {
-            stack.push(next);
-          }
+          for (const next of adj.get(cur) || []) stack.push(next);
         }
 
         addLog(`🔗 连线: ${connection.source} → ${connection.target}`);
@@ -273,18 +298,15 @@ function CanvasInner() {
 
   // ── 节点选择 ──
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node<AgentNodeData>) => {
-      setSelectedNode(node);
-    },
+    (_: React.MouseEvent, node: Node<AgentNodeData>) => setSelectedNode(node),
     []
   );
-  const onPaneClick = useCallback(() => {
-    setSelectedNode(null);
-  }, []);
+  const onPaneClick = useCallback(() => setSelectedNode(null), []);
 
   // ── Inspector 回调 ──
   const handleNodeUpdate = useCallback(
     (id: string, updates: Partial<WorkflowNode>) => {
+      pushUndo();
       setNodes((nds) =>
         nds.map((n) => {
           if (n.id !== id) return n;
@@ -312,6 +334,7 @@ function CanvasInner() {
 
   const handleNodeDelete = useCallback(
     (id: string) => {
+      pushUndo();
       setNodes((nds) => nds.filter((n) => n.id !== id));
       setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
       setSelectedNode(null);
@@ -359,6 +382,7 @@ function CanvasInner() {
 
   // ── 重置 ──
   const handleReset = useCallback(() => {
+    pushUndo();
     setNodes([]);
     setEdges([]);
     setSelectedNode(null);
@@ -398,7 +422,7 @@ function CanvasInner() {
           <button style={btnStyle} onClick={handleDecompose} disabled={isDecomposing || !requirement.trim()}>
             {isDecomposing ? "🔄 编排中..." : "🤖 AI 编排"}
           </button>
-          <button style={{ ...btnStyle, background: "rgba(16,185,129,0.12)", color: "#34d399" }} onClick={handleExecute} disabled={isRunning || nodes.length === 0}>
+          <button style={runBtnStyle} onClick={handleExecute} disabled={isRunning || nodes.length === 0}>
             {isRunning ? "⏳ 执行中..." : "🚀 执行"}
           </button>
         </div>
@@ -407,20 +431,14 @@ function CanvasInner() {
           <select onChange={handleExample} style={selectMiniStyle}>
             <option value="">📂 示例</option>
             {EXAMPLES.map((ex, i) => (
-              <option key={i} value={ex}>
-                {ex.slice(0, 36)}...
-              </option>
+              <option key={i} value={ex}>{ex.slice(0, 36)}...</option>
             ))}
           </select>
-          <button style={btnMiniStyle} onClick={handleExport} title="导出 JSON">
-            📤
-          </button>
-          <button style={btnMiniStyle} onClick={handleImport} title="导入 JSON">
-            📥
-          </button>
-          <button style={btnMiniStyle} onClick={handleReset} title="重置">
-            🔄
-          </button>
+          <button style={btnMiniStyle} onClick={handleExport} title="导出 JSON">📤</button>
+          <button style={btnMiniStyle} onClick={handleImport} title="导入 JSON">📥</button>
+          <button style={btnMiniStyle} onClick={handleUndo} disabled={undoStack.length === 0} title="撤销 (Ctrl+Z)">↩️</button>
+          <button style={btnMiniStyle} onClick={handleRedo} disabled={redoStack.length === 0} title="重做 (Ctrl+Shift+Z)">↪️</button>
+          <button style={btnMiniStyle} onClick={handleReset} title="重置">🔄</button>
           <span style={{ fontSize: 10, color: "#64748b", marginLeft: 4 }}>
             {nodes.length} 节点 · {edges.length} 边
           </span>
@@ -467,7 +485,6 @@ function CanvasInner() {
           </ReactFlow>
         </div>
 
-        {/* Inspector */}
         <InspectorPanel
           node={selectedNode ? rfNodeToWorkflowNode(selectedNode) : null}
           onUpdate={handleNodeUpdate}
@@ -477,28 +494,7 @@ function CanvasInner() {
       </div>
 
       {/* ── Log Panel ── */}
-      <div style={logPanelStyle}>
-        <div style={{ fontSize: 10, color: "#64748b", marginBottom: 4, fontWeight: 600 }}>
-          📜 日志
-        </div>
-        <div style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.5, fontFamily: "monospace" }}>
-          {logs.map((line, i) => (
-            <div key={i}>
-              {line.startsWith("❌") || line.includes("失败") ? (
-                <span style={{ color: "#f87171" }}>{line}</span>
-              ) : line.startsWith("✅") || line.startsWith("🏁") ? (
-                <span style={{ color: "#34d399" }}>{line}</span>
-              ) : line.startsWith("▶️") || line.startsWith("🤖") ? (
-                <span style={{ color: "#60a5fa" }}>{line}</span>
-              ) : line.startsWith("ℹ️") || line.startsWith("📋") ? (
-                <span style={{ color: "#fbbf24" }}>{line}</span>
-              ) : (
-                <span>{line}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
+      <LogPanel logs={logs} />
     </div>
   );
 }
@@ -510,78 +506,3 @@ export default function App() {
     </ReactFlowProvider>
   );
 }
-
-// ── Styles ──
-const containerStyle: React.CSSProperties = {
-  width: "100vw",
-  height: "100vh",
-  display: "flex",
-  flexDirection: "column",
-  background: "#0f1117",
-  color: "#e2e8f0",
-  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-  overflow: "hidden",
-};
-
-const toolbarStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  padding: "8px 12px",
-  background: "#1a1d2e",
-  borderBottom: "1px solid #2d2d2d",
-  flexWrap: "wrap",
-};
-
-const reqInputStyle: React.CSSProperties = {
-  flex: 1,
-  minWidth: 200,
-  padding: "6px 10px",
-  background: "#0f1117",
-  border: "1px solid #374151",
-  borderRadius: 6,
-  color: "#e2e8f0",
-  fontSize: 12,
-  resize: "none",
-  fontFamily: "inherit",
-};
-
-const btnStyle: React.CSSProperties = {
-  padding: "6px 14px",
-  background: "rgba(59,130,246,0.12)",
-  border: "1px solid rgba(59,130,246,0.3)",
-  borderRadius: 6,
-  color: "#60a5fa",
-  fontSize: 12,
-  fontWeight: 500,
-  cursor: "pointer",
-  whiteSpace: "nowrap",
-};
-
-const btnMiniStyle: React.CSSProperties = {
-  padding: "4px 8px",
-  background: "transparent",
-  border: "1px solid #374151",
-  borderRadius: 6,
-  color: "#94a3b8",
-  fontSize: 14,
-  cursor: "pointer",
-};
-
-const selectMiniStyle: React.CSSProperties = {
-  padding: "4px 8px",
-  background: "#0f1117",
-  border: "1px solid #374151",
-  borderRadius: 6,
-  color: "#94a3b8",
-  fontSize: 11,
-  cursor: "pointer",
-};
-
-const logPanelStyle: React.CSSProperties = {
-  height: 140,
-  overflowY: "auto",
-  padding: "6px 12px",
-  background: "#111318",
-  borderTop: "1px solid #2d2d2d",
-};
