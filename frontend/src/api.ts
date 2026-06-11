@@ -50,30 +50,63 @@ export class ApiClient {
     return resp.json();
   }
 
-  /** SSE 事件流：监听 run 状态变更 */
+  /** SSE 事件流：监听 run 状态变更（fetch + ReadableStream + AbortController） */
   subscribeRunEvents(runId: string, callbacks: {
     onNodeStart?: (evt: any) => void;
     onNodeComplete?: (evt: any) => void;
     onWorkflowDone?: (evt: any) => void;
     onError?: (err: Error) => void;
-  }): () => void {
-    const es = new EventSource(`${BASE}/api/runs/${runId}/events`);
+  }): AbortController {
+    const controller = new AbortController();
 
-    if (callbacks.onNodeStart) {
-      es.addEventListener("node_start", (e) => callbacks.onNodeStart!(JSON.parse(e.data)));
-    }
-    if (callbacks.onNodeComplete) {
-      es.addEventListener("node_complete", (e) => callbacks.onNodeComplete!(JSON.parse(e.data)));
-    }
-    if (callbacks.onWorkflowDone) {
-      es.addEventListener("workflow_done", (e) => callbacks.onWorkflowDone!(JSON.parse(e.data)));
-    }
-    es.onerror = () => {
-      if (callbacks.onError) callbacks.onError(new Error("SSE 连接错误"));
-    };
+    (async () => {
+      try {
+        const resp = await fetch(`${BASE}/api/runs/${runId}/events`, {
+          signal: controller.signal,
+        });
+        if (!resp.ok) {
+          callbacks.onError?.(new Error(`SSE HTTP ${resp.status}`));
+          return;
+        }
+        const reader = resp.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let eventType = "";
+        let eventData = "";
 
-    // 返回取消订阅函数
-    return () => es.close();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.startsWith("event: ")) eventType = line.slice(7);
+            else if (line.startsWith("data: ")) eventData += line.slice(6);
+            else if (line === "" && eventType && eventData) {
+              try {
+                const data = JSON.parse(eventData);
+                if (eventType === "node_start") callbacks.onNodeStart?.(data);
+                else if (eventType === "node_complete") callbacks.onNodeComplete?.(data);
+                else if (eventType === "workflow_done") callbacks.onWorkflowDone?.(data);
+              } catch (e) {
+                /* ignore parse errors */
+              }
+              eventType = "";
+              eventData = "";
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err.name !== "AbortError") {
+          callbacks.onError?.(err);
+        }
+      }
+    })();
+
+    return controller;
   }
 }
 

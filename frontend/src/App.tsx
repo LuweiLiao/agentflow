@@ -77,7 +77,7 @@ function CanvasInner() {
   const [isRunning, setIsRunning] = useState(false);
   const [isDecomposing, setIsDecomposing] = useState(false);
   const currentRunId = useRef("");
-  const sseCancel = useRef<(() => void) | null>(null);
+  const sseController = useRef<AbortController | null>(null);
   const rf = useReactFlow();
 
   const addLog = useCallback((text: string) => {
@@ -179,8 +179,8 @@ function CanvasInner() {
       );
 
       // SSE 订阅
-      if (sseCancel.current) sseCancel.current();
-      sseCancel.current = api.subscribeRunEvents(run_id, {
+      if (sseController.current) sseController.current.abort();
+      sseController.current = api.subscribeRunEvents(run_id, {
         onNodeStart: (evt: any) => {
           setNodes((nds) =>
             nds.map((n) =>
@@ -364,9 +364,9 @@ function CanvasInner() {
     setSelectedNode(null);
     setLogs([`[${new Date().toLocaleTimeString()}] AgentFlow 已启动`]);
     currentRunId.current = "";
-    if (sseCancel.current) {
-      sseCancel.current();
-      sseCancel.current = null;
+    if (sseController.current) {
+      sseController.current.abort();
+      sseController.current = null;
     }
     addLog("🔄 已重置");
   }, [setNodes, setEdges, addLog]);
