@@ -8,12 +8,12 @@ type InspectorPanelProps = {
 };
 
 const PROFILE_OPTIONS = [
-  { value: "analysis", label: "分析型", color: "#3b82f6" },
-  { value: "design", label: "设计型", color: "#8b5cf6" },
-  { value: "dev", label: "开发型", color: "#10b981" },
-  { value: "test", label: "测试型", color: "#f59e0b" },
-  { value: "doc", label: "文档型", color: "#f97316" },
-  { value: "deploy", label: "部署型", color: "#06b6d4" },
+    { value: "analysis", label: "📊 分析", color: "#3b82f6" },
+    { value: "design", label: "🎨 设计", color: "#8b5cf6" },
+    { value: "dev", label: "💻 开发", color: "#10b981" },
+    { value: "test", label: "🧪 测试", color: "#f59e0b" },
+    { value: "doc", label: "📝 文档", color: "#f97316" },
+    { value: "deploy", label: "🚀 部署", color: "#06b6d4" },
 ];
 
 export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: InspectorPanelProps) {
@@ -74,10 +74,10 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
           value={node.profile}
           onChange={(e) => onUpdate(node.id, { profile: e.target.value as any })}
         >
-          {PROFILE_OPTIONS.map((p) => (
-            <option key={p.value} value={p.value}>
-              {p.icon} {p.label}
-            </option>
+              {PROFILE_OPTIONS.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
           ))}
         </select>
       </div>

@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Handle, Position, NodeProps } from "@xyflow/react";
+import { Handle, Position, NodeProps, Node } from "@xyflow/react";
 
 export type AgentNodeData = {
   icon: string;
@@ -31,7 +31,7 @@ const STATUS_CONFIG: Record<string, { bg: string; color: string; label: string }
   timed_out: { bg: "rgba(245,158,11,0.15)", color: "#fbbf24", label: "超时" },
 };
 
-function AgentNode({ data, selected }: NodeProps<AgentNodeData>) {
+function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
   const sc = STATUS_CONFIG[data.status || "pending"] || STATUS_CONFIG.pending;
   const profileLabel = PROFILE_LABELS[data.profile] || data.profile;
 

@@ -69,8 +69,8 @@ const EXAMPLES = [
 ];
 
 function CanvasInner() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<AgentNodeData>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<AgentNodeData>>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [requirement, setRequirement] = useState("");
   const [selectedNode, setSelectedNode] = useState<Node<AgentNodeData> | null>(null);
   const [logs, setLogs] = useState<string[]>([`[${new Date().toLocaleTimeString()}] AgentFlow 已启动`]);
@@ -261,7 +261,7 @@ function CanvasInner() {
         return addEdge(
           {
             ...connection,
-            style: { stroke: "#4b5563", strokeWidth: 2 },
+            style: { stroke: "#4b5563", strokeWidth: 2 } as any,
             markerEnd: { type: "arrowclosed", color: "#4b5563" },
           },
           eds
