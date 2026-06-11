@@ -26,6 +26,9 @@ COPY --from=builder /app /app
 
 EXPOSE 9600
 
+ENV AGENTFLOW_HOST=0.0.0.0
+ENV AGENT_MODEL=deepseek-v4-flash
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:9600/')"
 
