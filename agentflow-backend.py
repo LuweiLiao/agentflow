@@ -415,7 +415,7 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             ) else "http://localhost"
         return {
             "Access-Control-Allow-Origin": origin_val,
-            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+            "Access-Control-Allow-Methods": "POST, GET, HEAD, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type, Authorization",
         }
 
@@ -438,44 +438,20 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Access-Control-Max-Age", "86400")
         self.end_headers()
 
-    def do_GET(self):
-        path = _api_path(self.path)
-
-        if path == "/api/runs":
-            self._handle_list_runs()
-            return
-        if path == "/api/status":
-            self._handle_status()
-            return
-        if path == "/api/providers":
-            self._handle_list_providers()
-            return
-        if path == "/api/workflows":
-            self._handle_list_workflows()
-            return
-        if path.startswith("/api/workflows/"):
-            wf_id = path.split("/")[-1]
-            self._handle_get_workflow(wf_id)
-            return
-        if path.startswith("/api/runs/"):
-            parts = path.split("/")
-            run_id = parts[-1]
-            if len(parts) >= 5 and parts[-2] == "events":
-                self._handle_run_events(run_id)
-            else:
-                self._handle_get_run(run_id)
-            return
-
+    def _serve_static(self, send_body: bool = True):
         # 静态文件
         url = self.path
         if url == "/" or url == "":
-            # 优先尝试 frontend/index.html, 其次 canvas-demo.html
-            fe_path = os.path.join(STATIC_DIR, "index.html")
+            # 默认入口：优先 React Flow 构建产物，回退到 canvas-demo.html
+            dist_path = os.path.join(SCRIPT_DIR, "frontend", "dist", "index.html")
             cd_path = os.path.join(SCRIPT_DIR, "canvas-demo.html")
-            if os.path.isfile(fe_path):
-                url = "/index.html"
+            fe_path = os.path.join(STATIC_DIR, "index.html")
+            if os.path.isfile(dist_path):
+                url = "/frontend/dist/index.html"
             elif os.path.isfile(cd_path):
                 url = "/canvas-demo.html"
+            elif os.path.isfile(fe_path):
+                url = "/index.html"
             else:
                 url = "/index.html"  # 兜底
         filepath = os.path.normpath(os.path.join(STATIC_DIR, url.lstrip("/")))
@@ -484,6 +460,11 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             alt = os.path.normpath(os.path.join(SCRIPT_DIR, url.lstrip("/")))
             if os.path.isfile(alt):
                 filepath = alt
+        # 如果是前端构建产物（assets/*），回退到 frontend/dist/
+        if not os.path.isfile(filepath):
+            dist_alt = os.path.normpath(os.path.join(SCRIPT_DIR, "frontend", "dist", url.lstrip("/")))
+            if os.path.isfile(dist_alt):
+                filepath = dist_alt
         allowed_prefix = os.path.normpath(STATIC_DIR) + os.sep
         script_prefix = os.path.normpath(SCRIPT_DIR) + os.sep
         if not (filepath.startswith(allowed_prefix) or filepath == os.path.normpath(STATIC_DIR) or
@@ -512,13 +493,53 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             }.get(ext.lstrip("."), "application/octet-stream")
             self.send_response(200)
             self.send_header("Content-Type", mime + "; charset=utf-8")
+            self.send_header("Content-Length", str(len(content)))
             origin = self.headers.get("Origin", "")
             for k, v in self._cors_headers(origin).items():
                 self.send_header(k, v)
             self.end_headers()
-            self.wfile.write(content)
+            if send_body:
+                self.wfile.write(content)
         except OSError as e:
             self.send_error(404, str(e))
+
+    def do_HEAD(self):
+        path = _api_path(self.path)
+        if path.startswith("/api/"):
+            self.send_error(405, "Method Not Allowed")
+            return
+        self._serve_static(send_body=False)
+
+    def do_GET(self):
+        path = _api_path(self.path)
+
+        if path == "/api/runs":
+            self._handle_list_runs()
+            return
+        if path == "/api/status":
+            self._handle_status()
+            return
+        if path == "/api/providers":
+            self._handle_list_providers()
+            return
+        if path == "/api/workflows":
+            self._handle_list_workflows()
+            return
+        if path.startswith("/api/workflows/"):
+            wf_id = path.split("/")[-1]
+            self._handle_get_workflow(wf_id)
+            return
+        if path.startswith("/api/runs/"):
+            parts = path.strip("/").split("/")
+            if len(parts) == 4 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "events":
+                self._handle_run_events(parts[2])
+            elif len(parts) == 3 and parts[0] == "api" and parts[1] == "runs":
+                self._handle_get_run(parts[2])
+            else:
+                self.send_error(404)
+            return
+
+        self._serve_static(send_body=True)
 
     def do_POST(self):
         path = _api_path(self.path)
@@ -582,7 +603,7 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
                 return
             body = json.loads(self.rfile.read(length))
             requirement = body.get("requirement", "")
-            count = min(int(body.get("count", 5)), 20)
+            count = max(1, min(int(body.get("count", 5)), 100))
         except (json.JSONDecodeError, ValueError, TypeError):
             self._send_json(400, {"error": "Invalid request"})
             return
@@ -719,7 +740,14 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
                  "color": "orange", "profile": "doc", "depends_on": ["g3"],
                  "result": "⚠️ 未执行（无 API Key）"},
             ]
-        return (base * 20)[:count]
+        repeats = (count + len(base) - 1) // len(base)
+        expanded = []
+        for idx, node in enumerate((base * repeats)[:count], start=1):
+            copy = node.copy()
+            copy["id"] = f"{node['id']}_{idx}"
+            copy["depends_on"] = [] if idx == 1 else [expanded[-1]["id"]]
+            expanded.append(copy)
+        return expanded
 
     # ── 异步执行（提交即返回 run_id） ────────────────
 

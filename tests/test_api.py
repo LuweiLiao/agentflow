@@ -401,6 +401,14 @@ class TestStaticFileWhitelist:
             resp = urlopen(req, timeout=5)
             assert resp.status == 200
 
+    def test_head_static_file_allowed_without_body(self):
+        with _TestServer() as srv:
+            req = Request(srv.url("/canvas-demo.html"), method="HEAD")
+            resp = urlopen(req, timeout=5)
+            assert resp.status == 200
+            assert resp.headers.get("Content-Length")
+            assert resp.read() == b""
+
 
 # ═══════════════════════════════════════════════════════
 # Execute async + validation tests
@@ -416,6 +424,32 @@ class TestExecuteAsync:
             assert status == 202
             assert data.get("run_id")
             assert data.get("status") == "pending"
+
+    def test_decompose_count_clamped_to_100(self):
+        with _TestServer() as srv:
+            status, data, _ = srv.post(
+                "/api/decompose",
+                {"requirement": "生成一个大型多 Agent 工作流", "count": 150},
+            )
+            assert status == 200
+            assert data["count"] == 100
+            assert len(data["nodes"]) == 100
+
+    def test_decompose_fallback_can_generate_100_nodes_without_api_key(self):
+        with _TestServer() as srv:
+            srv._mock_runner.api_key = ""
+            status, data, _ = srv.post(
+                "/api/decompose",
+                {"requirement": "生成一个大型多 Agent 工作流", "count": 100},
+            )
+            assert status == 200
+            assert data["count"] == 100
+            assert len(data["nodes"]) == 100
+            seen_ids = set()
+            for node in data["nodes"]:
+                for dep in node.get("depends_on", []):
+                    assert dep in seen_ids
+                seen_ids.add(node["id"])
 
     def test_decompose_empty_requirement_returns_400(self):
         with _TestServer() as srv:
@@ -442,6 +476,25 @@ class TestExecuteAsync:
             assert final is not None
             assert final["status"] in ("completed", "failed")
             assert final["nodes"][0]["status"] in ("completed", "failed", "skipped")
+
+    def test_run_events_route_extracts_run_id_before_events_suffix(self):
+        captured = []
+
+        def fake_events(handler, run_id):
+            captured.append(run_id)
+            handler._send_json(200, {"run_id": run_id})
+
+        with mock.patch.object(
+            agentflow_backend.AgentFlowHandler,
+            "_handle_run_events",
+            fake_events,
+        ):
+            with _TestServer() as srv:
+                code, raw, _ = srv.get("/api/runs/run_route_check/events")
+
+        assert code == 200
+        assert json.loads(raw)["run_id"] == "run_route_check"
+        assert captured == ["run_route_check"]
 
     def test_build_workflow_edges_from_depends_on(self):
         nodes_data = [

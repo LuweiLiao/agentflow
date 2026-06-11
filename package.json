@@ -1,28 +1,30 @@
 {
   "name": "agentflow",
   "version": "1.0.0",
-  "description": "![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue) ![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen) ![License](https://img.shields.io/badge/license-MIT-green) ![DeepSeek V4 Flash](https://img.shields.io/badge/tested-DeepSeek%20V4%20Flash-success) ![Tests](https://img.shields.io/badge/tests-103%2F103%20%7C%208%20eval-brightgreen)",
-  "main": "index.js",
-  "directories": {
-    "example": "examples",
-    "test": "tests"
-  },
+  "description": "AgentFlow — AI-generated multi-agent workflow canvas",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "dev": "vite --host 127.0.0.1 --port 5173"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/LuweiLiao/agentflow.git"
   },
-  "keywords": [],
-  "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "bugs": {
     "url": "https://github.com/LuweiLiao/agentflow/issues"
   },
   "homepage": "https://github.com/LuweiLiao/agentflow#readme",
   "devDependencies": {
-    "typescript": "^6.0.3"
+    "@vitejs/plugin-react": "^6.0.2",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.11.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   }
 }

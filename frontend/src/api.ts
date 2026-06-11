@@ -3,7 +3,7 @@
 import type {
   WorkflowNode, WorkflowEdge,
   RunInfo, SupervisorResponse,
-} from "./types.js";
+} from "./types";
 
 const BASE = "";  // 同域
 
