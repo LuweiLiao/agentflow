@@ -82,6 +82,7 @@ class NodeDef:
     duration: int                   = 0
     turns:   int                    = 0
     provider: str                   = ""
+    sub_workflow: Optional[dict]    = None        # 嵌套子 DAG（未展开的 WorkflowJSON）
 
     @classmethod
     def from_dict(cls, d: dict) -> "NodeDef":
@@ -101,10 +102,12 @@ class NodeDef:
             turns=d.get("turns", 0),
             provider=d.get("provider", ""),
             model=d.get("model"),
+            sub_workflow=d.get("sub_workflow"),
         )
     def to_dict(self) -> dict:
         d = asdict(self)
-        return {k: v for k, v in d.items() if v is not None}
+        # 传递 sub_workflow（即使 None 也不排除，让前端知道没有子 DAG）
+        return d
 
 
 @dataclass

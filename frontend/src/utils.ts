@@ -59,6 +59,7 @@ export function toRfNodes(
       cost: n.cost,
       duration_ms: n.duration_ms,
       model: n.model,
+      hasSubWorkflow: n.sub_workflow != null && Object.keys(n.sub_workflow).length > 0,
     },
   }));
   const rfEdges: Edge[] = wfEdges.map((e, i) => ({

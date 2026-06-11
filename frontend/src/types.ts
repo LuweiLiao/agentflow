@@ -25,6 +25,8 @@ export interface WorkflowNode {
   turns?: number;
   model?: string;
   provider?: string;
+  /** 嵌套子工作流（展开/折叠） */
+  sub_workflow?: GraphData | null;
 }
 
 /** 工作流边 */

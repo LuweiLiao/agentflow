@@ -11,6 +11,8 @@ export type AgentNodeData = {
   cost?: number;
   duration_ms?: number;
   model?: string;
+  /** 嵌套子工作流指示（true=可展开，null/undefined=无） */
+  hasSubWorkflow?: boolean;
 };
 
 const PROFILE_LABELS: Record<string, string> = {
@@ -113,6 +115,23 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
           {sc.label}
         </span>
       </div>
+
+      {/* Sub-workflow indicator */}
+      {data.hasSubWorkflow && (
+        <div
+          style={{
+            marginTop: 4,
+            fontSize: 10,
+            color: "#818cf8",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
+          <span>🔽</span>
+          <span>子工作流</span>
+        </div>
+      )}
 
       {/* Description */}
       {data.desc && (
