@@ -106,8 +106,9 @@ class NodeDef:
         )
     def to_dict(self) -> dict:
         d = asdict(self)
-        # 传递 sub_workflow（即使 None 也不排除，让前端知道没有子 DAG）
-        return d
+        # 排除 None 值，但保留 sub_workflow（即使 None 也让前端知道没有子 DAG）
+        result = {k: v for k, v in d.items() if v is not None or k == "sub_workflow"}
+        return result
 
 
 @dataclass

@@ -167,6 +167,9 @@ def _execute_run(run_id: str):
                     node_dir = os.path.join(work_dir, f"node_{nid}")
                     os.makedirs(node_dir, exist_ok=True)
 
+                    # 标记节点为运行中
+                    store.update_node(run_id, nid, status="running")
+
                     # 编译当前节点的任务
                     from agentflow_schema import EdgeDef
                     edge_objs = [EdgeDef(source=str(e.get("source","")), target=str(e.get("target","")))
@@ -233,7 +236,7 @@ def _execute_run(run_id: str):
                     os.makedirs(output_dir, exist_ok=True)
                     full_output = result.get("output", "") or result.get("result", "")
                     output_path = os.path.join(output_dir, f"{nid}.txt")
-                    with open(output_path, "w") as f:
+                    with open(output_path, "w", encoding="utf-8") as f:
                         f.write(full_output)
 
                     # 发布 artifact（受控引用替代直接文件路径）
