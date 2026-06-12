@@ -21,6 +21,7 @@ from agentflow_schema import (
 from artifact_broker import get_broker
 from prompt_compiler import PromptCompiler
 from provider_registry import get_registry
+from run_event_bus import RunEventBus
 from run_store import extract_json, get_store, startup_scan
 from supervisor import Supervisor
 
@@ -57,6 +58,18 @@ SAFE_EXTENSIONS = frozenset({
 _executor_queue: Queue = Queue()
 _store = get_store()
 _supervisor = Supervisor()
+_event_bus = RunEventBus()
+
+
+def _publish_event(run_id, event_type, node_id=None, tool_call_id=None, payload=None):
+    """发布事件到事件总线并持久化到 Store。"""
+    ev = _event_bus.publish(run_id, event_type, node_id=node_id,
+                            tool_call_id=tool_call_id, payload=payload)
+    try:
+        _store.append_event(ev)
+    except Exception:
+        pass  # 持久化失败不影响运行
+    return ev
 
 
 def _background_worker():
@@ -93,6 +106,7 @@ def _execute_run(run_id: str):
         return
     store = _store
     store.update_run_status(run_id, "running")
+    _publish_event(run_id, "run_start", payload={"requirement": run.get("requirement", "")[:200]})
 
     # 构建 NodeDef 列表
     nodes_data = run["nodes"]
@@ -169,6 +183,12 @@ def _execute_run(run_id: str):
 
                     # 标记节点为运行中
                     store.update_node(run_id, nid, status="running")
+                    _publish_event(run_id, "node_start",
+                        node_id=nid,
+                        payload={
+                            "label": nd.get("label", ""),
+                            "profile": nd.get("profile", "dev"),
+                        })
 
                     # 编译当前节点的任务
                     from agentflow_schema import EdgeDef
@@ -191,7 +211,7 @@ def _execute_run(run_id: str):
                         continue
 
                     fut = pool.submit(
-                        _execute_one_node, rn, task, node_dir, DEFAULT_AGENT_MODEL
+                        _execute_one_node, rn, task, node_dir, DEFAULT_AGENT_MODEL, run_id
                     )
                     fut_to_nid[fut] = nid
 
@@ -207,11 +227,49 @@ def _execute_run(run_id: str):
                             "model": DEFAULT_AGENT_MODEL, "provider": "",
                         }
 
-                    status_raw = result.get("status", "error")
-                    # 标准化状态值
-                    status = "completed" if status_raw == "ok" else \
-                             "failed" if status_raw in ("error", "timeout") else \
-                             status_raw
+                    # QualityGate 检查 + Retry
+                    from quality_gate import QualityGate
+                    qgate = QualityGate()
+                    max_attempts = 2
+                    attempt = 0
+                    while True:
+                        attempt += 1
+                        status_raw = result.get("status", "error")
+                        status = "completed" if status_raw == "ok" else \
+                                 "failed" if status_raw in ("error", "timeout") else \
+                                 status_raw
+
+                        # 质量门控
+                        _publish_event(run_id, "quality_start",
+                            node_id=nid,
+                            payload={"attempt": attempt, "max_attempts": max_attempts})
+                        qr = qgate.evaluate(result, task={}, node_dir=node_dir)
+                        if qr.passed:
+                            _publish_event(run_id, "quality_pass",
+                                node_id=nid,
+                                payload={"score": qr.score, "reason": qr.reason,
+                                         "checks": qr.checks})
+                            break
+
+                        _publish_event(run_id, "quality_fail",
+                            node_id=nid,
+                            payload={"score": qr.score, "reason": qr.reason,
+                                     "checks": qr.checks, "attempt": attempt})
+                        if attempt >= max_attempts or not qr.retryable:
+                            break
+
+                        # Retry
+                        _publish_event(run_id, "retry_scheduled",
+                            node_id=nid,
+                            payload={"attempt": attempt, "reason": qr.reason})
+                        store.update_node(run_id, nid, status="pending", attempt=attempt)
+                        result = _execute_one_node(
+                            {"node_id": nid, "profile": "dev", "model": DEFAULT_AGENT_MODEL},
+                            task, node_dir, DEFAULT_AGENT_MODEL, run_id
+                        )
+                        print(f"[AsyncExec] Node {nid} retry {attempt}/{max_attempts}: {qr.reason}",
+                              file=sys.stderr)
+
                     cost = result.get("cost", 0)
                     dur = result.get("duration_ms", 0)
                     total_cost += cost
@@ -228,6 +286,17 @@ def _execute_run(run_id: str):
                         provider=result.get("provider", ""),
                         error=result.get("error", ""),
                     )
+
+                    _publish_event(run_id,
+                        "node_complete" if status == "completed" else "node_failed",
+                        node_id=nid,
+                        payload={
+                            "status": status,
+                            "cost": cost,
+                            "duration_ms": dur,
+                            "turns": result.get("turns", 0),
+                            "result": result.get("result", "")[:500],
+                        })
 
                     # 通过 ArtifactBroker 发布产物
                     output_dir = os.path.join(
@@ -278,6 +347,9 @@ def _execute_run(run_id: str):
             final_status = "failed"
         store.update_run_totals(run_id, total_cost, total_dur)
         store.update_run_status(run_id, final_status)
+        _publish_event(run_id,
+            "run_done" if final_status == "completed" else "run_failed",
+            payload={"status": final_status, "total_cost": total_cost, "total_dur": total_dur})
 
     except Exception as e:
         store.update_run_status(run_id, "failed", str(e)[:500])
@@ -289,38 +361,68 @@ def _execute_run(run_id: str):
             pass
 
 
-def _execute_one_node(node_row: dict, task, node_dir: str, default_model: str) -> dict:
-    """执行单个节点（在线程池中运行，受全局并发限流）。"""
+def _execute_one_node(node_row: dict, task, node_dir: str, default_model: str,
+                       run_id: str = None) -> dict:
+    """执行单个节点 — 通过 stream_execute() 发布中间事件到事件总线。
+
+    保留原有函数签名兼容 ThreadPoolExecutor 调度。
+    额外 run_id 参数：传入时通过 _event_bus 发布 tool/delta 级事件。
+    """
     with _global_semaphore:
         agent_model = node_row.get("model") or default_model
         agent = AgentRunner(model=agent_model)
 
     prompt = getattr(task, "prompt", "") or node_row.get("description", "") or "请完成分配的工作。"
+    all_output = []
+    total_cost = 0.0
+    status = "error"
+    result_text = ""
+    total_turns = 0
 
     try:
-        result = agent.execute(
+        for event in agent.stream_execute(
             prompt=prompt,
             work_dir=node_dir,
             profile=node_row.get("profile", "dev"),
             tools_enabled=True,
             max_turns=getattr(task, "max_turns", 15),
             timeout=getattr(task, "timeout_s", 180),
-        )
+        ):
+            if run_id and event["type"] in ("tool_start", "tool_end"):
+                _publish_event(
+                    run_id, event["type"],
+                    node_id=node_row.get("node_id"),
+                    tool_call_id=event.get("tool_call_id"),
+                    payload=event.get("payload", {}),
+                )
+            elif event["type"] == "node_delta":
+                all_output.append(event["payload"].get("content", ""))
+            elif event["type"] == "node_complete":
+                status = "ok"
+                result_text = event["payload"].get("result", "")
+                total_cost = event["payload"].get("cost", 0)
+                total_turns = event["payload"].get("turns", 0)
+            elif event["type"] == "node_failed":
+                status = event["payload"].get("status", "error")
+                result_text = event["payload"].get("error", "未知错误")
+                total_cost = event["payload"].get("cost", 0)
+
+        full_output = "\n".join(all_output)
         return {
-            "result": result.get("result", "完成"),
-            "output": result.get("output", "") or "",
-            "cost": result.get("cost", 0),
-            "duration_ms": result.get("duration_ms", 0) or result.get("duration", 0),
-            "status": result.get("status", "ok"),
-            "turns": result.get("turns", 1),
-            "model": result.get("model", agent_model),
-            "provider": result.get("provider", ""),
+            "result": result_text,
+            "output": full_output,
+            "cost": total_cost,
+            "duration_ms": 0,
+            "status": status,
+            "turns": total_turns,
+            "model": agent_model,
+            "provider": agent.provider_name,
         }
     except Exception as e:
         return {
             "status": "error",
             "result": str(e)[:500],
-            "cost": 0, "duration_ms": 0, "turns": 0,
+            "cost": total_cost, "duration_ms": 0, "turns": total_turns,
             "model": agent_model, "provider": "",
         }
 
@@ -954,7 +1056,7 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
     # ── Run 状态 SSE 事件流 ────────────────────────
 
     def _handle_run_events(self, run_id: str):
-        """SSE 端点：实时推送 run 内节点状态变更。"""
+        """SSE 端点：使用 RunEventBus 实时推送事件。"""
         if not self._require_auth():
             self._send_json(401, {"error": "Unauthorized"})
             return
@@ -963,61 +1065,25 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
             self._send_json(404, {"error": f"Run {run_id} not found"})
             return
 
+        # 读取 Last-Event-ID 头（浏览器自动发送）
+        last_id = self.headers.get("Last-Event-ID")
+        after_sequence = int(last_id) if (last_id and last_id.isdigit()) else -1
+
         self._send_sse_headers()
 
-        last_states: dict[str, str] = {}
-        poll_interval = 1.0
-        max_wait = 600
-        waited = 0
+        # Step 1: replay 已持久化事件
+        store = get_store()
+        persisted = store.list_events(run_id, after_sequence=after_sequence)
+        for ev in persisted:
+            seq = ev.get("sequence", 0)
+            self._stream_send(ev["type"], ev)
+            after_sequence = seq
 
-        try:
-            while waited < max_wait:
-                run = get_store().get_run(run_id)
-                if not run:
-                    break
-
-                # 推送 run 级状态变更
-                run_status = run.get("status", "unknown")
-                for node in run.get("nodes", []):
-                    nid = node["node_id"]
-                    new_status = node["status"]
-                    old_status = last_states.get(nid)
-                    if new_status != old_status:
-                        last_states[nid] = new_status
-                        if new_status == "running":
-                            self._stream_send("node_start", {
-                                "node_id": nid,
-                                "label": node.get("label", ""),
-                                "profile": node.get("profile", ""),
-                            })
-                        elif new_status in ("completed", "failed", "skipped", "timed_out"):
-                            self._stream_send("node_complete", {
-                                "node_id": nid,
-                                "label": node.get("label", ""),
-                                "status": new_status,
-                                "result": (node.get("result") or "")[:200],
-                                "cost": node.get("cost", 0),
-                                "duration_ms": node.get("duration_ms", 0),
-                                "turns": node.get("turns", 0),
-                                "model": node.get("model", ""),
-                                "provider": node.get("provider", ""),
-                            })
-
-                # run 完成时推送 workflow_done
-                if run_status in ("completed", "failed"):
-                    self._stream_send("workflow_done", {
-                        "run_id": run_id,
-                        "status": run_status,
-                        "total_cost": run.get("total_cost", 0),
-                        "total_duration": run.get("total_dur", 0),
-                        "nodes": run.get("nodes", []),
-                    })
-                    break
-
-                time.sleep(poll_interval)
-                waited += poll_interval
-        except BrokenPipeError:
-            pass
+        # Step 2: 订阅 RunEventBus 实时事件
+        for ev_obj in _event_bus.subscribe(run_id, after_sequence=after_sequence, timeout_s=600):
+            d = ev_obj.to_dict()
+            seq = d["sequence"]
+            self._stream_send(d["type"], d)
 
     # ── Run 历史 API ───────────────────────────────
 

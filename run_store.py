@@ -117,6 +117,20 @@ def _init():
         );
 
         CREATE INDEX IF NOT EXISTS idx_workflows_updated ON workflows(updated_at DESC);
+
+        -- 运行时事件表（P1: agent-loop runtime events）
+        CREATE TABLE IF NOT EXISTS run_events (
+            run_id      TEXT NOT NULL,
+            sequence    INTEGER NOT NULL,
+            type        TEXT NOT NULL,
+            node_id     TEXT,
+            tool_call_id TEXT,
+            ts_ms       INTEGER NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            PRIMARY KEY (run_id, sequence)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_run_events_run ON run_events(run_id);
     """)
     # 迁移：runs 表增加 workflow_id
     try:
@@ -530,6 +544,57 @@ class RunStore:
             "DELETE FROM workflows WHERE workflow_id=?", [workflow_id]
         )
         return cur.rowcount > 0
+
+    # ── 事件持久化 (P1: agent-loop runtime events) ─────────────────
+
+    def append_event(self, event) -> None:
+        """Persist a RuntimeEvent to the run_events table.
+
+        Thread-safe: uses _write lock.
+        """
+        import json
+
+        payload_json = json.dumps(event.payload, ensure_ascii=False)
+        self._write(
+            "INSERT OR REPLACE INTO run_events"
+            " (run_id, sequence, type, node_id, tool_call_id, ts_ms, payload_json)"
+            " VALUES (?,?,?,?,?,?,?)",
+            [
+                event.run_id,
+                event.sequence,
+                event.type,
+                event.node_id,
+                event.tool_call_id,
+                event.ts_ms,
+                payload_json,
+            ],
+        )
+
+    def list_events(
+        self, run_id: str, after_sequence: int = -1, limit: int = 1000
+    ) -> list[dict]:
+        """Retrieve persisted events for *run_id* with sequence > *after_sequence*.
+
+        Default *after_sequence* = -1 returns all events.
+        Events are returned in sequence order (oldest first).
+        """
+        import json
+
+        rows = self._read(
+            "SELECT run_id, sequence, type, node_id, tool_call_id, ts_ms, payload_json"
+            " FROM run_events WHERE run_id=? AND sequence>?"
+            " ORDER BY sequence ASC LIMIT ?",
+            [run_id, after_sequence, limit],
+        )
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["payload"] = json.loads(d.pop("payload_json"))
+            except (json.JSONDecodeError, TypeError):
+                d["payload"] = {}
+            result.append(d)
+        return result
 
 
 # ── 全局单例 ────────────────────────────────────────

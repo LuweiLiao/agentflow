@@ -174,29 +174,96 @@ class AgentRunner:
                 max_turns: int = 10, timeout: int = 120) -> dict:
         """执行任务，返回结构化结果。
 
+        这是 stream_execute() 的收集器版本 — 保持向后兼容。
+
         Returns:
             {"result": "...", "output": "...", "cost": 0.0,
              "duration_ms": 0, "status": "ok", "turns": N,
              "model": "...", "provider": "..."}
         """
         start = time.time()
+        output_parts = []
+        total_cost = 0.0
+        status = "error"
+        result_text = ""
+        total_turns = 0
+
+        for event in self.stream_execute(
+            prompt=prompt,
+            work_dir=work_dir,
+            profile=profile,
+            tools_enabled=tools_enabled,
+            max_turns=max_turns,
+            timeout=timeout,
+            start_time=start,
+        ):
+            if event["type"] == "node_delta":
+                output_parts.append(event["payload"].get("content", ""))
+            elif event["type"] == "node_complete":
+                status = event["payload"].get("status", "ok")
+                result_text = event["payload"].get("result", "")
+                total_cost = event["payload"].get("cost", 0)
+                total_turns = event["payload"].get("turns", 0)
+            elif event["type"] == "node_failed":
+                status = event["payload"].get("status", "error")
+                result_text = event["payload"].get("error", "未知错误")
+                total_turns = event["payload"].get("turns", 0)
+
+        full_output = "\n".join(output_parts)
+
+        return {
+            "result": result_text,
+            "output": full_output,
+            "cost": round(total_cost, 6),
+            "duration_ms": int((time.time() - start) * 1000),
+            "status": status,
+            "turns": total_turns,
+            "model": self.model,
+            "provider": self.provider_name,
+        }
+
+    def stream_execute(self, prompt: str, work_dir: str = None,
+                       profile: str = "dev", tools_enabled: bool = True,
+                       max_turns: int = 10, timeout: int = 120,
+                       start_time: float = None,
+                       should_abort: callable = None) -> dict:
+        """Streaming agent execution — yields event dicts for each lifecycle step.
+
+        Yields:
+            {"type": "node_delta",  "payload": {"turn": N, "content": "..."}}
+            {"type": "tool_start",  "tool_call_id": "...", "payload": {"name": "...", "args": {...}}}
+            {"type": "tool_end",    "tool_call_id": "...", "payload": {"result": {...}, "is_error": bool}}
+            {"type": "node_complete","payload": {"result": "...", "status": "ok", "cost": 0.0}}
+            {"type": "node_failed",  "payload": {"status": "error|timeout", "error": "..."}}
+        """
+        start = start_time or time.time()
         work_dir = work_dir or tempfile_get()
         all_output = []
         total_cost = 0.0
 
         if not self.api_key:
-            return self._make_result("API 密钥未配置", "", 0, start, "error")
+            yield {"type": "node_failed", "payload": {
+                "status": "error", "error": "API 密钥未配置"
+            }}
+            return
 
         messages = [
             {"role": "system", "content": self._system_prompt(profile)},
             {"role": "user", "content": prompt}
         ]
         tool_defs = self._tool_definitions() if tools_enabled else None
+        turn = 0
 
         try:
             for turn in range(max_turns):
                 if time.time() - start > timeout:
                     raise TimeoutError(f"执行超时 ({timeout}s)")
+
+                if should_abort and should_abort():
+                    yield {"type": "node_failed", "payload": {
+                        "status": "aborted", "error": "用户中断"
+                    }}
+                    return
 
                 resp = self._llm_call(messages, tool_defs)
                 msg = resp["choices"][0]["message"]
@@ -207,20 +274,49 @@ class AgentRunner:
 
                 if content:
                     all_output.append(content)
+                    yield {
+                        "type": "node_delta",
+                        "payload": {"turn": turn, "content": content}
+                    }
 
                 if not tool_calls:
-                    break  # 完成
+                    break
 
                 # 处理工具调用
                 messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
                 for tc in tool_calls:
+                    if should_abort and should_abort():
+                        yield {"type": "node_failed", "payload": {
+                            "status": "aborted", "error": "用户中断"
+                        }}
+                        return
+
                     fn = tc.get("function", {})
                     name, args_str = fn.get("name", ""), fn.get("arguments", "{}")
                     try:
                         args = json.loads(args_str) if args_str else {}
                     except json.JSONDecodeError:
                         args = {}
+
+                    yield {
+                        "type": "tool_start",
+                        "tool_call_id": tc.get("id", ""),
+                        "payload": {"name": name, "args": args}
+                    }
+
                     tr = self._run_tool(name, args, work_dir)
+                    is_error = "error" in tr
+
+                    yield {
+                        "type": "tool_end",
+                        "tool_call_id": tc.get("id", ""),
+                        "payload": {
+                            "result": tr,
+                            "is_error": is_error,
+                            "name": name,
+                        }
+                    }
+
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.get("id", ""),
@@ -230,12 +326,31 @@ class AgentRunner:
             full_output = "\n".join(all_output)
             result = self._extract_summary(full_output)
 
-            return self._make_result(result, full_output, total_cost, start, "ok", turn + 1)
+            yield {
+                "type": "node_complete",
+                "payload": {
+                    "result": result,
+                    "output": full_output,
+                    "status": "ok",
+                    "cost": round(total_cost, 6),
+                    "turns": turn + 1,
+                }
+            }
 
         except TimeoutError as e:
-            return self._make_result(str(e), "\n".join(all_output), total_cost, start, "timeout")
+            yield {"type": "node_failed", "payload": {
+                "status": "timeout",
+                "error": str(e),
+                "output": "\n".join(all_output),
+                "cost": round(total_cost, 6),
+            }}
         except Exception as e:
-            return self._make_result(f"失败: {e}", "\n".join(all_output), total_cost, start, "error")
+            yield {"type": "node_failed", "payload": {
+                "status": "error",
+                "error": f"失败: {e}",
+                "output": "\n".join(all_output),
+                "cost": round(total_cost, 6),
+            }}
 
     # ── 系统提示词 ──────────────────────────────────────
 
