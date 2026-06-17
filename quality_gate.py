@@ -17,6 +17,17 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 
+# Bug #3 FIX: import blocklist from agent_runner for validation command safety
+try:
+    from agent_runner import _is_command_safe
+except ImportError:
+    # Fallback: minimal blocklist if agent_runner not available
+    _BLOCKED = frozenset({"rm -rf", "curl ", "wget ", "nc ", "mkfs", "dd if=", "> /dev/sd",
+                          "shutdown", "reboot", ":(){", "chmod 777"})
+    def _is_command_safe(cmd: str) -> bool:
+        cmd_l = cmd.lower()
+        return not any(b in cmd_l for b in _BLOCKED)
+
 
 @dataclass
 class QualityGateResult:
@@ -98,6 +109,11 @@ class QualityGate:
             commands_ok = True
             failed_msgs: list[str] = []
             for cmd in validation_commands:
+                # Bug #3 FIX: safety check before shell execution
+                if not _is_command_safe(cmd):
+                    commands_ok = False
+                    failed_msgs.append(f"{cmd}: blocked by safety policy")
+                    continue
                 try:
                     r = subprocess.run(
                         cmd,

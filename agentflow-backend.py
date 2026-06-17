@@ -221,10 +221,31 @@ def _execute_run(run_id: str):
     try:
         dag_version = store.get_dag_version(run_id)
         while not store.all_nodes_done(run_id):
-            # 检查 DAG 版本变更 → 刷新 ready 列表
+            # 检查 DAG 版本变更 → 刷新 ready 列表 + 重建 node_map
             current_dag_version = store.get_dag_version(run_id)
             if current_dag_version > dag_version:
                 dag_version = current_dag_version
+                # Bug #1 FIX: rebuild node_map and edges when DAG mutates
+                fresh_run = store.get_run(run_id) or {}
+                nodes_data = fresh_run.get("nodes", nodes_data)
+                node_map = {n["node_id"]: n for n in nodes_data}
+                node_defs = []
+                for n in nodes_data:
+                    nd = NodeDef(
+                        id=n["node_id"],
+                        icon=n.get("icon", ""),
+                        label=n.get("label", ""),
+                        desc=n.get("description", ""),
+                        color=n.get("color", ""),
+                        profile=n.get("profile", "dev"),
+                        params=n.get("params", {}) or {},
+                    )
+                    node_defs.append(nd)
+                edges_real = store.get_run_edges(run_id)
+                for n in nodes_data:
+                    nid = n["node_id"]
+                    downstream_ids = set(store.get_dependents(run_id, nid))
+                    broker.set_downstream_cache(run_id, nid, downstream_ids)
                 _publish_event(run_id, "dag_mutation",
                     payload={"dag_version": dag_version, "message": "DAG 已被 Agent 动态调整，重新评估 ready 节点"})
                 continue  # 重新进入 while 循环，刷新 ready
@@ -433,9 +454,8 @@ def _execute_run(run_id: str):
                 _publish_node_artifacts(run_id, nid, node_dir)
 
                 # 通过 ArtifactBroker 发布产物
-                output_dir = os.path.join(
-                    store.envelopes_dir(run_id).replace("/envelopes", ""),
-                    "outputs")
+                # Bug #20 FIX: use os.path.dirname instead of fragile str.replace
+                output_dir = os.path.dirname(store.envelopes_dir(run_id))
                 os.makedirs(output_dir, exist_ok=True)
                 full_output = result.get("output", "") or result.get("result", "")
                 output_path = os.path.join(output_dir, f"{nid}.txt")
@@ -483,6 +503,9 @@ def _execute_run(run_id: str):
         final_status = "completed"
         counts = store.count_status(run_id)
         if counts.get("failed", 0) > 0 or counts.get("timed_out", 0) > 0:
+            final_status = "failed"
+        # Bug #14 FIX: detect orphaned running/pending nodes
+        elif counts.get("running", 0) > 0 or counts.get("pending", 0) > 0:
             final_status = "failed"
         store.update_run_totals(run_id, total_cost, total_dur)
         store.update_run_status(run_id, final_status)
@@ -1161,6 +1184,9 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
     def _read_json_body(self) -> tuple[dict | None, str | None]:
         try:
             length = int(self.headers.get("Content-Length", 0))
+            # Bug #30 FIX: guard against negative Content-Length
+            if length < 0:
+                return None, "Invalid Content-Length"
             if length > MAX_BODY_SIZE:
                 return None, f"Request too large ({length} > {MAX_BODY_SIZE})"
             if length == 0:

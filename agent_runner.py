@@ -32,6 +32,38 @@ import time
 
 from provider_adapter import ProviderAdapter
 
+
+def _load_env_files_once() -> None:
+    """Load project/user .env files without overriding existing process env.
+
+    AgentFlow is often started as a bare background Python process, so shell env
+    may not contain provider keys even though .env exists. Keep this minimal to
+    avoid adding a runtime dependency on python-dotenv.
+    """
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+        os.path.expanduser("~/.hermes/.env"),
+    ]
+    for path in candidates:
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for raw in f:
+                    line = raw.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip().strip('"').strip("'")
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+        except OSError:
+            continue
+
+
+_load_env_files_once()
+
 # Agent 工具沙箱配置
 # 禁止 Agent 访问的敏感文件/目录模式
 SANDBOX_BLOCKED_PATHS = [
@@ -58,9 +90,12 @@ def _is_path_safe(filepath: str, work_dir: str) -> bool:
     # 必须在 work_dir 内
     if not real.startswith(work + os.sep) and real != work:
         return False
-    # 不允许穿越到 work_dir 外
+    # work_dir 本身可能位于 /home 等普通用户目录；只禁止穿越到工作区外的敏感路径。
     for blocked in SANDBOX_BLOCKED_PATHS:
-        if real.startswith(os.path.realpath(blocked)) if os.path.isabs(blocked) else False:
+        if not os.path.isabs(blocked):
+            continue
+        blocked_real = os.path.realpath(blocked)
+        if real.startswith(blocked_real) and not work.startswith(blocked_real):
             return False
     return True
 
@@ -241,6 +276,9 @@ class AgentRunner:
         all_output = []
         total_cost = 0.0
 
+        # 注入 AgentFlow 自编排上下文
+        self._inject_agentflow_context(work_dir)
+
         if not self.api_key:
             yield {"type": "node_failed", "payload": {
                 "status": "error", "error": "API 密钥未配置"
@@ -352,10 +390,131 @@ class AgentRunner:
                 "cost": round(total_cost, 6),
             }}
 
+    # ── AgentFlow Self-Orchestration 上下文注入 ──────
+
+    def _inject_agentflow_context(self, work_dir: str):
+        """注入 AgentFlow 自编排上下文到工作目录和环境变量。
+        
+        Agent 可以读取 .agentflow/ 下的文件来获取编排 API 信息，
+        也可以通过环境变量获取。
+        """
+        if not work_dir:
+            return
+        try:
+            os.makedirs(work_dir, exist_ok=True)
+
+            # 从环境变量读取编排上下文
+            api_url = os.environ.get("AGENTFLOW_API_URL", "http://127.0.0.1:9600")
+            run_id = os.environ.get("AGENTFLOW_RUN_ID", "")
+            node_id = os.environ.get("AGENTFLOW_NODE_ID", "")
+            dag_version = os.environ.get("AGENTFLOW_DAG_VERSION", "0")
+
+            # 3. .agentflow/api.py — Python 调用模板
+            api_py = f'''"""
+AgentFlow Self-Orchestration API — Python 调用模板
+Agent 可以通过此模块调用编排 API 调整 DAG 结构。
+
+用法:
+    from api import agentflow
+    status = agentflow.get_run()
+    result = agentflow.add_node(id="new_node", label="新任务", profile="dev", desc="...", depends_on=["task1"])
+    agentflow.retry_node("task2")
+    agentflow.feedback("task2 超时，建议拆分")
+'''
+
+            # 写入 .agentflow/ 目录文件
+            dot_dir = os.path.join(work_dir, ".agentflow")
+            os.makedirs(dot_dir, exist_ok=True)
+
+            # 1. context.json — 完整上下文
+            ctx = {
+                "api_url": api_url,
+                "run_id": run_id,
+                "node_id": node_id,
+                "scope": "self",
+                "dag_version": dag_version if dag_version != "0" else 0,
+                "available_endpoints": [
+                    "GET  /api/runs/<id>              — 获取运行状态",
+                    "GET  /api/runs/<id>/nodes        — 获取所有节点",
+                    "GET  /api/runs/<id>/nodes/<nid>  — 获取单节点详情",
+                    "GET  /api/runs/<id>/edges        — 获取 DAG 边",
+                    "POST /api/runs/<id>/nodes        — 新增节点",
+                    "PATCH /api/runs/<id>/nodes/<nid> — 修改节点",
+                    "DELETE /api/runs/<id>/nodes/<nid> — 删除节点",
+                    "POST /api/runs/<id>/edges        — 新增依赖边",
+                    "DELETE /api/runs/<id>/edges      — 删除依赖边",
+                    "POST /api/runs/<id>/nodes/<nid>/retry — 重置节点重跑",
+                    "POST /api/runs/<id>/reroute      — 批量调整 DAG",
+                    "POST /api/runs/<id>/feedback     — 提反馈意见",
+                ],
+                "scope_info": {
+                    "self": "只能修改自己的节点（默认）",
+                    "downstream": "可修改自己及下游节点",
+                    "run": "可修改 run 内任何节点",
+                },
+            }
+            ctx_path = os.path.join(dot_dir, "context.json")
+            with open(ctx_path, "w", encoding="utf-8") as f:
+                json.dump(ctx, f, ensure_ascii=False, indent=2)
+
+            # 2. api.sh — curl 命令模板
+            auth_header = ""
+            api_token = os.environ.get("AGENTFLOW_API_TOKEN", "")
+            if api_token:
+                auth_header = f' -H "Authorization: Bearer {api_token}"'
+
+            api_sh_lines = [
+                "#!/bin/bash",
+                f'# AgentFlow Self-Orchestration API — curl 命令模板',
+                f'# Run ID: {run_id}',
+                f'# Node ID: {node_id}',
+                f'AGENTFLOW_API="{api_url}"',
+                f'RUN_ID="{run_id}"',
+                f'BASE="$AGENTFLOW_API/api/runs/$RUN_ID"',
+                '',
+                f'# 示例命令（取消注释即可使用）：',
+                f'# 获取运行状态',
+                f'# curl -s $BASE | python3 -m json.tool',
+                f'',
+                f'# 查看所有节点',
+                f'# curl -s $BASE/nodes | python3 -m json.tool',
+                f'',
+                f'# 新增节点',
+                f'''# curl -s -X POST $BASE/nodes \\
+#   -H "Content-Type: application/json" \\
+#   -d '{{"id":"new_task","label":"新任务","profile":"dev","desc":"描述","depends_on":[]}}' | python3 -m json.tool''',
+                f'',
+                f'# 删除节点',
+                f'# curl -s -X DELETE $BASE/nodes/task_name | python3 -m json.tool',
+                f'',
+                f'# 提交反馈',
+                f'''# curl -s -X POST $BASE/feedback \\
+#   -H "Content-Type: application/json" \\
+#   -d '{{"from_node":"{node_id}","type":"general","message":"描述你的建议"}}' | python3 -m json.tool''',
+                f'',
+            ]
+            api_sh_path = os.path.join(dot_dir, "api.sh")
+            with open(api_sh_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(api_sh_lines))  # Bug #11 FIX: was "\\n" (literal backslash-n)
+            os.chmod(api_sh_path, 0o755)
+
+            # 写入 api.py
+            api_py_path = os.path.join(dot_dir, "api.py")
+            with open(api_py_path, "w", encoding="utf-8") as f:
+                f.write(api_py)
+
+        except OSError as e:
+            self._log(f"_inject_agentflow_context error: {e}", err=True)
+
     # ── 系统提示词 ──────────────────────────────────────
 
     def _system_prompt(self, profile: str) -> str:
-        return f"""你是 AgentFlow 工作流中的 {profile} 角色 Agent。
+        # 检查环境变量是否指示这是 AgentFlow 编排中的执行
+        run_id = os.environ.get("AGENTFLOW_RUN_ID", "")
+        has_agentflow_context = bool(run_id)
+        scope = os.environ.get("AGENTFLOW_AGENT_SCOPE", "self")
+
+        base = f"""你是 AgentFlow 工作流中的 {profile} 角色 Agent。
 
 ## 可用工具
 - execute_command: 在沙箱终端中执行命令（无 sudo/rm -rf/网络等高危操作）
@@ -376,6 +535,36 @@ class AgentRunner:
 ```
 
 使用中文回复。"""
+
+        if has_agentflow_context:
+            base += f"""
+
+## 编排 API 能力
+你正在 AgentFlow 编排上下文中执行 (Run: {run_id})。
+你可以通过 REST API 动态调整工作流结构。API 信息在工作目录的 .agentflow/ 目录中：
+  - .agentflow/context.json  — 完整运行上下文
+  - .agentflow/api.sh       — curl 命令模板
+  - .agentflow/api.py       — Python 调用模板
+
+### 可用操作
+1. **查看状态** — curl -s $AGENTFLOW_API/api/runs/$RUN_ID | python3 -m json.tool
+2. **查看节点** — curl -s $AGENTFLOW_API/api/runs/$RUN_ID/nodes | python3 -m json.tool  
+3. **新增节点** — POST /api/runs/<run_id>/nodes (新增子任务/并行任务)
+4. **修改自己** — PATCH /api/runs/<run_id>/nodes/<自己的节点ID>
+5. **删除节点** — DELETE /api/runs/<run_id>/nodes/<node_id> (自动重连上下游)
+6. **重置重跑** — POST /api/runs/<run_id>/nodes/<node_id>/retry
+7. **批量调整** — POST /api/runs/<run_id>/reroute (增加/删除多个节点和边)
+8. **提反馈** — POST /api/runs/<run_id>/feedback (给编排器提建议)
+
+### Scope 限制
+你的 scope: {scope}
+- self(默认): 只能修改自己的节点
+- downstream: 可修改自己及下游节点
+- run: 可修改任何节点
+
+如需修改权限外的节点，通过 feedback 提建议给编排器处理。
+"""
+        return base
 
     # ── 工具系统 ─────────────────────────────────────────
 
@@ -421,12 +610,9 @@ class AgentRunner:
                 # 安全检查
                 if not _is_command_safe(cmd):
                     return {"error": f"命令被沙箱拦截（高危操作）: {cmd[:100]}"}
-                # 不使用 shell=True，使用 shlex 分割
-                try:
-                    cmd_parts = shlex.split(cmd)
-                except ValueError as e:
-                    return {"error": f"命令解析失败: {e}"}
-                r = subprocess.run(cmd_parts, shell=False, capture_output=True, text=True,
+                # 支持常见 Shell 片段（重定向、&&、管道、heredoc），否则 LLM 生成的工程化命令
+                # 会被 shlex+shell=False 误拆成普通参数并制造伪文件。
+                r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
                                    cwd=work_dir, timeout=EXECUTE_TIMEOUT)
                 out = r.stdout or ""
                 if r.stderr:

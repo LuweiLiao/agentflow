@@ -170,9 +170,14 @@ class Supervisor:
                 "nodes": [],
                 "edges": [],
                 "plan": None,
+                "created_at": time.time(),  # Bug #8 FIX: track creation time for cleanup
             }
 
         session = _sessions[session_id]
+        session["last_active"] = time.time()  # Bug #8 FIX: track last active for eviction
+        # Periodic cleanup: prevent unbounded session growth
+        if len(_sessions) > 100:
+            cleanup_expired_sessions(max_age=3600)
         session["history"].append({"role": "user", "content": message})
 
         step = session.get("step", "discovery")

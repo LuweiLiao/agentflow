@@ -173,7 +173,10 @@ class EvolutionLedger:
             root_cause = attr.get("root_cause", "")
             # Normalize: take first 80 chars as pattern signature
             cause_fragment = root_cause[:80].strip()
-            pattern_id = f"{failure_class}:{hash(cause_fragment) & 0xFFFFFF:06x}"
+            # Bug #7 FIX: use deterministic hashlib instead of non-deterministic Python hash()
+            import hashlib
+            cause_hash = hashlib.sha256(cause_fragment.encode("utf-8")).hexdigest()[:8]
+            pattern_id = f"{failure_class}:{cause_hash}"
 
             existing = next((p for p in patterns if p.get("pattern_id") == pattern_id), None)
             if existing:

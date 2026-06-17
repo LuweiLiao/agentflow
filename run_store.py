@@ -389,13 +389,14 @@ class RunStore:
         """获取无 heartbeat 超时的 running run。"""
         ttl = timeout or _HEARTBEAT_TTL
         cutoff = time.time() - ttl
+        # Bug #4 FIX: wrap heartbeat conditions in parentheses so OR doesn't escape status='running'
         rows = self._read(
             "SELECT r.run_id FROM runs r"
             " WHERE r.status='running'"
-            " AND (SELECT MAX(n.heartbeat_at) FROM nodes n"
+            " AND ((SELECT MAX(n.heartbeat_at) FROM nodes n"
             "      WHERE n.run_id=r.run_id) IS NULL"
             " OR (SELECT MAX(n.heartbeat_at) FROM nodes n"
-            "      WHERE n.run_id=r.run_id) < ?",
+            "      WHERE n.run_id=r.run_id) < ?)",
             [cutoff],
         )
         return [r["run_id"] for r in rows]
@@ -490,9 +491,10 @@ class RunStore:
         return ready
 
     def all_nodes_done(self, run_id: str) -> bool:
+        # Bug #15 FIX: add 'cancelled' to terminal states
         pending = self._read(
             "SELECT COUNT(*) FROM nodes WHERE run_id=?"
-            " AND status NOT IN ('completed','failed','skipped','timed_out')",
+            " AND status NOT IN ('completed','failed','skipped','timed_out','cancelled')",
             [run_id],
         )[0][0]
         return pending == 0
@@ -618,12 +620,7 @@ class RunStore:
         with _write_lock:
             conn = self._get_conn()
             try:
-                # 删除本节点作为 target 或 source 的边
-                conn.execute(
-                    "DELETE FROM workflow_edges WHERE run_id=? AND (source_node_id=? OR target_node_id=?)",
-                    [run_id, node_id, node_id],
-                )
-                # 重连：本节点的上游 → 本节点的下游
+                # Bug #2 FIX: query upstream/downstream BEFORE deleting edges
                 upstream = conn.execute(
                     "SELECT source_node_id FROM workflow_edges WHERE run_id=? AND target_node_id=?",
                     [run_id, node_id],
@@ -632,6 +629,12 @@ class RunStore:
                     "SELECT target_node_id FROM workflow_edges WHERE run_id=? AND source_node_id=?",
                     [run_id, node_id],
                 ).fetchall()
+                # 删除本节点作为 target 或 source 的边
+                conn.execute(
+                    "DELETE FROM workflow_edges WHERE run_id=? AND (source_node_id=? OR target_node_id=?)",
+                    [run_id, node_id, node_id],
+                )
+                # 重连：本节点的上游 → 本节点的下游
                 for src_row in upstream:
                     src = src_row["source_node_id"]
                     for tgt_row in downstream:
@@ -665,6 +668,24 @@ class RunStore:
             finally:
                 conn.close()
 
+    def _can_reach(self, conn, run_id: str, source: str, target: str,
+                   visited: set | None = None) -> bool:
+        """DFS: can 'source' reach 'target' via existing edges? (cycle check helper)"""
+        if source == target:
+            return True
+        visited = visited or set()
+        if source in visited:
+            return False
+        visited.add(source)
+        children = conn.execute(
+            "SELECT target_node_id FROM workflow_edges WHERE run_id=? AND source_node_id=?",
+            [run_id, source],
+        ).fetchall()
+        for row in children:
+            if self._can_reach(conn, run_id, row["target_node_id"], target, visited):
+                return True
+        return False
+
     def add_edge(self, run_id: str, source_id: str, target_id: str) -> bool:
         """动态添加依赖边。返回是否成功。"""
         with _write_lock:
@@ -683,6 +704,11 @@ class RunStore:
                     [run_id, source_id, target_id],
                 ).fetchone()
                 if existing:
+                    return False
+                # Bug #10 FIX: cycle detection — reject if target can already reach source
+                can_reach = self._can_reach(conn, run_id, target_id, source_id)
+                if can_reach:
+                    conn.close()
                     return False
                 conn.execute(
                     "INSERT INTO workflow_edges (run_id, source_node_id, target_node_id) VALUES (?,?,?)",
@@ -760,10 +786,15 @@ class RunStore:
     def append_feedback(self, run_id: str, feedback_data: dict) -> int:
         """追加 feedback 到 run 的 feedback 列表，返回 event sequence。"""
         import json
-        sequence = int(time.time() * 1000) % 1000000
+        # Bug #6 FIX: use MAX(sequence)+1 instead of timestamp-based to prevent collision
         with _write_lock:
             conn = self._get_conn()
             try:
+                max_row = conn.execute(
+                    "SELECT MAX(sequence) AS s FROM run_events WHERE run_id=?",
+                    [run_id],
+                ).fetchone()
+                sequence = (max_row["s"] + 1) if max_row and max_row["s"] is not None else 1
                 conn.execute(
                     "INSERT INTO run_events (run_id, sequence, type, node_id, ts_ms, payload_json)"
                     " VALUES (?,?,?,?,?,?)",
@@ -880,17 +911,27 @@ class RunStore:
     def save_evolution_report(self, run_id: str, report: dict) -> int:
         """Persist an evolution report. Returns the new version number."""
         import time
-        existing = self._read(
-            "SELECT MAX(version) AS v FROM evolution_reports WHERE run_id=?",
-            [run_id],
-        )
-        next_version = (existing[0]["v"] + 1) if existing and existing[0]["v"] is not None else 1
-        self._write(
-            "INSERT INTO evolution_reports (run_id, version, report_json, created_at)"
-            " VALUES (?,?,?,?)",
-            [run_id, next_version, json.dumps(report, ensure_ascii=False), time.time()],
-        )
-        return next_version
+        # Bug #5 FIX: do version calculation inside _write_lock to prevent TOCTOU race
+        with _write_lock:
+            conn = self._get_conn()
+            try:
+                row = conn.execute(
+                    "SELECT MAX(version) AS v FROM evolution_reports WHERE run_id=?",
+                    [run_id],
+                ).fetchone()
+                next_version = (row["v"] + 1) if row and row["v"] is not None else 1
+                conn.execute(
+                    "INSERT INTO evolution_reports (run_id, version, report_json, created_at)"
+                    " VALUES (?,?,?,?)",
+                    [run_id, next_version, json.dumps(report, ensure_ascii=False), time.time()],
+                )
+                conn.commit()
+                return next_version
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
 
     def get_evolution_report(self, run_id: str, version: int | None = None) -> dict | None:
         """Retrieve the latest (or specific) evolution report for *run_id*."""
