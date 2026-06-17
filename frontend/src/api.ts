@@ -108,6 +108,38 @@ export class ApiClient {
 
     return controller;
   }
+
+  // ── Evolution API ──────────────────────────────────
+
+  async evolve(runId: string): Promise<any> {
+    const resp = await fetch(`${BASE}/api/runs/${runId}/evolve`, { method: "POST" });
+    if (!resp.ok) throw new Error(`进化分析失败: ${resp.status}`);
+    return resp.json();
+  }
+
+  async getEvolution(runId: string): Promise<any> {
+    const resp = await fetch(`${BASE}/api/runs/${runId}/evolution`);
+    if (!resp.ok) throw new Error(`获取进化报告失败: ${resp.status}`);
+    return resp.json();
+  }
+
+  async upgrade(runId: string): Promise<any> {
+    const resp = await fetch(`${BASE}/api/runs/${runId}/upgrade`, { method: "POST" });
+    if (!resp.ok) throw new Error(`升级管线失败: ${resp.status}`);
+    return resp.json();
+  }
+
+  async getEvolutionStats(): Promise<any> {
+    const resp = await fetch(`${BASE}/api/evolution/stats`);
+    if (!resp.ok) throw new Error(`获取进化统计失败: ${resp.status}`);
+    return resp.json();
+  }
+
+  async getEvolutionHistory(limit: number = 50): Promise<any> {
+    const resp = await fetch(`${BASE}/api/evolution/history?limit=${limit}`);
+    if (!resp.ok) throw new Error(`获取进化历史失败: ${resp.status}`);
+    return resp.json();
+  }
 }
 
 export const api = new ApiClient();

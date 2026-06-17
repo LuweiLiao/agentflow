@@ -27,6 +27,8 @@ from evolution_engine import EvolutionEngine
 from run_store import extract_json, get_store, startup_scan
 from supervisor import Supervisor
 from upgrade_gate import ProposalExecutor, UpgradeGate
+from template_promoter import TemplatePromoter
+from evolution_ledger import EvolutionLedger
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9600
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -65,6 +67,10 @@ _event_bus = RunEventBus()
 _evolution_engine = EvolutionEngine(store=_store)
 _upgrade_gate = UpgradeGate(
     executor=ProposalExecutor(template_dir=TEMPLATE_DIR),
+)
+_template_promoter = TemplatePromoter(template_dir=TEMPLATE_DIR)
+_evolution_ledger = EvolutionLedger(
+    data_dir=os.path.join(SCRIPT_DIR, ".agentflow", "evolution")
 )
 
 
@@ -510,6 +516,11 @@ def _run_evolution_analysis(run_id: str) -> dict:
         payload={"version": version,
                  "attribution_count": len(report_dict.get("attributions", [])),
                  "proposal_count": len(report_dict.get("proposals", []))})
+    # Record to cross-run ledger
+    try:
+        _evolution_ledger.record_analysis(run_id, report_dict)
+    except Exception:
+        pass
     print(f"[Evolution] Run {run_id}: {len(report_dict.get('attributions', []))} attributions, "
           f"{len(report_dict.get('proposals', []))} proposals (v{version})", file=sys.stderr)
     return report_dict
@@ -1039,6 +1050,12 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             return
         if path == "/api/providers":
             self._handle_list_providers()
+            return
+        if path == "/api/evolution/stats":
+            self._handle_evolution_stats()
+            return
+        if path == "/api/evolution/history":
+            self._handle_evolution_history()
             return
         if path == "/api/workflows":
             self._handle_list_workflows()
@@ -2112,17 +2129,58 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         _publish_event(run_id, "upgrade_decisions",
             payload={"total": len(decisions), "accepted": accepted})
 
+        # 4. Auto-promote accepted template proposals
+        promotions = []
+        for d in decisions:
+            if d.get("action") in ("auto_accept", "conditional"):
+                try:
+                    promo_records = _template_promoter.promote_from_decision(d, run_id=run_id)
+                    for r in promo_records:
+                        promotions.append(r.to_dict())
+                        _evolution_ledger.record_promotion(r.to_dict())
+                except Exception as e:
+                    print(f"[Promotion] Failed: {e}", file=sys.stderr)
+
         self._send_json(200, {
             "ok": True,
             "run_id": run_id,
             "decisions": decisions,
+            "promotions": promotions,
             "summary": {
                 "total": len(decisions),
                 "accepted": accepted,
                 "rejected": sum(1 for d in decisions if d.get("action") == "rejected"),
                 "pending_review": sum(1 for d in decisions if d.get("action") == "pending_human_review"),
+                "promoted": len(promotions),
             },
         })
+
+    # ── Evolution: cross-run knowledge (Phase 3D) ──────────────────
+
+    def _handle_evolution_stats(self):
+        """GET /api/evolution/stats — aggregate evolution statistics."""
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        from dataclasses import asdict as _asdict
+        stats = _evolution_ledger.get_stats()
+        self._send_json(200, {"ok": True, "stats": _asdict(stats)})
+
+    def _handle_evolution_history(self):
+        """GET /api/evolution/history — recent ledger entries."""
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        parsed = urlparse(self.path)
+        query = parsed.query
+        limit = 50
+        if "limit=" in query:
+            try:
+                limit = int(query.split("limit=")[1].split("&")[0])
+            except ValueError:
+                pass
+        history = _evolution_ledger.get_history(limit=limit)
+        self._send_json(200, {"ok": True, "history": history, "count": len(history)})
 
     # ── Workflow CRUD + Webhook ─────────────────────
 

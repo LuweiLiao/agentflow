@@ -19,6 +19,7 @@ import "@xyflow/react/dist/style.css";
 import AgentNode, { type AgentNodeData } from "./AgentNode";
 import InspectorPanel from "./InspectorPanel";
 import LogPanel from "./LogPanel";
+import EvolutionPanel from "./EvolutionPanel";
 import { api } from "./api";
 import {
   PROFILE_COLORS,
@@ -56,6 +57,7 @@ function CanvasInner() {
   const [logs, setLogs] = useState<string[]>([`[${new Date().toLocaleTimeString()}] AgentFlow 已启动`]);
   const [isRunning, setIsRunning] = useState(false);
   const [isDecomposing, setIsDecomposing] = useState(false);
+  const [showEvolution, setShowEvolution] = useState(false);
   const currentRunId = useRef("");
   const sseController = useRef<AbortController | null>(null);
 
@@ -439,6 +441,13 @@ function CanvasInner() {
           <button style={btnMiniStyle} onClick={handleUndo} disabled={undoStack.length === 0} title="撤销 (Ctrl+Z)">↩️</button>
           <button style={btnMiniStyle} onClick={handleRedo} disabled={redoStack.length === 0} title="重做 (Ctrl+Shift+Z)">↪️</button>
           <button style={btnMiniStyle} onClick={handleReset} title="重置">🔄</button>
+          <button
+            style={{ ...btnMiniStyle, background: showEvolution ? "#8b5cf6" : btnMiniStyle.background }}
+            onClick={() => setShowEvolution(!showEvolution)}
+            title="自我进化面板"
+          >
+            🧬
+          </button>
           <span style={{ fontSize: 10, color: "#64748b", marginLeft: 4 }}>
             {nodes.length} 节点 · {edges.length} 边
           </span>
@@ -492,6 +501,14 @@ function CanvasInner() {
           graphInfo={{ nodes: nodes.length, edges: edges.length }}
         />
       </div>
+
+      {/* ── Evolution Panel ── */}
+      {showEvolution && (
+        <EvolutionPanel
+          runId={currentRunId.current || null}
+          onClose={() => setShowEvolution(false)}
+        />
+      )}
 
       {/* ── Log Panel ── */}
       <LogPanel logs={logs} />

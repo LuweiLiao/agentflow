@@ -268,3 +268,56 @@ class TestRealMode:
 
         with pytest.raises(RuntimeError, match="agent_runner_factory"):
             harness.evaluate_proposal(proposal, run, events, mode="real")
+
+    def test_real_mode_with_mock_runner(self):
+        """Real eval with a mock runner that always succeeds."""
+        class MockRunner:
+            def execute(self, prompt, work_dir=None, profile="dev", max_turns=10, timeout=120):
+                # Simulate creating a file in work_dir and returning success
+                if work_dir:
+                    Path(work_dir, "main.py").write_text("print('hello')")
+                return {"output": "Generated main.py", "result": "success", "status": "ok"}
+
+        def factory(model):
+            return MockRunner()
+
+        harness = EvalHarness(agent_runner_factory=factory)
+        proposal = _mk_proposal(target="template")
+        run = {"nodes": [_mk_failed_node("n1")]}
+        events = [_mk_quality_fail_event("n1", checks={"files_exist": False})]
+
+        candidate_template = {
+            "profile": "dev",
+            "prompt_template": "Create main.py with hello world.",
+            "expected_files": ["main.py"],
+        }
+
+        result = harness.evaluate_proposal(
+            proposal, run, events,
+            candidate_template=candidate_template,
+            mode="real",
+        )
+        assert result.mode == "real"
+        assert result.candidate_avg_score > result.baseline_avg_score
+
+    def test_real_mode_runner_exception_handled(self):
+        """If the runner raises an exception, eval should capture the error gracefully."""
+        class FailingRunner:
+            def execute(self, **kwargs):
+                raise RuntimeError("API timeout")
+
+        harness = EvalHarness(agent_runner_factory=lambda m: FailingRunner())
+        proposal = _mk_proposal(target="template")
+        run = {"nodes": [_mk_failed_node("n1")]}
+        events = [_mk_quality_fail_event("n1")]
+
+        result = harness.evaluate_proposal(
+            proposal, run, events,
+            candidate_template={"prompt_template": "test", "profile": "dev"},
+            mode="real",
+        )
+        # Error should be captured, not propagated
+        assert result.mode == "real"
+        detail = result.node_details[0]
+        assert detail.candidate_checks.get("eval_error") is False
+        assert "API timeout" in detail.candidate_checks.get("error_msg", "")

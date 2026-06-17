@@ -88,6 +88,7 @@ class EvalHarness:
             quality_gate: QualityGate instance (or default)
             agent_runner_factory: Callable that returns an AgentRunner-like object.
                 Required for real-mode evaluation. Signature: factory(model: str)
+                The returned object must have: execute(prompt, work_dir, profile, max_turns, timeout) -> dict
         """
         self.quality_gate = quality_gate or QualityGate()
         self.agent_runner_factory = agent_runner_factory
@@ -315,7 +316,8 @@ class EvalHarness:
     ) -> list[NodeEvalDetail]:
         """Re-run failed nodes with candidate template.
 
-        This requires agent_runner_factory to be set.
+        This requires agent_runner_factory to be set. The factory should return
+        an object compatible with AgentRunner.execute(prompt, work_dir, profile, ...).
         """
         if not self.agent_runner_factory:
             raise RuntimeError(
@@ -344,9 +346,12 @@ class EvalHarness:
 
             # Find the node's task info
             node = next((n for n in nodes if (n.get("node_id") or n.get("id", "")) == detail.node_id), {})
-            prompt = candidate_template.get("prompt_template", "") if candidate_template else ""
-            system_prompt = candidate_template.get("system_prompt", "") if candidate_template else ""
+            profile = candidate_template.get("profile", "dev") if candidate_template else "dev"
+            max_turns = candidate_template.get("max_turns", 15) if candidate_template else 15
+            timeout = candidate_template.get("timeout_s", 120) if candidate_template else 120
 
+            # Build prompt from candidate template's prompt_template
+            prompt = candidate_template.get("prompt_template", "") if candidate_template else ""
             if not prompt:
                 # No candidate template to test; keep baseline score
                 results.append(NodeEvalDetail(
@@ -366,8 +371,10 @@ class EvalHarness:
                 try:
                     agent_result = runner.execute(
                         prompt=prompt,
-                        system_prompt=system_prompt,
                         work_dir=work_dir,
+                        profile=profile,
+                        max_turns=max_turns,
+                        timeout=timeout,
                     )
                     qg_result = self.quality_gate.evaluate(
                         node_result=agent_result,
