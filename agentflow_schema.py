@@ -39,6 +39,13 @@ class Profile(str, enum.Enum):
         }.get(p, p)
 
 
+class AgentScope(str, enum.Enum):
+    """Self-Orchestration API 权限范围。"""
+    SELF = "self"           # 只能修改自己的节点（默认）
+    DOWNSTREAM = "downstream"  # 可修改自己及下游节点
+    RUN = "run"             # 可修改 run 内任何节点
+
+
 class NodeStatus(str, enum.Enum):
     PENDING  = "pending"
     READY    = "ready"
@@ -74,7 +81,9 @@ class NodeDef:
     color:   str                    = "blue"
     profile: str                    = "dev"       # Profile 枚举字符串
     model:   Optional[str]          = None        # 执行模型名，None=使用全局默认
-    params:  dict                   = field(default_factory=dict)  # 节点自定义参数
+    params:  dict                   = field(default_factory=lambda: {
+        "scope": "self",        # Self-Orchestration API 权限范围
+    })  # 节点自定义参数
     result:  Optional[str]          = None        # 执行结果
     output:  Optional[str]          = None        # 详细输出
     status:  str                    = "pending"   # NodeStatus

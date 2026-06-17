@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 from dataclasses import dataclass, field
 
 
@@ -37,6 +38,7 @@ class QualityGate:
         task: dict | None = None,
         node_dir: str | None = None,
         expected_files: list[str] | None = None,
+        validation_commands: list[str] | None = None,
     ) -> QualityGateResult:
         """对节点输出执行质量验证。
 
@@ -51,6 +53,7 @@ class QualityGate:
         """
         task = task or {}
         expected_files = expected_files or task.get("expected_files", [])
+        validation_commands = validation_commands or task.get("validation_commands", [])
         checks = {}
         reasons = []
 
@@ -89,6 +92,32 @@ class QualityGate:
             reasons.append(f"节点状态: {status}")
         else:
             checks["no_error"] = True
+
+        # 5. 验证命令检查（阻塞）：任何非零退出码都必须失败。
+        if validation_commands and node_dir:
+            commands_ok = True
+            failed_msgs: list[str] = []
+            for cmd in validation_commands:
+                try:
+                    r = subprocess.run(
+                        cmd,
+                        cwd=node_dir,
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                    )
+                except Exception as e:
+                    commands_ok = False
+                    failed_msgs.append(f"{cmd}: {e}")
+                    continue
+                if r.returncode != 0:
+                    commands_ok = False
+                    detail = (r.stdout or "") + ("\n" + r.stderr if r.stderr else "")
+                    failed_msgs.append(f"{cmd}: exit {r.returncode}: {detail[:500]}")
+            checks["validation_commands"] = commands_ok
+            if not commands_ok:
+                reasons.append("验证命令失败: " + "; ".join(failed_msgs[:3]))
 
         # 计算分数和最终结论。valid_json 是信息性检查，不计入分数。
         scoring_checks = {k: v for k, v in checks.items() if k != "valid_json"}

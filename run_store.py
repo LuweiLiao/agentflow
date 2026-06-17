@@ -51,7 +51,8 @@ def _init():
             total_dur   REAL NOT NULL DEFAULT 0.0,
             created_at  REAL NOT NULL,
             updated_at  REAL NOT NULL,
-            error       TEXT DEFAULT ''
+            error       TEXT DEFAULT '',
+            workspace_path TEXT DEFAULT ''
         );
 
         CREATE TABLE IF NOT EXISTS nodes (
@@ -79,6 +80,7 @@ def _init():
             heartbeat_at REAL,
             lease_owner  TEXT DEFAULT '',
             lease_expires_at REAL,
+            params_json TEXT DEFAULT '{}',
             PRIMARY KEY (run_id, node_id),
             FOREIGN KEY (run_id) REFERENCES runs(run_id)
         );
@@ -131,10 +133,34 @@ def _init():
         );
 
         CREATE INDEX IF NOT EXISTS idx_run_events_run ON run_events(run_id);
+
+        -- 进化报告表（Phase 2A: self-evolution persistence）
+        CREATE TABLE IF NOT EXISTS evolution_reports (
+            run_id      TEXT NOT NULL,
+            version     INTEGER NOT NULL,
+            report_json TEXT NOT NULL DEFAULT '{}',
+            created_at  REAL NOT NULL,
+            PRIMARY KEY (run_id, version),
+            FOREIGN KEY (run_id) REFERENCES runs(run_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_evolution_run ON evolution_reports(run_id);
     """)
-    # 迁移：runs 表增加 workflow_id
+    # 迁移：runs 表增加 workflow_id / workspace_path / node params
     try:
         conn.execute("ALTER TABLE runs ADD COLUMN workflow_id TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE runs ADD COLUMN workspace_path TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE nodes ADD COLUMN params_json TEXT DEFAULT '{}'")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE runs ADD COLUMN dag_version INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
     conn.commit()
@@ -144,14 +170,40 @@ def _init():
 class RunStore:
     """SQLite 持久化操作，每次写操作新建连接 + _write_lock 保护。"""
 
-    def __init__(self):
-        _init()
+    def __init__(self, db_path: str | None = None):
+        self.db_path = db_path or DB_PATH
+        self.runs_dir = os.path.dirname(self.db_path)
+        self._init_db()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        os.makedirs(self.runs_dir, exist_ok=True)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        return conn
+
+    def _init_db(self):
+        # Preserve legacy global initialization for production DB, but allow
+        # tests to use isolated temp DBs without mutating module globals.
+        if self.db_path == DB_PATH:
+            _init()
+            return
+        old_db_path = globals()["DB_PATH"]
+        old_runs_dir = globals()["RUNS_DIR"]
+        try:
+            globals()["DB_PATH"] = self.db_path
+            globals()["RUNS_DIR"] = self.runs_dir
+            _init()
+        finally:
+            globals()["DB_PATH"] = old_db_path
+            globals()["RUNS_DIR"] = old_runs_dir
 
     # ── 连接管理 ────────────────────────────────────
 
     def _read(self, sql: str, params: list = None) -> list[sqlite3.Row]:
         """只读查询，无锁。"""
-        conn = _get_conn()
+        conn = self._get_conn()
         try:
             cur = conn.execute(sql, params or [])
             return cur.fetchall()
@@ -161,7 +213,7 @@ class RunStore:
     def _write(self, sql: str, params: list = None) -> sqlite3.Cursor:
         """写操作，加锁 + 自动 commit。"""
         with _write_lock:
-            conn = _get_conn()
+            conn = self._get_conn()
             try:
                 cur = conn.execute(sql, params or [])
                 conn.commit()
@@ -175,7 +227,7 @@ class RunStore:
     def _executemany(self, sql: str, params_list: list[list]):
         """批量写入，加锁 + 自动 commit。"""
         with _write_lock:
-            conn = _get_conn()
+            conn = self._get_conn()
             try:
                 cur = conn.executemany(sql, params_list)
                 conn.commit()
@@ -189,7 +241,7 @@ class RunStore:
     def _execute_script(self, script: str):
         """执行多语句脚本。"""
         with _write_lock:
-            conn = _get_conn()
+            conn = self._get_conn()
             try:
                 conn.executescript(script)
             except Exception:
@@ -206,7 +258,7 @@ class RunStore:
         run_id = f"run_{os.urandom(6).hex()}"
         now = time.time()
         with _write_lock:
-            conn = _get_conn()
+            conn = self._get_conn()
             try:
                 conn.execute(
                     ("INSERT INTO runs (run_id, requirement, status, created_at, updated_at, workflow_id)"
@@ -219,11 +271,12 @@ class RunStore:
                     deps_str = ",".join(deps_raw) if isinstance(deps_raw, list) else ""
                     conn.execute(
                         """INSERT INTO nodes
-                           (run_id, node_id, label, icon, description, color, profile, depends_on)
-                           VALUES (?,?,?,?,?,?,?,?)""",
+                           (run_id, node_id, label, icon, description, color, profile, depends_on, params_json)
+                           VALUES (?,?,?,?,?,?,?,?,?)""",
                         (run_id, n["id"], n.get("label", ""), n.get("icon", ""),
                          n.get("desc", ""), n.get("color", ""),
-                         n.get("profile", "dev"), deps_str),
+                         n.get("profile", "dev"), deps_str,
+                         json.dumps(n.get("params", {}), ensure_ascii=False)),
                     )
                 # 写入边表
                 if edges:
@@ -251,6 +304,7 @@ class RunStore:
                             "desc": n.get("desc", ""),
                             "color": n.get("color", ""),
                             "profile": n.get("profile", "dev"),
+                            "params": n.get("params", {}),
                         }
                         for n in nodes
                     ],
@@ -280,7 +334,15 @@ class RunStore:
         node_rows = self._read(
             "SELECT * FROM nodes WHERE run_id=? ORDER BY rowid", [run_id]
         )
-        run["nodes"] = [dict(r) for r in node_rows]
+        nodes = []
+        for r in node_rows:
+            d = dict(r)
+            try:
+                d["params"] = json.loads(d.get("params_json") or "{}")
+            except (json.JSONDecodeError, TypeError):
+                d["params"] = {}
+            nodes.append(d)
+        run["nodes"] = nodes
         return run
 
     def get_run_edges(self, run_id: str) -> list:
@@ -350,6 +412,12 @@ class RunStore:
             [total_cost, total_dur, time.time(), run_id],
         )
 
+    def set_run_workspace(self, run_id: str, workspace_path: str):
+        self._write(
+            "UPDATE runs SET workspace_path=?, updated_at=? WHERE run_id=?",
+            [workspace_path, time.time(), run_id],
+        )
+
     # ── Node 层面 ───────────────────────────────────
 
     def update_node(self, run_id: str, node_id: str, **kwargs):
@@ -368,7 +436,7 @@ class RunStore:
                                from_status: str, to_status: str) -> bool:
         """乐观锁状态迁移：仅当 current=from_status 时才更新为 to_status。"""
         with _write_lock:
-            conn = _get_conn()
+            conn = self._get_conn()
             try:
                 cur = conn.execute(
                     "UPDATE nodes SET status=? WHERE run_id=? AND node_id=? AND status=?",
@@ -453,6 +521,268 @@ class RunStore:
             [run_id],
         )
         return {r["status"]: r["cnt"] for r in rows}
+
+    # ── DAG 版本号 ─────────────────────────────────
+    def get_dag_version(self, run_id: str) -> int:
+        rows = self._read(
+            "SELECT dag_version FROM runs WHERE run_id=?", [run_id]
+        )
+        return rows[0]["dag_version"] if rows else 0
+
+    def increment_dag_version(self, run_id: str) -> int:
+        """原子递增 DAG 版本号，返回新版本。"""
+        with _write_lock:
+            conn = self._get_conn()
+            try:
+                cur = conn.execute(
+                    "UPDATE runs SET dag_version = dag_version + 1 WHERE run_id=?",
+                    [run_id],
+                )
+                if cur.rowcount == 0:
+                    return 0
+                new_version = conn.execute(
+                    "SELECT dag_version FROM runs WHERE run_id=?", [run_id]
+                ).fetchone()[0]
+                conn.commit()
+                return new_version
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+    # ── 运行时 DAG 突变 CRUD ───────────────────────
+
+    def add_node(self, run_id: str, node_data: dict) -> bool:
+        """动态插入新节点到运行中的 run。返回是否成功。"""
+        nid = node_data.get("id", "")
+        if not nid:
+            return False
+        deps_raw = node_data.get("depends_on", [])
+        deps_str = ",".join(deps_raw) if isinstance(deps_raw, list) else ""
+        with _write_lock:
+            conn = self._get_conn()
+            try:
+                # 检查节点是否已存在
+                existing = conn.execute(
+                    "SELECT 1 FROM nodes WHERE run_id=? AND node_id=?", [run_id, nid]
+                ).fetchone()
+                if existing:
+                    conn.close()
+                    return False
+                conn.execute(
+                    """INSERT INTO nodes
+                       (run_id, node_id, label, icon, description, color, profile,
+                        depends_on, status, result, output, cost, duration_ms, turns,
+                        params_json)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        run_id,
+                        nid,
+                        node_data.get("label", ""),
+                        node_data.get("icon", ""),
+                        node_data.get("desc", ""),
+                        node_data.get("color", ""),
+                        node_data.get("profile", "dev"),
+                        deps_str,
+                        "pending",
+                        "",
+                        "",
+                        0, 0, 0,
+                        "{}",
+                    ),
+                )
+                # 写入依赖边
+                if isinstance(deps_raw, list):
+                    for dep in deps_raw:
+                        if dep:
+                            conn.execute(
+                                "INSERT OR IGNORE INTO workflow_edges"
+                                " (run_id, source_node_id, target_node_id) VALUES (?,?,?)",
+                                [run_id, dep, nid],
+                            )
+                conn.execute(
+                    "UPDATE runs SET dag_version = dag_version + 1, updated_at=? WHERE run_id=?",
+                    [time.time(), run_id],
+                )
+                conn.commit()
+                return True
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+    def remove_node(self, run_id: str, node_id: str) -> bool:
+        """从运行中的 run 删除节点及其边。返回是否成功。"""
+        with _write_lock:
+            conn = self._get_conn()
+            try:
+                # 删除本节点作为 target 或 source 的边
+                conn.execute(
+                    "DELETE FROM workflow_edges WHERE run_id=? AND (source_node_id=? OR target_node_id=?)",
+                    [run_id, node_id, node_id],
+                )
+                # 重连：本节点的上游 → 本节点的下游
+                upstream = conn.execute(
+                    "SELECT source_node_id FROM workflow_edges WHERE run_id=? AND target_node_id=?",
+                    [run_id, node_id],
+                ).fetchall()
+                downstream = conn.execute(
+                    "SELECT target_node_id FROM workflow_edges WHERE run_id=? AND source_node_id=?",
+                    [run_id, node_id],
+                ).fetchall()
+                for src_row in upstream:
+                    src = src_row["source_node_id"]
+                    for tgt_row in downstream:
+                        tgt = tgt_row["target_node_id"]
+                        conn.execute(
+                            "INSERT OR IGNORE INTO workflow_edges"
+                            " (run_id, source_node_id, target_node_id) VALUES (?,?,?)",
+                            [run_id, src, tgt],
+                        )
+                # 删除本节点作为 source 和 target 的边（再删一次确保清理干净）
+                conn.execute(
+                    "DELETE FROM workflow_edges WHERE run_id=? AND (source_node_id=? OR target_node_id=?)",
+                    [run_id, node_id, node_id],
+                )
+                # 删除本节点
+                cur = conn.execute(
+                    "DELETE FROM nodes WHERE run_id=? AND node_id=?", [run_id, node_id]
+                )
+                if cur.rowcount == 0:
+                    conn.close()
+                    return False
+                conn.execute(
+                    "UPDATE runs SET dag_version = dag_version + 1, updated_at=? WHERE run_id=?",
+                    [time.time(), run_id],
+                )
+                conn.commit()
+                return True
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+    def add_edge(self, run_id: str, source_id: str, target_id: str) -> bool:
+        """动态添加依赖边。返回是否成功。"""
+        with _write_lock:
+            conn = self._get_conn()
+            try:
+                # 验证两个节点都存在
+                nodes = conn.execute(
+                    "SELECT COUNT(*) FROM nodes WHERE run_id=? AND node_id IN (?,?)",
+                    [run_id, source_id, target_id],
+                ).fetchone()[0]
+                if nodes < 2:
+                    return False
+                # 检查是否已存在
+                existing = conn.execute(
+                    "SELECT 1 FROM workflow_edges WHERE run_id=? AND source_node_id=? AND target_node_id=?",
+                    [run_id, source_id, target_id],
+                ).fetchone()
+                if existing:
+                    return False
+                conn.execute(
+                    "INSERT INTO workflow_edges (run_id, source_node_id, target_node_id) VALUES (?,?,?)",
+                    [run_id, source_id, target_id],
+                )
+                conn.execute(
+                    "UPDATE runs SET dag_version = dag_version + 1, updated_at=? WHERE run_id=?",
+                    [time.time(), run_id],
+                )
+                conn.commit()
+                return True
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+    def remove_edge(self, run_id: str, source_id: str, target_id: str) -> bool:
+        """删除依赖边。"""
+        with _write_lock:
+            conn = self._get_conn()
+            try:
+                cur = conn.execute(
+                    "DELETE FROM workflow_edges WHERE run_id=? AND source_node_id=? AND target_node_id=?",
+                    [run_id, source_id, target_id],
+                )
+                if cur.rowcount == 0:
+                    return False
+                conn.execute(
+                    "UPDATE runs SET dag_version = dag_version + 1, updated_at=? WHERE run_id=?",
+                    [time.time(), run_id],
+                )
+                conn.commit()
+                return True
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+    def retry_node(self, run_id: str, node_id: str,
+                   modify_desc: str = None, modify_params: dict = None) -> bool:
+        """重置节点状态为 pending 用于重跑。可选的修改 desc / params。"""
+        with _write_lock:
+            conn = self._get_conn()
+            try:
+                sets = "status='pending', result='', output='', error='', attempt=attempt+1"
+                vals = []
+                if modify_desc:
+                    sets += ", description=?"
+                    vals.append(modify_desc)
+                if modify_params:
+                    new_params = json.dumps(modify_params, ensure_ascii=False)
+                    sets += ", params_json=?"
+                    vals.append(new_params)
+                vals += [run_id, node_id]
+                cur = conn.execute(
+                    f"UPDATE nodes SET {sets} WHERE run_id=? AND node_id=?", vals
+                )
+                if cur.rowcount == 0:
+                    conn.close()
+                    return False
+                conn.execute(
+                    "UPDATE runs SET dag_version = dag_version + 1, updated_at=? WHERE run_id=?",
+                    [time.time(), run_id],
+                )
+                conn.commit()
+                return True
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+    def append_feedback(self, run_id: str, feedback_data: dict) -> int:
+        """追加 feedback 到 run 的 feedback 列表，返回 event sequence。"""
+        import json
+        sequence = int(time.time() * 1000) % 1000000
+        with _write_lock:
+            conn = self._get_conn()
+            try:
+                conn.execute(
+                    "INSERT INTO run_events (run_id, sequence, type, node_id, ts_ms, payload_json)"
+                    " VALUES (?,?,?,?,?,?)",
+                    [
+                        run_id,
+                        sequence,
+                        "agent_feedback",
+                        feedback_data.get("from_node", ""),
+                        int(time.time() * 1000),
+                        json.dumps(feedback_data, ensure_ascii=False),
+                    ],
+                )
+                conn.commit()
+                return sequence
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
 
     def close(self):
         pass  # noop — 不再维护长连接
@@ -544,6 +874,57 @@ class RunStore:
             "DELETE FROM workflows WHERE workflow_id=?", [workflow_id]
         )
         return cur.rowcount > 0
+
+    # ── 进化报告持久化 (Phase 2A) ──────────────────────────────────
+
+    def save_evolution_report(self, run_id: str, report: dict) -> int:
+        """Persist an evolution report. Returns the new version number."""
+        import time
+        existing = self._read(
+            "SELECT MAX(version) AS v FROM evolution_reports WHERE run_id=?",
+            [run_id],
+        )
+        next_version = (existing[0]["v"] + 1) if existing and existing[0]["v"] is not None else 1
+        self._write(
+            "INSERT INTO evolution_reports (run_id, version, report_json, created_at)"
+            " VALUES (?,?,?,?)",
+            [run_id, next_version, json.dumps(report, ensure_ascii=False), time.time()],
+        )
+        return next_version
+
+    def get_evolution_report(self, run_id: str, version: int | None = None) -> dict | None:
+        """Retrieve the latest (or specific) evolution report for *run_id*."""
+        if version is not None:
+            rows = self._read(
+                "SELECT run_id, version, report_json, created_at"
+                " FROM evolution_reports WHERE run_id=? AND version=?",
+                [run_id, version],
+            )
+        else:
+            rows = self._read(
+                "SELECT run_id, version, report_json, created_at"
+                " FROM evolution_reports WHERE run_id=?"
+                " ORDER BY version DESC LIMIT 1",
+                [run_id],
+            )
+        if not rows:
+            return None
+        r = dict(rows[0])
+        try:
+            r["report"] = json.loads(r.pop("report_json"))
+        except (json.JSONDecodeError, TypeError):
+            r["report"] = {}
+        return r
+
+    def list_evolution_reports(self, run_id: str) -> list[dict]:
+        """List all evolution report versions for *run_id* (oldest first)."""
+        rows = self._read(
+            "SELECT run_id, version, created_at"
+            " FROM evolution_reports WHERE run_id=?"
+            " ORDER BY version ASC",
+            [run_id],
+        )
+        return [dict(r) for r in rows]
 
     # ── 事件持久化 (P1: agent-loop runtime events) ─────────────────
 
