@@ -1,23 +1,30 @@
-/* AgentFlow — 共享工具函数 */
+/* AgentFlow — Shared utility functions */
 
 import type { Edge, Node } from "@xyflow/react";
 import type { AgentNodeData } from "./AgentNode";
 import type { WorkflowNode, WorkflowEdge, NodeStatus } from "./types";
+import { colors, profileColor } from "./theme";
 
 export const PROFILE_COLORS: Record<string, string> = {
-  analysis: "#3b82f6",
-  design: "#8b5cf6",
-  dev: "#10b981",
-  test: "#f59e0b",
-  doc: "#f97316",
-  deploy: "#06b6d4",
+  analysis: colors.profile.analysis,
+  design: colors.profile.design,
+  dev: colors.profile.dev,
+  test: colors.profile.test,
+  doc: colors.profile.doc,
+  deploy: colors.profile.deploy,
 };
-export const DEFAULT_COLOR = "#6366f1";
+export const DEFAULT_COLOR = colors.accent.purple;
 
-let nodeCounter = 0;
+/**
+ * Generate a unique node id. Uses crypto.randomUUID when available and falls
+ * back to a high-entropy timestamp+random id. Replaces the previous module-level
+ * mutable counter (G6) which could collide across reloads / HMR.
+ */
 export function nextId(): string {
-  nodeCounter++;
-  return `n${nodeCounter}`;
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `n_${crypto.randomUUID().slice(0, 8)}`;
+  }
+  return `n_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export function rfNodeToWorkflowNode(rfNode: Node<AgentNodeData>): WorkflowNode {
@@ -40,7 +47,10 @@ export function rfEdgeToWorkflowEdge(e: Edge): WorkflowEdge {
   return { source: e.source, target: e.target };
 }
 
-/** 将 WorkflowNode[] + WorkflowEdge[] 转为 React Flow 的 Node<AgentNodeData>[] + Edge[] */
+/**
+ * Convert WorkflowNode[] + WorkflowEdge[] into React Flow Node/Edge arrays.
+ * The `index` field stored on node data powers the sequence-number badge (C1).
+ */
 export function toRfNodes(
   wfNodes: WorkflowNode[],
   wfEdges: WorkflowEdge[]
@@ -48,26 +58,27 @@ export function toRfNodes(
   const rfNodes: Node<AgentNodeData>[] = wfNodes.map((n, i) => ({
     id: n.id,
     type: "agent",
-    position: { x: 250, y: i * 160 },
+    position: { x: 320, y: i * 168 },
     data: {
       icon: n.icon || "🤖",
       label: n.label,
       desc: n.desc,
-      color: PROFILE_COLORS[n.profile] || DEFAULT_COLOR,
+      color: profileColor(n.profile),
       profile: n.profile,
       status: n.status,
       cost: n.cost,
       duration_ms: n.duration_ms,
       model: n.model,
+      index: i + 1,
       hasSubWorkflow: n.sub_workflow != null && Object.keys(n.sub_workflow).length > 0,
     },
   }));
   const rfEdges: Edge[] = wfEdges.map((e, i) => ({
-    id: `e${i}`,
+    id: `e${i}_${e.source}_${e.target}`,
     source: e.source,
     target: e.target,
-    style: { stroke: "#4b5563", strokeWidth: 2 } as any,
-    markerEnd: { type: "arrowclosed", color: "#4b5563" },
+    style: { stroke: colors.border.bright, strokeWidth: 2 } as any,
+    markerEnd: { type: "arrowclosed", color: colors.border.bright },
   }));
   return { rfNodes, rfEdges };
 }

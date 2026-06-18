@@ -31,23 +31,45 @@ import {
 import {
   containerStyle,
   toolbarStyle,
+  toolbarRowStyle,
+  toolbarLeftStyle,
+  toolbarRightStyle,
+  toolbarDividerStyle,
+  toolbarStatusBarStyle,
+  logoStyle,
   reqInputStyle,
   btnStyle,
   btnMiniStyle,
   selectMiniStyle,
   runBtnStyle,
 } from "./styles";
+import { colors, formatCost } from "./theme";
 import type { WorkflowNode, NodeStatus } from "./types";
+
+const MAX_REQUIREMENT_LEN = 2000;
 
 // ── 节点类型注册 ──
 const nodeTypes = { agent: AgentNode };
 
 // ── 示例需求 ──
 const EXAMPLES = [
-  "用 PyQt5 实现一个串口调试助手，支持端口扫描、波特率设置、HEX/ASCII 收发",
-  "用 Flask + SQLite 开发一个 Todo 网页应用，含用户登录、CRUD、标签分类",
-  "在 MATLAB/Simulink 中设计并仿真四旋翼无人机 ADRC 控制器",
+  { icon: "🔌", text: "用 PyQt5 实现一个串口调试助手，支持端口扫描、波特率设置、HEX/ASCII 收发" },
+  { icon: "✅", text: "用 Flask + SQLite 开发一个 Todo 网页应用，含用户登录、CRUD、标签分类" },
+  { icon: "🚁", text: "在 MATLAB/Simulink 中设计并仿真四旋翼无人机 ADRC 控制器" },
 ];
+
+/** Pure helper: apply partial WorkflowNode updates to AgentNodeData. (G2) */
+function applyNodeUpdates(data: AgentNodeData, updates: Partial<WorkflowNode>): AgentNodeData {
+  const newData = { ...data };
+  if (updates.label !== undefined) newData.label = updates.label;
+  if (updates.desc !== undefined) newData.desc = updates.desc;
+  if (updates.profile !== undefined) {
+    newData.profile = updates.profile;
+    newData.color = PROFILE_COLORS[updates.profile] || DEFAULT_COLOR;
+  }
+  if (updates.model !== undefined) newData.model = updates.model;
+  return newData;
+}
 
 function CanvasInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<AgentNodeData>>([]);
@@ -68,6 +90,10 @@ function CanvasInner() {
   const undoLockRef = useRef(false);
   const stateRef = useRef({ nodes, edges });
   stateRef.current = { nodes, edges }; // 始终持有最新快照
+
+  // H3 — focus management refs
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const inspectorWrapRef = useRef<HTMLDivElement>(null);
 
   /** 保存当前状态到 undo 栈（通过 ref 读取最新 state，避免 deps 抖动） */
   const pushUndo = useCallback(() => {
@@ -136,6 +162,11 @@ function CanvasInner() {
     setLogs((prev) => [...prev.slice(-200), `[${new Date().toLocaleTimeString()}] ${text}`]);
   }, []);
 
+  /** G7 — validated requirement setter (cap length). */
+  const updateRequirement = useCallback((v: string) => {
+    setRequirement(v.slice(0, MAX_REQUIREMENT_LEN));
+  }, []);
+
   /** 加载工作流到画布 */
   const loadWorkflow = useCallback(
     (wfNodes: WorkflowNode[], wfEdges: import("./types").WorkflowEdge[]) => {
@@ -145,21 +176,23 @@ function CanvasInner() {
       setEdges(rfEdges);
       addLog(`📋 工作流加载: ${rfNodes.length} 节点 · ${rfEdges.length} 条边`);
     },
-    [setNodes, setEdges, addLog]
+    // G1 — pushUndo was missing from the dependency array.
+    [setNodes, setEdges, addLog, pushUndo]
   );
 
   // ── 编排（Supervisor）──
   const handleDecompose = useCallback(async () => {
-    if (!requirement.trim()) return;
+    const trimmed = requirement.trim(); // G7 — trim whitespace
+    if (!trimmed) return;
     setIsDecomposing(true);
-    addLog(`🤖 开始编排: ${requirement.slice(0, 80)}...`);
+    addLog(`🤖 开始编排: ${trimmed.slice(0, 80)}...`);
 
     try {
       let sessionId = "";
       let done = false;
 
       while (!done) {
-        const resp = await api.supervisor(requirement, sessionId);
+        const resp = await api.supervisor(trimmed, sessionId);
         sessionId = resp.session_id;
         addLog(`[${resp.step}] ${resp.message.slice(0, 120)}`);
 
@@ -176,8 +209,8 @@ function CanvasInner() {
           done = true;
         }
       }
-    } catch (err: any) {
-      addLog(`❌ 编排失败: ${err.message}`);
+    } catch (err) {
+      addLog(`❌ 编排失败: ${err instanceof Error ? err.message : String(err)}`);
     }
     setIsDecomposing(false);
   }, [requirement, addLog, loadWorkflow, rf]);
@@ -195,7 +228,7 @@ function CanvasInner() {
 
     addLog(`🚀 提交执行: ${wfNodes.length} 节点`);
     try {
-      const { run_id } = await api.execute(wfNodes, wfEdges, requirement);
+      const { run_id } = await api.execute(wfNodes, wfEdges, requirement.trim()); // G7 — trim
       currentRunId.current = run_id;
       addLog(`✅ 已提交: run_id=${run_id}`);
 
@@ -211,7 +244,7 @@ function CanvasInner() {
       // SSE 订阅（AbortController 模式）
       if (sseController.current) sseController.current.abort();
       sseController.current = api.subscribeRunEvents(run_id, {
-        onNodeStart: (evt: any) => {
+        onNodeStart: (evt) => {
           setNodes((nds) =>
             nds.map((n) =>
               n.id === evt.node_id ? { ...n, data: { ...n.data, status: "running" } } : n
@@ -219,7 +252,7 @@ function CanvasInner() {
           );
           addLog(`▶️ ${evt.label} 开始执行`);
         },
-        onNodeComplete: (evt: any) => {
+        onNodeComplete: (evt) => {
           setNodes((nds) =>
             nds.map((n) =>
               n.id === evt.node_id
@@ -227,7 +260,7 @@ function CanvasInner() {
                     ...n,
                     data: {
                       ...n.data,
-                      status: evt.status,
+                      status: evt.status as NodeStatus,
                       cost: evt.cost,
                       duration_ms: evt.duration_ms,
                     },
@@ -236,11 +269,11 @@ function CanvasInner() {
             )
           );
           addLog(
-            ` ${evt.label}: ${evt.status} $${evt.cost?.toFixed(4) || "?"} ${evt.duration_ms || "?"}ms`
+            `${evt.status === "completed" ? "✅" : "❌"} ${evt.label}: ${evt.status} ${formatCost(evt.cost)} ${evt.duration_ms ?? "?"}ms`
           );
         },
-        onWorkflowDone: (evt: any) => {
-          addLog(`🏁 工作流完成: ${evt.status} · 总费用: $${evt.total_cost?.toFixed(4)}`);
+        onWorkflowDone: (evt) => {
+          addLog(`🏁 工作流完成: ${evt.status} · 总费用: ${formatCost(evt.total_cost)}`);
           setIsRunning(false);
         },
         onError: (err: Error) => {
@@ -248,11 +281,30 @@ function CanvasInner() {
           setIsRunning(false);
         },
       });
-    } catch (err: any) {
-      addLog(`❌ 执行失败: ${err.message}`);
+    } catch (err) {
+      addLog(`❌ 执行失败: ${err instanceof Error ? err.message : String(err)}`);
       setIsRunning(false);
     }
-  }, [nodes, edges, requirement, addLog, setNodes]);
+  }, [nodes, edges, requirement, addLog, setNodes, pushUndo]);
+
+  // G3 — abort any in-flight SSE stream when the component unmounts.
+  useEffect(() => {
+    return () => {
+      if (sseController.current) {
+        sseController.current.abort();
+        sseController.current = null;
+      }
+    };
+  }, []);
+
+  // H3 — move focus between canvas and inspector on selection change.
+  useEffect(() => {
+    if (selectedNode) {
+      inspectorWrapRef.current?.focus();
+    } else {
+      canvasRef.current?.focus();
+    }
+  }, [selectedNode]);
 
   // ── 连线（含环检测）──
   const onConnect = useCallback(
@@ -288,14 +340,14 @@ function CanvasInner() {
         return addEdge(
           {
             ...connection,
-            style: { stroke: "#4b5563", strokeWidth: 2 } as any,
-            markerEnd: { type: "arrowclosed", color: "#4b5563" },
+            style: { stroke: colors.border.bright, strokeWidth: 2 } as any,
+            markerEnd: { type: "arrowclosed", color: colors.border.bright },
           },
           eds
         );
       });
     },
-    [setEdges, addLog]
+    [setEdges, addLog, pushUndo]
   );
 
   // ── 节点选择 ──
@@ -309,29 +361,16 @@ function CanvasInner() {
   const handleNodeUpdate = useCallback(
     (id: string, updates: Partial<WorkflowNode>) => {
       pushUndo();
+      // G2 — functional updates with shared helper; no stale `nodes` closure.
       setNodes((nds) =>
-        nds.map((n) => {
-          if (n.id !== id) return n;
-          const newData = { ...n.data };
-          if (updates.label !== undefined) newData.label = updates.label;
-          if (updates.desc !== undefined) newData.desc = updates.desc;
-          if (updates.profile !== undefined) {
-            newData.profile = updates.profile;
-            newData.color = PROFILE_COLORS[updates.profile] || DEFAULT_COLOR;
-          }
-          if (updates.model !== undefined) newData.model = updates.model;
-          return { ...n, data: newData };
-        })
+        nds.map((n) => (n.id === id ? { ...n, data: applyNodeUpdates(n.data, updates) } : n))
       );
-      // 同步 selectedNode
-      setSelectedNode((prev) => {
-        if (!prev) return null;
-        const updated = nodes.find((n) => n.id === id);
-        return updated || prev;
-      });
+      setSelectedNode((prev) =>
+        prev && prev.id === id ? { ...prev, data: applyNodeUpdates(prev.data, updates) } : prev
+      );
       addLog(`✏️ 更新节点 ${id}`);
     },
-    [setNodes, nodes, addLog]
+    [pushUndo, setNodes, addLog]
   );
 
   const handleNodeDelete = useCallback(
@@ -342,7 +381,7 @@ function CanvasInner() {
       setSelectedNode(null);
       addLog(`🗑 删除节点 ${id}`);
     },
-    [setNodes, setEdges, addLog]
+    [pushUndo, setNodes, setEdges, addLog]
   );
 
   // ── 导出/导入 JSON ──
@@ -366,21 +405,22 @@ function CanvasInner() {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".json";
-    input.onchange = async (e: any) => {
-      const file = e.target?.files?.[0];
+    input.onchange = async (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      const file = target.files?.[0];
       if (!file) return;
       try {
         const text = await file.text();
         const data = JSON.parse(text);
         if (data.nodes) loadWorkflow(data.nodes, data.edges || []);
-        if (data.requirement) setRequirement(data.requirement);
+        if (data.requirement) updateRequirement(data.requirement);
         addLog(`📥 导入工作流: ${file.name}`);
-      } catch (err: any) {
-        addLog(`❌ 导入失败: ${err.message}`);
+      } catch (err) {
+        addLog(`❌ 导入失败: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
     input.click();
-  }, [loadWorkflow, addLog]);
+  }, [loadWorkflow, addLog, updateRequirement]);
 
   // ── 重置 ──
   const handleReset = useCallback(() => {
@@ -388,6 +428,7 @@ function CanvasInner() {
     setNodes([]);
     setEdges([]);
     setSelectedNode(null);
+    setRequirement("");
     setLogs([`[${new Date().toLocaleTimeString()}] AgentFlow 已启动`]);
     currentRunId.current = "";
     if (sseController.current) {
@@ -395,68 +436,197 @@ function CanvasInner() {
       sseController.current = null;
     }
     addLog("🔄 已重置");
-  }, [setNodes, setEdges, addLog]);
+  }, [pushUndo, setNodes, setEdges, addLog]);
 
-  // ── 示例选择 ──
+  // ── 示例选择 (B7 — controlled empty value → resets to placeholder) ──
   const handleExample = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
-      if (e.target.value) setRequirement(e.target.value);
+      const val = e.target.value;
+      if (val) updateRequirement(val);
     },
-    []
+    [updateRequirement]
   );
+
+  // ── 清空日志 (E3) ──
+  const handleClearLogs = useCallback(() => {
+    setLogs([`[${new Date().toLocaleTimeString()}] 日志已清空`]);
+  }, []);
+
+  // ── 进度统计 (B8) ──
+  const progress = nodes.reduce(
+    (acc, n) => {
+      const s = (n.data.status || "pending") as NodeStatus;
+      if (s === "completed") acc.completed++;
+      else if (s === "running") acc.running++;
+      else if (s === "failed" || s === "timed_out" || s === "cancelled" || s === "skipped") acc.failed++;
+      else acc.pending++;
+      return acc;
+    },
+    { completed: 0, running: 0, failed: 0, pending: 0 }
+  );
+  const totalNodes = nodes.length;
+  const showProgress = isRunning && totalNodes > 0;
+
+  const decomposeDisabled = isDecomposing || !requirement.trim();
+  const executeDisabled = isRunning || nodes.length === 0;
 
   return (
     <div style={containerStyle}>
-      {/* ── Top Toolbar ── */}
+      {/* ── Top Toolbar (B1/B2) ── */}
       <div style={toolbarStyle}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0", whiteSpace: "nowrap" }}>
-            🧬 AgentFlow
-          </span>
-          <div style={{ width: 1, height: 24, background: "#374151" }} />
-          <textarea
-            value={requirement}
-            onChange={(e) => setRequirement(e.target.value)}
-            placeholder="输入需求描述，如：用 PyQt5 实现串口调试助手..."
-            style={reqInputStyle}
-            rows={1}
-          />
-          <button style={btnStyle} onClick={handleDecompose} disabled={isDecomposing || !requirement.trim()}>
-            {isDecomposing ? "🔄 编排中..." : "🤖 AI 编排"}
-          </button>
-          <button style={runBtnStyle} onClick={handleExecute} disabled={isRunning || nodes.length === 0}>
-            {isRunning ? "⏳ 执行中..." : "🚀 执行"}
-          </button>
+        <div style={toolbarRowStyle}>
+          {/* Left section */}
+          <div style={toolbarLeftStyle}>
+            <span style={logoStyle}>🧬 AgentFlow</span>
+            <span style={toolbarDividerStyle} />
+            <AutoGrowTextarea
+              value={requirement}
+              onChange={updateRequirement}
+              placeholder="输入需求描述，如：用 PyQt5 实现串口调试助手..."
+            />
+            <button
+              className="af-btn af-btn-primary"
+              style={btnStyle}
+              onClick={handleDecompose}
+              disabled={decomposeDisabled}
+              title="使用 AI 自动编排工作流"
+            >
+              {isDecomposing ? "🔄 编排中..." : "🤖 AI 编排"}
+            </button>
+            <button
+              className="af-btn af-btn-run"
+              style={runBtnStyle}
+              onClick={handleExecute}
+              disabled={executeDisabled}
+              title="执行当前工作流"
+            >
+              {isRunning ? "⏳ 执行中..." : "🚀 执行"}
+            </button>
+          </div>
+
+          {/* Right section (B5 — grouped utility buttons) */}
+          <div style={toolbarRightStyle}>
+            {/* B7 — example selector; controlled empty value resets to placeholder */}
+            <select
+              value=""
+              onChange={handleExample}
+              style={selectMiniStyle}
+              aria-label="选择示例需求"
+              title="示例需求"
+            >
+              <option value="">📂 示例</option>
+              {EXAMPLES.map((ex, i) => (
+                <option key={i} value={ex.text}>
+                  {ex.icon} {ex.text.slice(0, 30)}...
+                </option>
+              ))}
+            </select>
+
+            {/* file ops group */}
+            <button
+              className="af-btn-mini"
+              style={btnMiniStyle}
+              onClick={handleExport}
+              aria-label="导出 JSON"
+              title="导出工作流为 JSON"
+              disabled={nodes.length === 0}
+            >
+              📤
+            </button>
+            <button
+              className="af-btn-mini"
+              style={btnMiniStyle}
+              onClick={handleImport}
+              aria-label="导入 JSON"
+              title="从 JSON 导入工作流"
+            >
+              📥
+            </button>
+
+            <span style={toolbarDividerStyle} />
+
+            {/* history group */}
+            <button
+              className="af-btn-mini"
+              style={btnMiniStyle}
+              onClick={handleUndo}
+              disabled={undoStack.length === 0}
+              aria-label="撤销"
+              title="撤销 (Ctrl+Z)"
+            >
+              ↩️
+            </button>
+            <button
+              className="af-btn-mini"
+              style={btnMiniStyle}
+              onClick={handleRedo}
+              disabled={redoStack.length === 0}
+              aria-label="重做"
+              title="重做 (Ctrl+Shift+Z)"
+            >
+              ↪️
+            </button>
+
+            <span style={toolbarDividerStyle} />
+
+            <button
+              className="af-btn-mini"
+              style={btnMiniStyle}
+              onClick={handleReset}
+              aria-label="重置画布"
+              title="重置画布"
+            >
+              🔄
+            </button>
+            <button
+              className="af-btn-mini"
+              style={{
+                ...btnMiniStyle,
+                background: showEvolution ? colors.accent.purple : "transparent",
+                borderColor: showEvolution ? colors.accent.purple : colors.border.default,
+                color: showEvolution ? "#fff" : colors.text.secondary,
+              }}
+              onClick={() => setShowEvolution(!showEvolution)}
+              aria-label="自我进化面板"
+              title="自我进化面板"
+              aria-pressed={showEvolution}
+            >
+              🧬
+            </button>
+          </div>
         </div>
 
-        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          <select onChange={handleExample} style={selectMiniStyle}>
-            <option value="">📂 示例</option>
-            {EXAMPLES.map((ex, i) => (
-              <option key={i} value={ex}>{ex.slice(0, 36)}...</option>
-            ))}
-          </select>
-          <button style={btnMiniStyle} onClick={handleExport} title="导出 JSON">📤</button>
-          <button style={btnMiniStyle} onClick={handleImport} title="导入 JSON">📥</button>
-          <button style={btnMiniStyle} onClick={handleUndo} disabled={undoStack.length === 0} title="撤销 (Ctrl+Z)">↩️</button>
-          <button style={btnMiniStyle} onClick={handleRedo} disabled={redoStack.length === 0} title="重做 (Ctrl+Shift+Z)">↪️</button>
-          <button style={btnMiniStyle} onClick={handleReset} title="重置">🔄</button>
-          <button
-            style={{ ...btnMiniStyle, background: showEvolution ? "#8b5cf6" : btnMiniStyle.background }}
-            onClick={() => setShowEvolution(!showEvolution)}
-            title="自我进化面板"
-          >
-            🧬
-          </button>
-          <span style={{ fontSize: 10, color: "#64748b", marginLeft: 4 }}>
-            {nodes.length} 节点 · {edges.length} 边
+        {/* B6 — status bar */}
+        <div style={toolbarStatusBarStyle}>
+          <span>🧩 节点: <strong style={{ color: colors.text.secondary }}>{nodes.length}</strong></span>
+          <span>🔗 连线: <strong style={{ color: colors.text.secondary }}>{edges.length}</strong></span>
+          <span>
+            状态:{" "}
+            <strong style={{ color: isRunning ? colors.status.running : colors.text.secondary }}>
+              {isRunning ? "运行中" : isDecomposing ? "编排中" : "就绪"}
+            </strong>
+          </span>
+          <div style={{ flex: 1 }} />
+          <span>
+            字数: {requirement.length}/{MAX_REQUIREMENT_LEN}
           </span>
         </div>
+
+        {/* B8 — execution progress bar */}
+        {showProgress && (
+          <ProgressBar
+            completed={progress.completed}
+            running={progress.running}
+            failed={progress.failed}
+            pending={progress.pending}
+            total={totalNodes}
+          />
+        )}
       </div>
 
       {/* ── Main Canvas + Inspector ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        <div style={{ flex: 1, position: "relative" }}>
+        <div ref={canvasRef} className="af-canvas" style={{ flex: 1, position: "relative", outline: "none" }} tabIndex={0}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -471,35 +641,37 @@ function CanvasInner() {
             deleteKeyCode={["Backspace", "Delete"]}
             snapToGrid
             snapGrid={[10, 10]}
-            style={{ background: "#0f1117" }}
+            style={{ background: colors.bg[1] }}
           >
-            <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1e293b" />
+            <Background variant={BackgroundVariant.Dots} gap={20} size={1} color={colors.bg[4]} />
             <Controls
               style={{
-                background: "#1a1d2e",
-                border: "1px solid #374151",
+                background: colors.bg[3],
+                border: `1px solid ${colors.border.default}`,
                 borderRadius: 8,
-                color: "#e2e8f0",
+                color: colors.text.primary,
               }}
             />
             <MiniMap
-              nodeColor={(node) => (node.data as AgentNodeData)?.color || "#374151"}
+              nodeColor={(node) => (node.data as AgentNodeData)?.color || colors.border.default}
               maskColor="rgba(0,0,0,0.6)"
               style={{
-                background: "#1a1d2e",
-                border: "1px solid #374151",
+                background: colors.bg[3],
+                border: `1px solid ${colors.border.default}`,
                 borderRadius: 8,
               }}
             />
           </ReactFlow>
         </div>
 
-        <InspectorPanel
-          node={selectedNode ? rfNodeToWorkflowNode(selectedNode) : null}
-          onUpdate={handleNodeUpdate}
-          onDelete={handleNodeDelete}
-          graphInfo={{ nodes: nodes.length, edges: edges.length }}
-        />
+        <div ref={inspectorWrapRef} tabIndex={-1} style={{ outline: "none" }}>
+          <InspectorPanel
+            node={selectedNode ? rfNodeToWorkflowNode(selectedNode) : null}
+            onUpdate={handleNodeUpdate}
+            onDelete={handleNodeDelete}
+            graphInfo={{ nodes: nodes.length, edges: edges.length }}
+          />
+        </div>
       </div>
 
       {/* ── Evolution Panel ── */}
@@ -511,7 +683,100 @@ function CanvasInner() {
       )}
 
       {/* ── Log Panel ── */}
-      <LogPanel logs={logs} />
+      <LogPanel logs={logs} onClear={handleClearLogs} />
+    </div>
+  );
+}
+
+/* ── Sub-components ─────────────────────────────────────────────── */
+
+/** B3 — auto-growing textarea (max ~3 rows) with focus-ring. */
+function AutoGrowTextarea({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 76)}px`; // ~3 rows
+  }, [value]);
+
+  return (
+    <textarea
+      ref={ref}
+      className="af-req-input"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      style={reqInputStyle}
+      rows={1}
+      aria-label="需求描述"
+      maxLength={MAX_REQUIREMENT_LEN}
+    />
+  );
+}
+
+/** B8 — color-coded execution progress bar. */
+function ProgressBar({
+  completed,
+  running,
+  failed,
+  pending,
+  total,
+}: {
+  completed: number;
+  running: number;
+  failed: number;
+  pending: number;
+  total: number;
+}) {
+  if (total === 0) return null;
+  const segments: { count: number; color: string; animated?: boolean }[] = [
+    { count: completed, color: colors.status.completed },
+    { count: running, color: colors.status.running, animated: true },
+    { count: failed, color: colors.status.failed },
+    { count: pending, color: colors.border.default },
+  ];
+
+  return (
+    <div
+      style={{
+        padding: "6px 12px",
+        background: colors.bg[1],
+        borderTop: `1px solid ${colors.border.subtle}`,
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+      }}
+    >
+      <div style={{ flex: 1, height: 8, borderRadius: 4, overflow: "hidden", display: "flex", background: colors.bg[2] }}>
+        {segments.map(
+          (seg, i) =>
+            seg.count > 0 && (
+              <div
+                key={i}
+                className={seg.animated ? "af-progress-running" : undefined}
+                style={{
+                  width: `${(seg.count / total) * 100}%`,
+                  height: "100%",
+                  background: seg.color,
+                  transition: "width 0.3s ease",
+                }}
+              />
+            )
+        )}
+      </div>
+      <span style={{ fontSize: 11, color: colors.text.secondary, whiteSpace: "nowrap" }}>
+        已完成 {completed}/{total}
+      </span>
     </div>
   );
 }

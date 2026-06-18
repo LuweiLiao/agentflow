@@ -1,85 +1,64 @@
 import { useState, useCallback, useEffect } from "react";
 import { api } from "./api";
-
-/* ── Types ────────────────────────────────────────────────────── */
-
-interface Attribution {
-  failure_class: string;
-  root_cause: string;
-  evidence: string[];
-  confidence: number;
-  affected_nodes: string[];
-}
-
-interface Proposal {
-  proposal_id: string;
-  target: string;
-  title: string;
-  rationale: string;
-  risk: string;
-}
-
-interface UpgradeDecision {
-  action: string;
-  reason: string;
-  proposal: any;
-  eval_result: any;
-  candidate_artifacts: any[];
-}
-
-interface Promotion {
-  promotion_id: string;
-  template_name: string;
-  diff_summary: string;
-  rolled_back: boolean;
-}
-
-interface EvolutionStats {
-  total_runs_analyzed: number;
-  total_attributions: number;
-  total_proposals: number;
-  total_promotions: number;
-  total_rollbacks: number;
-  failure_class_counts: Record<string, number>;
-  proposal_acceptance_rate: number;
-  recurring_patterns: any[];
-  template_improvement_trend: Record<string, number>;
-}
+import type { EvolutionStatsResponse, UpgradeResponse } from "./api";
+import type {
+  FailureAttribution,
+  EvolutionProposal,
+  UpgradeDecision,
+  Promotion,
+  UpgradeSummary,
+  EvolutionStats,
+  RecurringPattern,
+  EvolutionReport,
+} from "./types";
+import { colors, radius, shadow, spacing, transition, TOOLBAR_HEIGHT } from "./theme";
 
 /* ── Styles ───────────────────────────────────────────────────── */
 
 const panelStyle: React.CSSProperties = {
   position: "absolute",
-  top: "60px",
-  right: "0",
-  width: "440px",
-  maxHeight: "calc(100vh - 60px)",
+  top: TOOLBAR_HEIGHT,
+  right: 0,
+  width: 460,
+  maxHeight: `calc(100vh - ${TOOLBAR_HEIGHT}px)`,
   overflowY: "auto",
-  background: "rgba(20, 22, 30, 0.97)",
-  borderLeft: "1px solid rgba(255,255,255,0.1)",
-  padding: "16px",
+  background: "rgba(15, 17, 23, 0.97)",
+  borderLeft: `1px solid ${colors.border.subtle}`,
+  padding: spacing[16],
   zIndex: 100,
-  color: "#e0e0e0",
-  fontSize: "13px",
-  backdropFilter: "blur(8px)",
+  color: colors.text.primary,
+  fontSize: 13,
+  backdropFilter: "blur(10px)",
+  boxShadow: shadow.lg,
+};
+
+const backdropStyle: React.CSSProperties = {
+  position: "absolute",
+  top: TOOLBAR_HEIGHT,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  background: "rgba(0,0,0,0.35)",
+  zIndex: 99,
 };
 
 const sectionStyle: React.CSSProperties = {
-  marginBottom: "16px",
-  padding: "12px",
+  marginBottom: 16,
+  padding: 12,
   background: "rgba(255,255,255,0.04)",
-  borderRadius: "8px",
+  borderRadius: radius.lg,
 };
 
 const btnStyle: React.CSSProperties = {
   padding: "6px 14px",
   border: "none",
-  borderRadius: "6px",
+  borderRadius: radius.md,
   cursor: "pointer",
-  fontSize: "12px",
+  fontSize: 12,
   fontWeight: 600,
-  marginRight: "6px",
-  marginBottom: "6px",
+  marginRight: 6,
+  marginBottom: 6,
+  transition: `background ${transition.fast}, transform ${transition.fast}`,
 };
 
 const actionColors: Record<string, string> = {
@@ -90,14 +69,14 @@ const actionColors: Record<string, string> = {
 };
 
 const classColors: Record<string, string> = {
-  template_defect: "#f87171",
+  template_defect: colors.status.failed,
   dag_defect: "#fb923c",
-  runtime_defect: "#fbbf24",
-  tool_defect: "#a78bfa",
-  model_defect: "#60a5fa",
-  eval_defect: "#34d399",
+  runtime_defect: colors.status.timed_out,
+  tool_defect: colors.accent.purple,
+  model_defect: colors.status.running,
+  eval_defect: colors.status.completed,
   context_defect: "#22d3ee",
-  unknown: "#94a3b8",
+  unknown: colors.text.secondary,
 };
 
 /* ── Component ────────────────────────────────────────────────── */
@@ -112,13 +91,14 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Report state
-  const [report, setReport] = useState<any>(null);
+  // Report state (G4 — typed, no `any`)
+  const [report, setReport] = useState<EvolutionReport["report"]>(null);
 
   // Upgrade state
   const [decisions, setDecisions] = useState<UpgradeDecision[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
-  const [summary, setSummary] = useState<any>(null);
+  const [summary, setSummary] = useState<UpgradeSummary | null>(null);
+  const [upgradeLoaded, setUpgradeLoaded] = useState(false);
 
   // Global stats
   const [stats, setStats] = useState<EvolutionStats | null>(null);
@@ -128,14 +108,10 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
     setLoading(true);
     setError(null);
     try {
-      const data = await api.getEvolution(runId);
-      if (data.ok) {
-        setReport(data.report);
-      } else {
-        setReport(null);
-      }
-    } catch (e: any) {
-      setError(e.message);
+      const data: EvolutionReport = await api.getEvolution(runId);
+      setReport(data.ok ? data.report : null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
     setLoading(false);
   }, [runId]);
@@ -145,12 +121,10 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
     setLoading(true);
     setError(null);
     try {
-      const data = await api.evolve(runId);
-      if (data.ok) {
-        setReport(data.report);
-      }
-    } catch (e: any) {
-      setError(e.message);
+      const data: EvolutionReport = await api.evolve(runId);
+      if (data.ok) setReport(data.report);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
     setLoading(false);
   }, [runId]);
@@ -160,14 +134,15 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
     setLoading(true);
     setError(null);
     try {
-      const data = await api.upgrade(runId);
+      const data: UpgradeResponse = await api.upgrade(runId);
       if (data.ok) {
         setDecisions(data.decisions || []);
         setPromotions(data.promotions || []);
         setSummary(data.summary || null);
+        setUpgradeLoaded(true);
       }
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
     setLoading(false);
   }, [runId]);
@@ -176,331 +151,385 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
     setLoading(true);
     setError(null);
     try {
-      const data = await api.getEvolutionStats();
-      if (data.ok) {
-        setStats(data.stats);
-      }
-    } catch (e: any) {
-      setError(e.message);
+      const data: EvolutionStatsResponse = await api.getEvolutionStats();
+      if (data.ok) setStats(data.stats);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
     setLoading(false);
   }, []);
 
+  // F1 — include loadReport / loadStats in dependency array.
+  // F2 — auto-load upgrade data when entering the upgrade tab if empty.
   useEffect(() => {
     if (tab === "report" && runId) loadReport();
+    if (tab === "upgrade" && runId && !upgradeLoaded && decisions.length === 0) runUpgrade();
     if (tab === "global") loadStats();
-  }, [tab, runId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, runId, loadReport, loadStats, runUpgrade, upgradeLoaded, decisions.length]);
 
   return (
-    <div style={panelStyle}>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-        <h3 style={{ margin: 0, fontSize: "15px" }}>🧬 Self-Evolution</h3>
-        <button
-          onClick={onClose}
-          style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: "18px" }}
-        >
-          ×
-        </button>
-      </div>
+    <>
+      {/* F3 — semi-transparent backdrop */}
+      <div style={backdropStyle} onClick={onClose} aria-hidden />
 
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: "4px", marginBottom: "12px" }}>
-        {([
-          ["report", "📋 Report"],
-          ["upgrade", "⚡ Upgrade"],
-          ["global", "📊 Global"],
-        ] as const).map(([key, label]) => (
+      <div className="agentflow-slide-in" style={panelStyle} role="dialog" aria-label="自我进化面板">
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>🧬 Self-Evolution</h3>
           <button
-            key={key}
-            onClick={() => setTab(key)}
-            style={{
-              ...btnStyle,
-              background: tab === key ? "#3b82f6" : "rgba(255,255,255,0.1)",
-              color: "#fff",
-            }}
+            onClick={onClose}
+            aria-label="关闭自我进化面板"
+            title="关闭"
+            style={{ background: "none", border: "none", color: colors.text.tertiary, cursor: "pointer", fontSize: 20, lineHeight: 1 }}
           >
-            {label}
+            ×
           </button>
-        ))}
-      </div>
-
-      {loading && <div style={{ textAlign: "center", padding: "20px", color: "#888" }}>⏳ Loading...</div>}
-      {error && <div style={{ color: "#ef4444", padding: "8px" }}>⚠️ {error}</div>}
-
-      {/* ── Report Tab ──────────────────────────────────────── */}
-      {tab === "report" && !loading && (
-        <div>
-          {!report ? (
-            <div style={{ textAlign: "center", padding: "20px" }}>
-              <p style={{ color: "#888", marginBottom: "12px" }}>No evolution report yet for this run.</p>
-              <button
-                onClick={runEvolve}
-                style={{ ...btnStyle, background: "#8b5cf6", color: "#fff" }}
-              >
-                🔍 Run Evolution Analysis
-              </button>
-            </div>
-          ) : (
-            <div>
-              {/* Attributions */}
-              <div style={sectionStyle}>
-                <h4 style={{ margin: "0 0 8px", fontSize: "13px", color: "#aaa" }}>
-                  Failure Attributions ({report.attributions?.length || 0})
-                </h4>
-                {(report.attributions || []).map((attr: Attribution, i: number) => (
-                  <div key={i} style={{
-                    marginBottom: "8px",
-                    padding: "8px",
-                    background: "rgba(255,255,255,0.03)",
-                    borderRadius: "6px",
-                    borderLeft: `3px solid ${classColors[attr.failure_class] || "#666"}`,
-                  }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{
-                        color: classColors[attr.failure_class] || "#aaa",
-                        fontWeight: 600,
-                        fontSize: "11px",
-                        textTransform: "uppercase",
-                      }}>
-                        {attr.failure_class}
-                      </span>
-                      <span style={{ color: "#666", fontSize: "11px" }}>
-                        {(attr.confidence * 100).toFixed(0)}% confidence
-                      </span>
-                    </div>
-                    <p style={{ margin: "4px 0", fontSize: "12px", color: "#ccc" }}>{attr.root_cause}</p>
-                    {attr.affected_nodes?.length > 0 && (
-                      <div style={{ fontSize: "11px", color: "#888" }}>
-                        Nodes: {attr.affected_nodes.join(", ")}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Proposals */}
-              <div style={sectionStyle}>
-                <h4 style={{ margin: "0 0 8px", fontSize: "13px", color: "#aaa" }}>
-                  Proposals ({report.proposals?.length || 0})
-                </h4>
-                {(report.proposals || []).map((prop: Proposal, i: number) => (
-                  <div key={i} style={{
-                    marginBottom: "6px",
-                    padding: "6px 8px",
-                    background: "rgba(255,255,255,0.03)",
-                    borderRadius: "4px",
-                  }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ fontWeight: 600, fontSize: "12px" }}>{prop.title}</span>
-                      <span style={{
-                        fontSize: "10px",
-                        padding: "1px 6px",
-                        borderRadius: "4px",
-                        background: prop.risk === "low" ? "#22c55e33" :
-                                   prop.risk === "medium" ? "#eab30833" : "#ef444433",
-                        color: prop.risk === "low" ? "#22c55e" :
-                              prop.risk === "medium" ? "#eab308" : "#ef4444",
-                      }}>
-                        {prop.risk}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: "11px", color: "#888" }}>→ {prop.target}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Run Upgrade button */}
-              <button
-                onClick={runUpgrade}
-                style={{ ...btnStyle, background: "#f59e0b", color: "#000", width: "100%" }}
-              >
-                ⚡ Run Full Upgrade Pipeline
-              </button>
-            </div>
-          )}
         </div>
-      )}
 
-      {/* ── Upgrade Tab ─────────────────────────────────────── */}
-      {tab === "upgrade" && !loading && (
-        <div>
-          {summary && (
-            <div style={sectionStyle}>
-              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-                <StatBadge label="Total" value={summary.total} color="#60a5fa" />
-                <StatBadge label="Accepted" value={summary.accepted} color="#22c55e" />
-                <StatBadge label="Rejected" value={summary.rejected} color="#ef4444" />
-                <StatBadge label="Review" value={summary.pending_review} color="#f97316" />
-                <StatBadge label="Promoted" value={summary.promoted} color="#a78bfa" />
-              </div>
-            </div>
-          )}
-
-          {decisions.map((d, i) => (
-            <div key={i} style={{
-              ...sectionStyle,
-              borderLeft: `3px solid ${actionColors[d.action] || "#666"}`,
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                <span style={{
-                  fontWeight: 700,
-                  fontSize: "11px",
-                  textTransform: "uppercase",
-                  color: actionColors[d.action] || "#aaa",
-                }}>
-                  {d.action.replace(/_/g, " ")}
-                </span>
-              </div>
-              <p style={{ margin: "0 0 4px", fontSize: "12px", color: "#ccc" }}>{d.reason}</p>
-              {d.proposal && (
-                <div style={{ fontSize: "11px", color: "#888" }}>
-                  {d.proposal.title} → {d.proposal.target}
-                </div>
-              )}
-              {d.eval_result && (
-                <div style={{ fontSize: "11px", color: "#666", marginTop: "4px" }}>
-                  Score: {(d.eval_result.baseline_avg_score * 100).toFixed(0)}% → {(d.eval_result.candidate_avg_score * 100).toFixed(0)}%
-                  {" "}({d.eval_result.improvement >= 0 ? "+" : ""}{(d.eval_result.improvement * 100).toFixed(1)}%)
-                </div>
-              )}
-            </div>
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
+          {([
+            ["report", "📋 报告"],
+            ["upgrade", "⚡ 升级"],
+            ["global", "📊 全局"],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              style={{
+                ...btnStyle,
+                background: tab === key ? colors.accent.blue : "rgba(255,255,255,0.08)",
+                color: tab === key ? "#fff" : colors.text.secondary,
+              }}
+            >
+              {label}
+            </button>
           ))}
-
-          {promotions.length > 0 && (
-            <div style={sectionStyle}>
-              <h4 style={{ margin: "0 0 8px", fontSize: "13px", color: "#aaa" }}>Promotions ({promotions.length})</h4>
-              {promotions.map((p, i) => (
-                <div key={i} style={{ fontSize: "12px", marginBottom: "4px" }}>
-                  <span style={{ color: p.rolled_back ? "#ef4444" : "#22c55e" }}>
-                    {p.rolled_back ? "↩️" : "✅"}
-                  </span>
-                  {" "}<strong>{p.template_name}</strong>
-                  <span style={{ color: "#888", marginLeft: "8px" }}>{p.diff_summary}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {decisions.length === 0 && (
-            <div style={{ textAlign: "center", padding: "20px", color: "#888" }}>
-              Run the upgrade pipeline to see decisions.
-            </div>
-          )}
         </div>
-      )}
 
-      {/* ── Global Stats Tab ────────────────────────────────── */}
-      {tab === "global" && !loading && (
-        <div>
-          {stats ? (
-            <div>
-              <div style={sectionStyle}>
-                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-                  <StatBadge label="Runs" value={stats.total_runs_analyzed} color="#60a5fa" />
-                  <StatBadge label="Attributions" value={stats.total_attributions} color="#f87171" />
-                  <StatBadge label="Proposals" value={stats.total_proposals} color="#fbbf24" />
-                  <StatBadge label="Promotions" value={stats.total_promotions} color="#a78bfa" />
-                  <StatBadge label="Rollbacks" value={stats.total_rollbacks} color="#ef4444" />
+        {/* F4 — skeleton loading */}
+        {loading && <LoadingSkeleton />}
+
+        {error && <div style={{ color: colors.status.failed, padding: 8 }}>⚠️ {error}</div>}
+
+        {/* ── Report Tab ──────────────────────────────────────── */}
+        {tab === "report" && !loading && (
+          <div>
+            {!report ? (
+              <EmptyState
+                icon="🧬"
+                title="暂无进化报告"
+                hint="对此运行执行进化分析以发现失败归因与改进建议"
+                action={<button onClick={runEvolve} style={{ ...btnStyle, background: colors.accent.purple, color: "#fff" }}>🔍 执行进化分析</button>}
+              />
+            ) : (
+              <div>
+                {/* Attributions */}
+                <div style={sectionStyle}>
+                  <h4 style={{ margin: "0 0 8px", fontSize: 13, color: colors.text.secondary }}>
+                    失败归因 ({report.attributions?.length || 0})
+                  </h4>
+                  {(report.attributions || []).map((attr: FailureAttribution, i: number) => (
+                    <div
+                      key={i}
+                      style={{
+                        marginBottom: 8,
+                        padding: 8,
+                        background: "rgba(255,255,255,0.03)",
+                        borderRadius: radius.md,
+                        borderLeft: `3px solid ${classColors[attr.failure_class] || colors.text.tertiary}`,
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span
+                          style={{
+                            color: classColors[attr.failure_class] || colors.text.secondary,
+                            fontWeight: 600,
+                            fontSize: 11,
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          {attr.failure_class}
+                        </span>
+                        <span style={{ color: colors.text.tertiary, fontSize: 11 }}>
+                          {Math.round((attr.confidence || 0) * 100)}% 置信度
+                        </span>
+                      </div>
+                      <p style={{ margin: "4px 0", fontSize: 12, color: colors.text.secondary }}>{attr.root_cause}</p>
+                      {attr.affected_nodes?.length > 0 && (
+                        <div style={{ fontSize: 11, color: colors.text.tertiary }}>
+                          影响节点: {attr.affected_nodes.join(", ")}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                <div style={{ marginTop: "8px", fontSize: "12px", color: "#888" }}>
-                  Acceptance rate: <strong style={{ color: "#22c55e" }}>
-                    {(stats.proposal_acceptance_rate * 100).toFixed(1)}%
-                  </strong>
+
+                {/* Proposals */}
+                <div style={sectionStyle}>
+                  <h4 style={{ margin: "0 0 8px", fontSize: 13, color: colors.text.secondary }}>
+                    改进建议 ({report.proposals?.length || 0})
+                  </h4>
+                  {(report.proposals || []).map((prop: EvolutionProposal, i: number) => (
+                    <div
+                      key={i}
+                      style={{ marginBottom: 6, padding: "6px 8px", background: "rgba(255,255,255,0.03)", borderRadius: radius.sm }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ fontWeight: 600, fontSize: 12 }}>{prop.title}</span>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            padding: "1px 6px",
+                            borderRadius: radius.sm,
+                            background: prop.risk === "low" ? "rgba(34,197,94,0.2)" : prop.risk === "medium" ? "rgba(234,179,8,0.2)" : "rgba(239,68,68,0.2)",
+                            color: prop.risk === "low" ? "#22c55e" : prop.risk === "medium" ? "#eab308" : colors.status.failed,
+                          }}
+                        >
+                          {prop.risk}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: colors.text.tertiary }}>→ {prop.target}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  onClick={runUpgrade}
+                  style={{ ...btnStyle, background: colors.status.timed_out, color: "#000", width: "100%" }}
+                >
+                  ⚡ 执行完整升级管线
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Upgrade Tab ─────────────────────────────────────── */}
+        {tab === "upgrade" && !loading && (
+          <div>
+            {summary && (
+              <div style={sectionStyle}>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  <StatBadge label="总计" value={summary.total} color={colors.accent.blue} />
+                  <StatBadge label="接受" value={summary.accepted} color={colors.status.completed} />
+                  <StatBadge label="拒绝" value={summary.rejected} color={colors.status.failed} />
+                  <StatBadge label="待审" value={summary.pending_review} color={colors.status.timed_out} />
+                  <StatBadge label="已晋升" value={summary.promoted} color={colors.accent.purple} />
                 </div>
               </div>
+            )}
 
-              {/* Failure class distribution */}
-              {Object.keys(stats.failure_class_counts).length > 0 && (
+            {decisions.map((d, i) => (
+              <div key={i} style={{ ...sectionStyle, borderLeft: `3px solid ${actionColors[d.action] || colors.text.tertiary}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 11,
+                      textTransform: "uppercase",
+                      color: actionColors[d.action] || colors.text.secondary,
+                    }}
+                  >
+                    {d.action.replace(/_/g, " ")}
+                  </span>
+                </div>
+                <p style={{ margin: "0 0 4px", fontSize: 12, color: colors.text.secondary }}>{d.reason}</p>
+                {d.proposal && (
+                  <div style={{ fontSize: 11, color: colors.text.tertiary }}>
+                    {d.proposal.title} → {d.proposal.target}
+                  </div>
+                )}
+                {d.eval_result && (
+                  <div style={{ fontSize: 11, color: colors.text.tertiary, marginTop: 4 }}>
+                    得分: {Math.round((d.eval_result.baseline_avg_score || 0) * 100)}% →{" "}
+                    {Math.round((d.eval_result.candidate_avg_score || 0) * 100)}% ({d.eval_result.improvement >= 0 ? "+" : ""}
+                    {(d.eval_result.improvement * 100).toFixed(1)}%)
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {promotions.length > 0 && (
+              <div style={sectionStyle}>
+                <h4 style={{ margin: "0 0 8px", fontSize: 13, color: colors.text.secondary }}>晋升 ({promotions.length})</h4>
+                {promotions.map((p, i) => (
+                  <div key={i} style={{ fontSize: 12, marginBottom: 4 }}>
+                    <span style={{ color: p.rolled_back ? colors.status.failed : colors.status.completed }}>
+                      {p.rolled_back ? "↩️" : "✅"}
+                    </span>{" "}
+                    <strong>{p.template_name}</strong>
+                    <span style={{ color: colors.text.tertiary, marginLeft: 8 }}>{p.diff_summary}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* F6 — empty state */}
+            {decisions.length === 0 && (
+              <EmptyState
+                icon="⚡"
+                title="暂无升级决策"
+                hint="执行升级管线以查看自动化改进决策"
+                action={runId ? <button onClick={runUpgrade} style={{ ...btnStyle, background: colors.status.timed_out, color: "#000" }}>⚡ 执行升级管线</button> : undefined}
+              />
+            )}
+          </div>
+        )}
+
+        {/* ── Global Stats Tab ────────────────────────────────── */}
+        {tab === "global" && !loading && (
+          <div>
+            {stats ? (
+              <div>
                 <div style={sectionStyle}>
-                  <h4 style={{ margin: "0 0 8px", fontSize: "13px", color: "#aaa" }}>Failure Distribution</h4>
-                  {Object.entries(stats.failure_class_counts)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([cls, count]) => (
-                      <div key={cls} style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                        <span style={{
-                          width: "8px",
-                          height: "8px",
-                          borderRadius: "50%",
-                          background: classColors[cls] || "#666",
-                          flexShrink: 0,
-                        }} />
-                        <span style={{ fontSize: "12px", flex: 1 }}>{cls}</span>
-                        <span style={{ fontSize: "12px", fontWeight: 600 }}>{count}</span>
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    <StatBadge label="运行" value={stats.total_runs_analyzed} color={colors.accent.blue} />
+                    <StatBadge label="归因" value={stats.total_attributions} color={colors.status.failed} />
+                    <StatBadge label="建议" value={stats.total_proposals} color={colors.status.timed_out} />
+                    <StatBadge label="晋升" value={stats.total_promotions} color={colors.accent.purple} />
+                    <StatBadge label="回滚" value={stats.total_rollbacks} color={colors.status.failed} />
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 12, color: colors.text.tertiary }}>
+                    接受率:{" "}
+                    <strong style={{ color: colors.status.completed }}>
+                      {(stats.proposal_acceptance_rate * 100).toFixed(1)}%
+                    </strong>
+                  </div>
+                </div>
+
+                {/* Failure class distribution */}
+                {Object.keys(stats.failure_class_counts).length > 0 && (
+                  <div style={sectionStyle}>
+                    <h4 style={{ margin: "0 0 8px", fontSize: 13, color: colors.text.secondary }}>失败分布</h4>
+                    {Object.entries(stats.failure_class_counts)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([cls, count]) => (
+                        <div key={cls} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                          <span
+                            style={{ width: 8, height: 8, borderRadius: "50%", background: classColors[cls] || colors.text.tertiary, flexShrink: 0 }}
+                          />
+                          <span style={{ fontSize: 12, flex: 1 }}>{cls}</span>
+                          <span style={{ fontSize: 12, fontWeight: 600 }}>{count}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+
+                {/* Recurring patterns */}
+                {stats.recurring_patterns.length > 0 && (
+                  <div style={sectionStyle}>
+                    <h4 style={{ margin: "0 0 8px", fontSize: 13, color: colors.text.secondary }}>高频复发模式</h4>
+                    {stats.recurring_patterns.slice(0, 5).map((p: RecurringPattern, i: number) => (
+                      <div
+                        key={i}
+                        style={{
+                          marginBottom: 6,
+                          padding: 6,
+                          background: "rgba(255,255,255,0.03)",
+                          borderRadius: radius.sm,
+                          borderLeft: `3px solid ${classColors[p.failure_class] || colors.text.tertiary}`,
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ color: classColors[p.failure_class] || colors.text.secondary, fontSize: 11, fontWeight: 600 }}>
+                            {p.failure_class}
+                          </span>
+                          <span style={{ fontSize: 11, color: colors.text.tertiary }}>×{p.occurrence_count}</span>
+                        </div>
+                        <p style={{ margin: "2px 0", fontSize: 11, color: colors.text.secondary }}>{p.root_cause_fragment}</p>
+                        <div style={{ fontSize: 10, color: colors.text.tertiary }}>
+                          影响 {p.affected_runs?.length || 0} 次运行
+                        </div>
                       </div>
                     ))}
-                </div>
-              )}
+                  </div>
+                )}
 
-              {/* Recurring patterns */}
-              {stats.recurring_patterns.length > 0 && (
-                <div style={sectionStyle}>
-                  <h4 style={{ margin: "0 0 8px", fontSize: "13px", color: "#aaa" }}>Top Recurring Patterns</h4>
-                  {stats.recurring_patterns.slice(0, 5).map((p: any, i: number) => (
-                    <div key={i} style={{
-                      marginBottom: "6px",
-                      padding: "6px",
-                      background: "rgba(255,255,255,0.03)",
-                      borderRadius: "4px",
-                      borderLeft: `3px solid ${classColors[p.failure_class] || "#666"}`,
-                    }}>
-                      <div style={{ display: "flex", justifyContent: "space-between" }}>
-                        <span style={{
-                          color: classColors[p.failure_class] || "#aaa",
-                          fontSize: "11px",
-                          fontWeight: 600,
-                        }}>
-                          {p.failure_class}
-                        </span>
-                        <span style={{ fontSize: "11px", color: "#888" }}>×{p.occurrence_count}</span>
+                {/* Template improvement trend */}
+                {Object.keys(stats.template_improvement_trend).length > 0 && (
+                  <div style={sectionStyle}>
+                    <h4 style={{ margin: "0 0 8px", fontSize: 13, color: colors.text.secondary }}>模板改进</h4>
+                    {Object.entries(stats.template_improvement_trend).map(([name, count]) => (
+                      <div key={name} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                        <span>{name}</span>
+                        <span style={{ color: colors.accent.purple }}>{count} 次晋升</span>
                       </div>
-                      <p style={{ margin: "2px 0", fontSize: "11px", color: "#aaa" }}>
-                        {p.root_cause_fragment}
-                      </p>
-                      <div style={{ fontSize: "10px", color: "#666" }}>
-                        {p.affected_runs?.length || 0} runs affected
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* F6 — empty state */
+              <EmptyState
+                icon="📊"
+                title="暂无全局进化数据"
+                hint="运行一些工作流以积累进化洞察"
+              />
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
 
-              {/* Template improvement trend */}
-              {Object.keys(stats.template_improvement_trend).length > 0 && (
-                <div style={sectionStyle}>
-                  <h4 style={{ margin: "0 0 8px", fontSize: "13px", color: "#aaa" }}>Template Improvements</h4>
-                  {Object.entries(stats.template_improvement_trend).map(([name, count]) => (
-                    <div key={name} style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
-                      <span>{name}</span>
-                      <span style={{ color: "#a78bfa" }}>{count} promotions</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div style={{ textAlign: "center", padding: "20px", color: "#888" }}>
-              No evolution data yet. Run some workflows to accumulate insights.
-            </div>
-          )}
-        </div>
-      )}
+/* ── Helpers ──────────────────────────────────────────────────── */
+
+/** F4 — skeleton loading composed of shimmering blocks. */
+function LoadingSkeleton() {
+  return (
+    <div>
+      {[90, 60, 75, 50, 80].map((w, i) => (
+        <div
+          key={i}
+          className="agentflow-skeleton"
+          style={{ height: 16, width: `${w}%`, margin: "10px 0", borderRadius: radius.md }}
+        />
+      ))}
+      <div style={{ textAlign: "center", color: colors.text.tertiary, fontSize: 11, marginTop: 8 }}>加载中…</div>
     </div>
   );
 }
 
-/* ── Helper ──────────────────────────────────────────────────── */
+/** F6 — reusable empty state with an illustrative glyph. */
+function EmptyState({
+  icon,
+  title,
+  hint,
+  action,
+}: {
+  icon: string;
+  title: string;
+  hint: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div style={{ textAlign: "center", padding: "32px 16px" }}>
+      <div
+        style={{
+          fontSize: 40,
+          marginBottom: 12,
+          opacity: 0.6,
+          filter: "grayscale(0.3)",
+        }}
+        aria-hidden
+      >
+        {icon}
+      </div>
+      <p style={{ color: colors.text.secondary, margin: "0 0 6px", fontWeight: 600 }}>{title}</p>
+      <p style={{ color: colors.text.tertiary, fontSize: 12, margin: "0 0 14px", lineHeight: 1.5 }}>{hint}</p>
+      {action}
+    </div>
+  );
+}
 
 function StatBadge({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div style={{
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      minWidth: "60px",
-    }}>
-      <span style={{ fontSize: "18px", fontWeight: 700, color }}>{value}</span>
-      <span style={{ fontSize: "10px", color: "#888", textTransform: "uppercase" }}>{label}</span>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 60 }}>
+      <span style={{ fontSize: 18, fontWeight: 700, color }}>{value}</span>
+      <span style={{ fontSize: 10, color: colors.text.tertiary, textTransform: "uppercase" }}>{label}</span>
     </div>
   );
 }

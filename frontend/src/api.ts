@@ -3,9 +3,34 @@
 import type {
   WorkflowNode, WorkflowEdge,
   RunInfo, SupervisorResponse,
+  SSENodeEvent, SSEWorkflowDone,
+  EvolutionReport, EvolutionStats,
+  UpgradeDecision, Promotion, UpgradeSummary,
 } from "./types";
 
 const BASE = "";  // 同域
+
+/** Callbacks for run SSE events. */
+export interface RunEventCallbacks {
+  onNodeStart?: (evt: SSENodeEvent) => void;
+  onNodeComplete?: (evt: SSENodeEvent) => void;
+  onWorkflowDone?: (evt: SSEWorkflowDone) => void;
+  onEvolutionAnalysis?: (evt: unknown) => void;
+  onUpgradeDecisions?: (evt: unknown) => void;
+  onError?: (err: Error) => void;
+}
+
+export interface UpgradeResponse {
+  ok: boolean;
+  decisions?: UpgradeDecision[];
+  promotions?: Promotion[];
+  summary?: UpgradeSummary;
+}
+
+export interface EvolutionStatsResponse {
+  ok: boolean;
+  stats: EvolutionStats;
+}
 
 export class ApiClient {
   async decompose(requirement: string, count: number = 5): Promise<{ nodes: WorkflowNode[], edges: WorkflowEdge[] }> {
@@ -51,12 +76,7 @@ export class ApiClient {
   }
 
   /** SSE 事件流：监听 run 状态变更（fetch + ReadableStream + AbortController） */
-  subscribeRunEvents(runId: string, callbacks: {
-    onNodeStart?: (evt: any) => void;
-    onNodeComplete?: (evt: any) => void;
-    onWorkflowDone?: (evt: any) => void;
-    onError?: (err: Error) => void;
-  }): AbortController {
+  subscribeRunEvents(runId: string, callbacks: RunEventCallbacks): AbortController {
     const controller = new AbortController();
 
     (async () => {
@@ -88,10 +108,13 @@ export class ApiClient {
             else if (line === "" && eventType && eventData) {
               try {
                 const data = JSON.parse(eventData);
+                // G5 — handle all documented event types including evolution ones
                 if (eventType === "node_start") callbacks.onNodeStart?.(data);
                 else if (eventType === "node_complete") callbacks.onNodeComplete?.(data);
                 else if (eventType === "workflow_done") callbacks.onWorkflowDone?.(data);
-              } catch (e) {
+                else if (eventType === "evolution_analysis") callbacks.onEvolutionAnalysis?.(data);
+                else if (eventType === "upgrade_decisions") callbacks.onUpgradeDecisions?.(data);
+              } catch {
                 /* ignore parse errors */
               }
               eventType = "";
@@ -99,8 +122,8 @@ export class ApiClient {
             }
           }
         }
-      } catch (err: any) {
-        if (err.name !== "AbortError") {
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name !== "AbortError") {
           callbacks.onError?.(err);
         }
       }
@@ -111,31 +134,31 @@ export class ApiClient {
 
   // ── Evolution API ──────────────────────────────────
 
-  async evolve(runId: string): Promise<any> {
+  async evolve(runId: string): Promise<EvolutionReport> {
     const resp = await fetch(`${BASE}/api/runs/${runId}/evolve`, { method: "POST" });
     if (!resp.ok) throw new Error(`进化分析失败: ${resp.status}`);
     return resp.json();
   }
 
-  async getEvolution(runId: string): Promise<any> {
+  async getEvolution(runId: string): Promise<EvolutionReport> {
     const resp = await fetch(`${BASE}/api/runs/${runId}/evolution`);
     if (!resp.ok) throw new Error(`获取进化报告失败: ${resp.status}`);
     return resp.json();
   }
 
-  async upgrade(runId: string): Promise<any> {
+  async upgrade(runId: string): Promise<UpgradeResponse> {
     const resp = await fetch(`${BASE}/api/runs/${runId}/upgrade`, { method: "POST" });
     if (!resp.ok) throw new Error(`升级管线失败: ${resp.status}`);
     return resp.json();
   }
 
-  async getEvolutionStats(): Promise<any> {
+  async getEvolutionStats(): Promise<EvolutionStatsResponse> {
     const resp = await fetch(`${BASE}/api/evolution/stats`);
     if (!resp.ok) throw new Error(`获取进化统计失败: ${resp.status}`);
     return resp.json();
   }
 
-  async getEvolutionHistory(limit: number = 50): Promise<any> {
+  async getEvolutionHistory(limit: number = 50): Promise<{ ok: boolean; history: unknown[] }> {
     const resp = await fetch(`${BASE}/api/evolution/history?limit=${limit}`);
     if (!resp.ok) throw new Error(`获取进化历史失败: ${resp.status}`);
     return resp.json();
