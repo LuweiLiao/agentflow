@@ -14,7 +14,9 @@ const BASE = "";  // 同域
 export interface RunEventCallbacks {
   onNodeStart?: (evt: SSENodeEvent) => void;
   onNodeComplete?: (evt: SSENodeEvent) => void;
+  onNodeFailed?: (evt: SSENodeEvent) => void;
   onWorkflowDone?: (evt: SSEWorkflowDone) => void;
+  onQualityUpdate?: (evt: unknown) => void;
   onEvolutionAnalysis?: (evt: unknown) => void;
   onUpgradeDecisions?: (evt: unknown) => void;
   onError?: (err: Error) => void;
@@ -57,6 +59,12 @@ export class ApiClient {
     const resp = await fetch(`${BASE}/api/runs/${runId}`);
     if (!resp.ok) throw new Error(`查询失败: ${resp.status}`);
     return resp.json();
+  }
+
+  /** Stop a running workflow (Simulink-style Stop transport control). */
+  async deleteRun(runId: string): Promise<void> {
+    const resp = await fetch(`${BASE}/api/runs/${runId}`, { method: "DELETE" });
+    if (!resp.ok) throw new Error(`停止失败: ${resp.status}`);
   }
 
   async listRuns(): Promise<{ runs: RunInfo[] }> {
@@ -111,7 +119,13 @@ export class ApiClient {
                 // G5 — handle all documented event types including evolution ones
                 if (eventType === "node_start") callbacks.onNodeStart?.(data);
                 else if (eventType === "node_complete") callbacks.onNodeComplete?.(data);
-                else if (eventType === "workflow_done") callbacks.onWorkflowDone?.(data);
+                else if (eventType === "node_failed") callbacks.onNodeFailed?.(data);
+                else if (eventType === "run_done" || eventType === "run_failed"
+                         || eventType === "workflow_done" || eventType === "workflow_failed")
+                  callbacks.onWorkflowDone?.(data);
+                else if (eventType === "quality_start" || eventType === "quality_pass"
+                         || eventType === "quality_fail" || eventType === "retry_scheduled")
+                  callbacks.onQualityUpdate?.(data);
                 else if (eventType === "evolution_analysis") callbacks.onEvolutionAnalysis?.(data);
                 else if (eventType === "upgrade_decisions") callbacks.onUpgradeDecisions?.(data);
               } catch {

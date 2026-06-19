@@ -74,6 +74,26 @@ const STATUS_CONFIG: Record<string, StatusConfig> = {
   },
 };
 
+const NODE_WIDTH = 220;
+const NODE_MAX_WIDTH = 260;
+
+function hexToRgba(hex: string, alpha: number): string {
+  // Accept "#rrggbb" or "#rgb"; fall back to the raw color on parse failure.
+  let h = hex.replace("#", "");
+  if (h.length === 3) {
+    h = h
+      .split("")
+      .map((c) => c + c)
+      .join("");
+  }
+  if (h.length !== 6) return hex;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  if ([r, g, b].some((n) => Number.isNaN(n))) return hex;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
   const statusKey = data.status || "pending";
   const sc = STATUS_CONFIG[statusKey] || STATUS_CONFIG.pending;
@@ -88,6 +108,9 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
     .filter(Boolean)
     .join(" ");
 
+  // Title-bar background: profile color at 15% opacity; pulses when running.
+  const titleBg = isRunning ? hexToRgba(accent, 0.28) : hexToRgba(accent, 0.15);
+
   return (
     <div
       className={cardClass}
@@ -95,10 +118,10 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
         position: "relative",
         background: colors.bg[3],
         border: `2px solid ${selected ? colors.accent.blue : accent}`,
-        borderRadius: 10,
-        padding: "10px 14px 10px 18px",
-        minWidth: 208,
-        maxWidth: 280,
+        borderRadius: 4, // Simulink blocks are rectangular
+        padding: 0,
+        width: NODE_WIDTH,
+        maxWidth: NODE_MAX_WIDTH,
         boxShadow: selected
           ? `0 0 0 2px rgba(96,165,250,0.3), ${shadow.lg}`
           : shadow.md,
@@ -106,44 +129,145 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
         overflow: "hidden",
       }}
     >
-      {/* C5 — left accent bar (profile identity) */}
+      {/* ── Port label: "▶ in" (near top target handle) ── */}
       <span
         aria-hidden
         style={{
           position: "absolute",
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: 3,
-          background: accent,
+          top: -14,
+          left: "50%",
+          transform: "translateX(-50%)",
+          fontSize: 9,
+          color: colors.text.tertiary,
+          whiteSpace: "nowrap",
+          pointerEvents: "none",
+          userSelect: "none",
         }}
-      />
+      >
+        ▶ in
+      </span>
 
-      {/* C1 — index badge */}
-      {data.index !== undefined && (
+      {/* ── Port label: "out ▶" (near bottom source handle) ── */}
+      <span
+        aria-hidden
+        style={{
+          position: "absolute",
+          bottom: -14,
+          left: "50%",
+          transform: "translateX(-50%)",
+          fontSize: 9,
+          color: colors.text.tertiary,
+          whiteSpace: "nowrap",
+          pointerEvents: "none",
+          userSelect: "none",
+        }}
+      >
+        out ▶
+      </span>
+
+      {/* ── Title bar (full-width colored header) ── */}
+      <div
+        className={isRunning ? "agentflow-node-title--running" : undefined}
+        style={{
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          height: 28,
+          padding: "0 8px 0 18px", // left padding clears the accent bar
+          background: titleBg,
+          borderBottom: `1px solid ${colors.border.subtle}`,
+        }}
+      >
+        {/* C5 — left accent bar spans only the title bar height */}
         <span
           aria-hidden
           style={{
             position: "absolute",
-            top: -9,
-            left: -9,
-            width: 20,
-            height: 20,
-            borderRadius: "50%",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 3,
             background: accent,
-            color: colors.text.inverse,
-            fontSize: 11,
-            fontWeight: 700,
-            display: "flex",
+          }}
+        />
+
+        {/* C1 — index badge integrated with the icon */}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0 }}>
+          {data.index !== undefined && (
+            <span
+              aria-hidden
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: 4,
+                background: accent,
+                color: colors.text.inverse,
+                fontSize: 10,
+                fontWeight: 700,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              {data.index}
+            </span>
+          )}
+          <span style={{ fontSize: 14, lineHeight: 1, flexShrink: 0 }}>{data.icon || "🤖"}</span>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: colors.text.primary,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              minWidth: 0,
+            }}
+          >
+            {data.label || "未命名"}
+          </span>
+          <span
+            style={{
+              fontSize: 9,
+              color: colors.text.tertiary,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            [{profileLabel}]
+          </span>
+        </span>
+
+        {/* C4 — status badge, right-aligned in title bar */}
+        <span
+          style={{
+            display: "inline-flex",
             alignItems: "center",
-            justifyContent: "center",
-            boxShadow: shadow.sm,
-            zIndex: 2,
+            gap: 4,
+            fontSize: 10,
+            fontWeight: 500,
+            padding: "1px 6px",
+            borderRadius: 999,
+            background: sc.bg,
+            color: sc.color,
+            whiteSpace: "nowrap",
+            flexShrink: 0,
           }}
         >
-          {data.index}
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: sc.dot,
+              flexShrink: 0,
+            }}
+          />
+          {sc.label}
         </span>
-      )}
+      </div>
 
       {/* Source handle (bottom) */}
       <Handle
@@ -171,110 +295,65 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
         }}
       />
 
-      {/* Header row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <span style={{ fontSize: 22, lineHeight: 1 }}>{data.icon || "🤖"}</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      {/* ── Body ── */}
+      <div style={{ padding: "8px 10px" }}>
+        {/* Sub-workflow indicator */}
+        {data.hasSubWorkflow && (
           <div
             style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: colors.text.primary,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
+              marginBottom: 4,
+              fontSize: 10,
+              color: colors.accent.purple,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
             }}
           >
-            {data.label || "未命名"}
+            <span>🔽</span>
+            <span>子工作流</span>
           </div>
-          <div style={{ fontSize: 10, color: colors.text.tertiary }}>
-            [{profileLabel}]
-          </div>
-        </div>
+        )}
 
-        {/* C4 — status badge with dot indicator */}
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            fontSize: 11,
-            fontWeight: 500,
-            padding: "2px 8px",
-            borderRadius: 999,
-            background: sc.bg,
-            color: sc.color,
-            whiteSpace: "nowrap",
-          }}
-        >
-          <span
+        {/* C7 — description, 2-line clamp */}
+        {data.desc && (
+          <div
             style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: sc.dot,
-              flexShrink: 0,
+              fontSize: 11,
+              color: colors.text.secondary,
+              lineHeight: 1.4,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
             }}
-          />
-          {sc.label}
-        </span>
+          >
+            {data.desc}
+          </div>
+        )}
+
+        {/* C6 — compact footer: model + cost/duration */}
+        {(data.model || data.cost !== undefined || data.duration_ms !== undefined) && (
+          <div
+            style={{
+              marginTop: 6,
+              paddingTop: 6,
+              borderTop: `1px solid ${colors.border.subtle}`,
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              fontSize: 10,
+              color: colors.text.tertiary,
+            }}
+          >
+            {data.model && <span>🧠 {data.model}</span>}
+            {data.cost !== undefined && <span>💰 {formatCost(data.cost)}</span>}
+            {data.duration_ms !== undefined && (
+              <span>⏱ {formatDuration(data.duration_ms)}</span>
+            )}
+          </div>
+        )}
       </div>
-
-      {/* Sub-workflow indicator */}
-      {data.hasSubWorkflow && (
-        <div
-          style={{
-            marginTop: 4,
-            fontSize: 10,
-            color: colors.accent.purple,
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-          }}
-        >
-          <span>🔽</span>
-          <span>子工作流</span>
-        </div>
-      )}
-
-      {/* C7 — description, 3-line clamp, lighter color */}
-      {data.desc && (
-        <div
-          style={{
-            fontSize: 11,
-            color: colors.text.secondary,
-            lineHeight: 1.45,
-            marginTop: 2,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            display: "-webkit-box",
-            WebkitLineClamp: 3,
-            WebkitBoxOrient: "vertical",
-          }}
-        >
-          {data.desc}
-        </div>
-      )}
-
-      {/* C6 — footer: model + formatted cost/duration */}
-      {(data.model || data.cost !== undefined || data.duration_ms !== undefined) && (
-        <div
-          style={{
-            marginTop: 6,
-            display: "flex",
-            gap: 8,
-            flexWrap: "wrap",
-            fontSize: 10,
-            color: colors.text.tertiary,
-          }}
-        >
-          {data.model && <span>🧠 {data.model}</span>}
-          {data.cost !== undefined && <span>💰 {formatCost(data.cost)}</span>}
-          {data.duration_ms !== undefined && (
-            <span>⏱ {formatDuration(data.duration_ms)}</span>
-          )}
-        </div>
-      )}
     </div>
   );
 }

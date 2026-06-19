@@ -194,3 +194,56 @@ export const iconBtnBase: CSSProperties = {
   fontSize: 13,
   transition: `background ${transition.fast}, color ${transition.fast}`,
 };
+
+/* ── Run-control button group (Simulink Start/Pause/Stop) ──────── */
+
+/** Container that visually groups the Run / Pause / Stop transport buttons. */
+export const runGroupStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 0,
+  borderRadius: radius.md,
+  overflow: "hidden",
+  border: `1px solid ${colors.border.default}`,
+};
+
+/** Shared base for each transport button inside the run group. */
+export const runGroupBtnBase: CSSProperties = {
+  padding: `${spacing[8]}px ${spacing[12]}px`,
+  border: "none",
+  borderRight: `1px solid ${colors.border.subtle}`,
+  background: "transparent",
+  color: colors.text.secondary,
+  fontSize: 13,
+  fontWeight: 600,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+  transition: `background ${transition.fast}, color ${transition.fast}`,
+};
+
+export const runGroupRunBtn: CSSProperties = {
+  ...runGroupBtnBase,
+  background: "rgba(16,185,129,0.16)",
+  color: colors.accent.green,
+};
+
+export const runGroupPauseBtn: CSSProperties = {
+  ...runGroupBtnBase,
+  background: "rgba(251,191,36,0.14)",
+  color: colors.accent.yellow,
+};
+
+export const runGroupStopBtn: CSSProperties = {
+  ...runGroupBtnBase,
+  background: "rgba(248,113,113,0.14)",
+  color: colors.accent.red,
+  borderRight: "none",
+};
+
+/** The auto-layout toolbar button (sits near canvas controls). */
+export const layoutBtnStyle: CSSProperties = {
+  ...btnMiniStyle,
+  background: "rgba(96,165,250,0.12)",
+  borderColor: "rgba(96,165,250,0.35)",
+  color: colors.accent.blue,
+};

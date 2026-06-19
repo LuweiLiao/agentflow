@@ -13,7 +13,7 @@
   --color-text-disabled: #4a5168;
   --color-border-subtle: #2a2f42;
   --color-border-default: #374151;
-  --color-border-bright: #4b5563;
+  --color-border-bright: #5b6b8a;
   --color-border-accent: #60a5fa;
   --color-accent-blue: #60a5fa;
   --color-accent-green: #34d399;
@@ -142,6 +142,21 @@ html {
 
 .agentflow-node--running {
   animation: pulse-border 1.6s ease-in-out infinite;
+}
+
+/* Simulink-style running title-bar glow (pulses with the profile color) */
+@keyframes title-glow {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.35);
+  }
+}
+
+.agentflow-node-title--running {
+  animation: title-glow 1.6s ease-in-out infinite;
 }
 
 /* ── Agent node card ───────────────────────────────────────────── */
@@ -292,4 +307,42 @@ html {
 /* ── Focus management: canvas container (H3) ──────────────────── */
 .af-canvas:focus {
   outline: none;
+}
+
+/* ── React Flow Controls / MiniMap dark theme (B8) ─────────────── */
+.react-flow__controls-button {
+  background: var(--color-bg-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-primary);
+  fill: var(--color-text-primary);
+}
+.react-flow__controls-button:hover {
+  background: var(--color-bg-4);
+}
+.react-flow__controls-button svg {
+  fill: var(--color-text-primary);
+}
+.react-flow__minimap {
+  background: var(--color-bg-2);
+}
+.react-flow__edge-path {
+  stroke: var(--color-border-bright);
+}
+
+/* ── Edge hover tooltips (data-flow annotations) ──────────────── */
+/* Hide edge text labels by default; reveal on edge hover. */
+.react-flow__edge .react-flow__edge-textwrapper {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+.react-flow__edge:hover .react-flow__edge-textwrapper {
+  opacity: 1;
+}
+.react-flow__edge .react-flow__edge-text {
+  fill: var(--color-text-primary);
+  font-size: 10px;
+}
+.react-flow__edge .react-flow__edge-textbg {
+  fill: var(--color-bg-4);
 }

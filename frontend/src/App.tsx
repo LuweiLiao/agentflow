@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   ReactFlow,
   addEdge,
@@ -20,6 +20,7 @@ import AgentNode, { type AgentNodeData } from "./AgentNode";
 import InspectorPanel from "./InspectorPanel";
 import LogPanel from "./LogPanel";
 import EvolutionPanel from "./EvolutionPanel";
+import BlockLibrary, { BLOCK_LIBRARY, DRAG_MIME } from "./BlockLibrary";
 import { api } from "./api";
 import {
   PROFILE_COLORS,
@@ -27,7 +28,11 @@ import {
   toRfNodes,
   rfNodeToWorkflowNode,
   rfEdgeToWorkflowEdge,
+  makeSignalEdge,
+  applyEdgeAnimation,
+  nextId,
 } from "./utils";
+import { autoLayout } from "./layout";
 import {
   containerStyle,
   toolbarStyle,
@@ -41,9 +46,13 @@ import {
   btnStyle,
   btnMiniStyle,
   selectMiniStyle,
-  runBtnStyle,
+  runGroupStyle,
+  runGroupRunBtn,
+  runGroupPauseBtn,
+  runGroupStopBtn,
+  layoutBtnStyle,
 } from "./styles";
-import { colors, formatCost } from "./theme";
+import { colors, profileColor, formatCost } from "./theme";
 import type { WorkflowNode, NodeStatus } from "./types";
 
 const MAX_REQUIREMENT_LEN = 2000;
@@ -79,9 +88,16 @@ function CanvasInner() {
   const [logs, setLogs] = useState<string[]>([`[${new Date().toLocaleTimeString()}] AgentFlow 已启动`]);
   const [isRunning, setIsRunning] = useState(false);
   const [isDecomposing, setIsDecomposing] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [showEvolution, setShowEvolution] = useState(false);
   const currentRunId = useRef("");
   const sseController = useRef<AbortController | null>(null);
+
+  // ── Pause/Stop transport controls (Simulink-style) ──
+  // isPausedRef is read synchronously inside SSE callbacks (which are created
+  // once); paused updates are queued and flushed on resume.
+  const isPausedRef = useRef(false);
+  const pausedQueueRef = useRef<Array<() => void>>([]);
 
   // ── Undo/Redo 栈 ──
   const UNDO_MAX = 50;
@@ -172,13 +188,27 @@ function CanvasInner() {
     (wfNodes: WorkflowNode[], wfEdges: import("./types").WorkflowEdge[]) => {
       pushUndo();
       const { rfNodes, rfEdges } = toRfNodes(wfNodes, wfEdges);
-      setNodes(rfNodes);
+      // Explicitly run auto-layout (left-to-right DAG layers) on the RF nodes.
+      const laid = autoLayout(rfNodes, rfEdges);
+      setNodes(laid);
       setEdges(rfEdges);
       addLog(`📋 工作流加载: ${rfNodes.length} 节点 · ${rfEdges.length} 条边`);
     },
     // G1 — pushUndo was missing from the dependency array.
     [setNodes, setEdges, addLog, pushUndo]
   );
+
+  /** 📐 自动布局 — re-run DAG layered layout on the current nodes. */
+  const handleAutoLayout = useCallback(() => {
+    const cur = stateRef.current;
+    if (cur.nodes.length === 0) return;
+    pushUndo();
+    const wfEdges = cur.edges.map(rfEdgeToWorkflowEdge);
+    const laid = autoLayout(cur.nodes, wfEdges);
+    setNodes(laid);
+    addLog("📐 已重新自动布局");
+    setTimeout(() => rf.fitView({ padding: 0.2 }), 100);
+  }, [setNodes, addLog, pushUndo, rf]);
 
   // ── 编排（Supervisor）──
   const handleDecompose = useCallback(async () => {
@@ -241,40 +271,78 @@ function CanvasInner() {
         }))
       );
 
+      // Pause-aware dispatcher: when paused, node UI updates are queued and
+      // flushed on resume; SSE events keep being received.
+      const applyOrQueue = (apply: () => void) => {
+        if (isPausedRef.current) pausedQueueRef.current.push(apply);
+        else apply();
+      };
+
       // SSE 订阅（AbortController 模式）
       if (sseController.current) sseController.current.abort();
       sseController.current = api.subscribeRunEvents(run_id, {
         onNodeStart: (evt) => {
-          setNodes((nds) =>
-            nds.map((n) =>
-              n.id === evt.node_id ? { ...n, data: { ...n.data, status: "running" } } : n
+          applyOrQueue(() =>
+            setNodes((nds) =>
+              nds.map((n) =>
+                n.id === evt.node_id ? { ...n, data: { ...n.data, status: "running" } } : n
+              )
             )
           );
-          addLog(`▶️ ${evt.label} 开始执行`);
+          addLog(`▶️ ${evt.label || evt.node_id} 开始执行`);
         },
         onNodeComplete: (evt) => {
-          setNodes((nds) =>
-            nds.map((n) =>
-              n.id === evt.node_id
-                ? {
-                    ...n,
-                    data: {
-                      ...n.data,
-                      status: evt.status as NodeStatus,
-                      cost: evt.cost,
-                      duration_ms: evt.duration_ms,
-                    },
-                  }
-                : n
+          applyOrQueue(() =>
+            setNodes((nds) =>
+              nds.map((n) =>
+                n.id === evt.node_id
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        status: evt.status as NodeStatus,
+                        cost: evt.cost,
+                        duration_ms: evt.duration_ms,
+                      },
+                    }
+                  : n
+              )
             )
           );
+          const icon = evt.status === "completed" ? "✅" : "❌";
+          const dur = evt.duration_ms != null ? `${(evt.duration_ms / 1000).toFixed(0)}s` : "?";
           addLog(
-            `${evt.status === "completed" ? "✅" : "❌"} ${evt.label}: ${evt.status} ${formatCost(evt.cost)} ${evt.duration_ms ?? "?"}ms`
+            `${icon} ${evt.label || evt.node_id}: ${evt.status} ${formatCost(evt.cost)} ${dur}`
           );
+        },
+        onNodeFailed: (evt) => {
+          applyOrQueue(() =>
+            setNodes((nds) =>
+              nds.map((n) =>
+                n.id === evt.node_id
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        status: "failed",
+                        cost: evt.cost,
+                        duration_ms: evt.duration_ms,
+                      },
+                    }
+                  : n
+              )
+            )
+          );
+          addLog(`❌ ${evt.label || evt.node_id}: 失败`);
         },
         onWorkflowDone: (evt) => {
           addLog(`🏁 工作流完成: ${evt.status} · 总费用: ${formatCost(evt.total_cost)}`);
           setIsRunning(false);
+        },
+        onQualityUpdate: (evt: any) => {
+          if (evt?.event_type === "quality_fail" || evt?.type === "quality_fail") {
+            addLog(`⚠️ 质量检查未通过: ${evt?.reason || ""}`);
+          }
         },
         onError: (err: Error) => {
           addLog(`⚠️ SSE 异常: ${err.message}`);
@@ -286,6 +354,54 @@ function CanvasInner() {
       setIsRunning(false);
     }
   }, [nodes, edges, requirement, addLog, setNodes, pushUndo]);
+
+  // ── Pause / Resume / Stop transport controls (Simulink-style) ──
+  const handlePause = useCallback(() => {
+    isPausedRef.current = true;
+    setIsPaused(true);
+    addLog("⏸ 已暂停（节点更新已排队）");
+  }, [addLog]);
+
+  const handleResume = useCallback(() => {
+    isPausedRef.current = false;
+    setIsPaused(false);
+    const q = pausedQueueRef.current;
+    pausedQueueRef.current = [];
+    q.forEach((fn) => fn());
+    if (q.length > 0) addLog(`▶ 已继续，刷新 ${q.length} 条排队更新`);
+    else addLog("▶ 已继续");
+  }, [addLog]);
+
+  const handleStop = useCallback(async () => {
+    addLog("⏹ 正在停止执行...");
+    try {
+      if (currentRunId.current) {
+        await api.deleteRun(currentRunId.current);
+      }
+    } catch (err) {
+      addLog(`⚠️ 停止请求: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (sseController.current) {
+      sseController.current.abort();
+      sseController.current = null;
+    }
+    isPausedRef.current = false;
+    pausedQueueRef.current = [];
+    setIsPaused(false);
+    setIsRunning(false);
+    addLog("⏹ 已停止");
+  }, [addLog]);
+
+  // ── Signal-flow animation: animate outgoing edges of running/completed nodes ──
+  // Recompute edge `animated` flags whenever node statuses change.
+  const statusSignature = useMemo(
+    () => nodes.map((n) => `${n.id}:${n.data.status ?? "pending"}`).join("|"),
+    [nodes]
+  );
+  useEffect(() => {
+    setEdges((eds) => applyEdgeAnimation(eds, stateRef.current.nodes));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusSignature, setEdges]);
 
   // G3 — abort any in-flight SSE stream when the component unmounts.
   useEffect(() => {
@@ -305,6 +421,16 @@ function CanvasInner() {
       canvasRef.current?.focus();
     }
   }, [selectedNode]);
+
+  // Bug #6 — keep selectedNode in sync when SSE updates node data.
+  // Without this, the InspectorPanel shows stale data after execution events.
+  useEffect(() => {
+    if (!selectedNode) return;
+    const updated = nodes.find((n) => n.id === selectedNode.id);
+    if (updated && updated.data !== selectedNode.data) {
+      setSelectedNode(updated);
+    }
+  }, [nodes]);
 
   // ── 连线（含环检测）──
   const onConnect = useCallback(
@@ -336,15 +462,21 @@ function CanvasInner() {
           for (const next of adj.get(cur) || []) stack.push(next);
         }
 
-        addLog(`🔗 连线: ${connection.source} → ${connection.target}`);
-        return addEdge(
-          {
-            ...connection,
-            style: { stroke: colors.border.bright, strokeWidth: 2 } as any,
-            markerEnd: { type: "arrowclosed", color: colors.border.bright },
-          },
-          eds
+        // Simulink-style edge: orthogonal routing, source-colored, hover label.
+        const srcNode = stateRef.current.nodes.find((n) => n.id === connection.source);
+        const tgtNode = stateRef.current.nodes.find((n) => n.id === connection.target);
+        const srcColor = srcNode?.data.color || DEFAULT_COLOR;
+        const srcLabel = srcNode?.data.label || connection.source || "";
+        const tgtLabel = tgtNode?.data.label || connection.target || "";
+        const newEdge = makeSignalEdge(
+          connection.source!,
+          connection.target!,
+          srcColor,
+          eds.length,
+          `${srcLabel} → ${tgtLabel}`
         );
+        addLog(`🔗 连线: ${srcLabel} → ${tgtLabel}`);
+        return addEdge(newEdge, eds);
       });
     },
     [setEdges, addLog, pushUndo]
@@ -452,6 +584,58 @@ function CanvasInner() {
     setLogs([`[${new Date().toLocaleTimeString()}] 日志已清空`]);
   }, []);
 
+  // ── Block Library: drag-drop / click-to-add new nodes ──
+  const createNodeFromProfile = useCallback(
+    (profile: string, position?: { x: number; y: number }) => {
+      const def = BLOCK_LIBRARY.find((b) => b.profile === profile);
+      const idx = stateRef.current.nodes.length + 1;
+      const newNode: Node<AgentNodeData> = {
+        id: nextId(),
+        type: "agent",
+        position: position ?? {
+          x: 140 + Math.random() * 120,
+          y: 120 + (idx - 1) * 24,
+        },
+        data: {
+          icon: def?.icon || "🤖",
+          label: def?.label || "新节点",
+          desc: def?.desc || "",
+          color: def?.color || profileColor(profile) || DEFAULT_COLOR,
+          profile,
+          status: "pending",
+          index: idx,
+        },
+      };
+      pushUndo();
+      setNodes((nds) => [...nds, newNode]);
+      addLog(`➕ 新增节点: ${newNode.data.label} (${profile})`);
+    },
+    [setNodes, addLog, pushUndo]
+  );
+
+  /** Library card click → add node at a default offset position. */
+  const handleAddFromLibrary = useCallback(
+    (profile: string) => createNodeFromProfile(profile),
+    [createNodeFromProfile]
+  );
+
+  /** HTML5 drop onto the canvas → create node at the drop position. */
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      const profile = event.dataTransfer.getData(DRAG_MIME);
+      if (!profile) return;
+      const position = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      createNodeFromProfile(profile, position);
+    },
+    [rf, createNodeFromProfile]
+  );
+
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }, []);
+
   // ── 进度统计 (B8) ──
   const progress = nodes.reduce(
     (acc, n) => {
@@ -493,15 +677,37 @@ function CanvasInner() {
             >
               {isDecomposing ? "🔄 编排中..." : "🤖 AI 编排"}
             </button>
-            <button
-              className="af-btn af-btn-run"
-              style={runBtnStyle}
-              onClick={handleExecute}
-              disabled={executeDisabled}
-              title="执行当前工作流"
-            >
-              {isRunning ? "⏳ 执行中..." : "🚀 执行"}
-            </button>
+
+            {/* Simulink-style transport controls: Run / Pause / Stop */}
+            <div style={runGroupStyle} role="group" aria-label="执行控制">
+              <button
+                className="af-btn af-btn-run"
+                style={runGroupRunBtn}
+                onClick={handleExecute}
+                disabled={executeDisabled}
+                title="执行当前工作流"
+              >
+                {isRunning ? "⏳ 执行中" : "▶ 执行"}
+              </button>
+              {isRunning && (
+                <button
+                  style={runGroupPauseBtn}
+                  onClick={isPaused ? handleResume : handlePause}
+                  title={isPaused ? "继续执行" : "暂停执行"}
+                >
+                  {isPaused ? "▶ 继续" : "⏸ 暂停"}
+                </button>
+              )}
+              {isRunning && (
+                <button
+                  style={runGroupStopBtn}
+                  onClick={handleStop}
+                  title="停止执行"
+                >
+                  ⏹ 停止
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Right section (B5 — grouped utility buttons) */}
@@ -571,6 +777,16 @@ function CanvasInner() {
 
             <button
               className="af-btn-mini"
+              style={layoutBtnStyle}
+              onClick={handleAutoLayout}
+              aria-label="自动布局"
+              title="📐 自动布局（按依赖深度左→右排列）"
+              disabled={nodes.length === 0}
+            >
+              📐
+            </button>
+            <button
+              className="af-btn-mini"
               style={btnMiniStyle}
               onClick={handleReset}
               aria-label="重置画布"
@@ -626,7 +842,17 @@ function CanvasInner() {
 
       {/* ── Main Canvas + Inspector ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        <div ref={canvasRef} className="af-canvas" style={{ flex: 1, position: "relative", outline: "none" }} tabIndex={0}>
+        {/* Simulink-style block library sidebar */}
+        <BlockLibrary onAddNode={handleAddFromLibrary} />
+
+        <div
+          ref={canvasRef}
+          className="af-canvas"
+          style={{ flex: 1, position: "relative", outline: "none" }}
+          tabIndex={0}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+        >
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -636,6 +862,7 @@ function CanvasInner() {
             onNodeClick={onNodeClick}
             onPaneClick={onPaneClick}
             nodeTypes={nodeTypes}
+            defaultEdgeOptions={{ type: "smoothstep" }}
             fitView
             fitViewOptions={{ padding: 0.2 }}
             deleteKeyCode={["Backspace", "Delete"]}

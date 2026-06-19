@@ -27,7 +27,7 @@ export const colors = {
   border: {
     subtle: "#2a2f42",
     default: "#374151",
-    bright: "#4b5563",
+    bright: "#5b6b8a",
     accent: "#60a5fa",
   },
   accent: {
@@ -106,6 +106,14 @@ export const zIndex = {
 export const TOOLBAR_HEIGHT = 104;
 export const INSPECTOR_WIDTH = 280;
 export const LOG_PANEL_HEIGHT = 160;
+
+/** Simulink-style block library sidebar widths. */
+export const BLOCK_LIBRARY_WIDTH_OPEN = 200;
+export const BLOCK_LIBRARY_WIDTH_COLLAPSED = 36;
+
+/** Auto-layout spacing constants (DAG layered layout). */
+export const LAYER_GAP_X = 300;
+export const NODE_GAP_Y = 160;
 
 /* ── Helpers ────────────────────────────────────────────────────── */
 
