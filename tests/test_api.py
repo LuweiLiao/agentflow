@@ -72,6 +72,12 @@ class _TestServer:
             "model": "test-model",
             "provider": "test-provider",
         }
+        self._mock_runner.stream_execute.return_value = iter([
+            {"type": "node_delta", "payload": {"content": "mock output"}},
+            {"type": "node_complete", "payload": {
+                "result": "完成", "cost": 0.001, "turns": 1,
+            }},
+        ])
 
         # Save & override env vars
         self._saved_env = {}

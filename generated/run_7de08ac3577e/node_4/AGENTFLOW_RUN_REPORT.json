@@ -1,0 +1,16 @@
+{
+  "run_id": "run_7de08ac3577e",
+  "source": "AgentFlow run events reconstructed artifact",
+  "verification": {
+    "node3_core_tests": "53/53 passed",
+    "node4_gui_tests": "passed after test harness checkbox-state correction",
+    "agentflow_runtime_tests": "29/29 passed"
+  },
+  "known_platform_issues": [
+    "AgentFlow currently executes each node in an isolated temporary node_dir and deletes the run workspace at completion; generated files are not persisted as first-class artifacts, only output text and tool events remain.",
+    "Upstream artifacts are summarized as text, not materialized into downstream node workspaces; downstream nodes sometimes recreate files from summaries instead of using exact upstream files.",
+    "QualityGate passes on non-empty text output and does not enforce expected generated files or successful validation commands by default.",
+    "Node duration_ms is recorded as 0 in async execution path.",
+    "The test node was assigned profile doc, so it behaved like documentation/reconstruction rather than a strict verifier."
+  ]
+}

@@ -69,9 +69,11 @@ export function makeSignalEdge(
   label?: string
 ): Edge {
   const edge: Edge = {
-    id: `e${index}_${source}_${target}`,
+    id: `e_${source}_${target}_${Date.now().toString(36)}`,
     source,
     target,
+    sourceHandle: "out",
+    targetHandle: "in",
     type: "smoothstep",
     animated: false,
     style: { stroke: sourceColor, strokeWidth: 2 } as Record<string, unknown>,

@@ -55,10 +55,11 @@ def test_bug1_node_map_rebuilt_on_dag_mutation(tmp_path, monkeypatch):
     assert "n2" in node_ids
 
 
-# ── Bug #2: remove_node reconnect ──────────────────────────────
+# ── Bug #2: remove_node reconnect (opt-in via auto_reconnect) ──
 
 def test_bug2_remove_node_reconnects_upstream_downstream(tmp_path):
-    """Removing a middle node should bridge upstream → downstream."""
+    """Removing a middle node should bridge upstream → downstream when
+    auto_reconnect=True (F27: reconnect is now opt-in, default off)."""
     from run_store import RunStore
     store = RunStore(db_path=str(tmp_path / "bug2.db"))
 
@@ -72,14 +73,32 @@ def test_bug2_remove_node_reconnects_upstream_downstream(tmp_path):
     edges_before = store.get_run_edges(run_id)
     assert len(edges_before) == 2
 
-    # Remove the middle node 'b'
-    result = store.remove_node(run_id, "b")
+    # Remove the middle node 'b' WITH reconnect (opt-in)
+    result = store.remove_node(run_id, "b", auto_reconnect=True)
     assert result is True
 
     # 'a' should now connect to 'c'
     edges_after = store.get_run_edges(run_id)
     assert any(e["source"] == "a" and e["target"] == "c" for e in edges_after), \
         f"Expected a→c bridge, got: {edges_after}"
+
+
+def test_f27_remove_node_default_no_reconnect(tmp_path):
+    """F27: remove_node without auto_reconnect should NOT bridge edges."""
+    from run_store import RunStore
+    store = RunStore(db_path=str(tmp_path / "f27.db"))
+
+    run_id = store.create_run(
+        requirement="test",
+        nodes=[_mk_node("a"), _mk_node("b"), _mk_node("c")],
+        edges=[{"source": "a", "target": "b"}, {"source": "b", "target": "c"}],
+    )
+
+    # Default: no reconnect
+    assert store.remove_node(run_id, "b") is True
+    edges_after = store.get_run_edges(run_id)
+    # All edges involving 'b' are gone, and a→c should NOT be created
+    assert edges_after == [], f"Expected no edges after default remove, got: {edges_after}"
 
 
 # ── Bug #3: quality_gate validation command safety ─────────────
@@ -219,6 +238,56 @@ def test_bug10_add_edge_rejects_cycle(tmp_path):
     # Adding a non-cycle edge should still work
     result2 = store.add_edge(run_id, "a", "c")
     assert result2 is True, "Non-cycle edge should be accepted"
+
+
+# ── F19/F20: add_node cycle detection ─────────────────────────
+
+def test_f19_add_node_self_dependency_rejected(tmp_path):
+    """F19/F20: add_node with a self-referential depends_on should fail."""
+    from run_store import RunStore
+    store = RunStore(db_path=str(tmp_path / "f19.db"))
+    run_id = store.create_run(
+        requirement="test", nodes=[_mk_node("a")], edges=[])
+
+    # Self-dependency creates a cycle (a→a)
+    result = store.add_node(run_id, {"id": "b", "depends_on": ["b"]})
+    assert result is False, "Self-dependent node should be rejected"
+    # Node should not be persisted
+    run = store.get_run(run_id)
+    assert "b" not in {n["node_id"] for n in run["nodes"]}
+
+
+def test_f19_add_node_non_cyclic_depends_succeeds(tmp_path):
+    """F19/F20: add_node with valid depends_on should succeed."""
+    from run_store import RunStore
+    store = RunStore(db_path=str(tmp_path / "f19b.db"))
+    run_id = store.create_run(
+        requirement="test",
+        nodes=[_mk_node("a"), _mk_node("b")],
+        edges=[{"source": "a", "target": "b"}])
+
+    # Adding c depending on b is fine (no cycle)
+    result = store.add_node(run_id, {"id": "c", "depends_on": ["b"]})
+    assert result is True
+    edges = store.get_run_edges(run_id)
+    assert {"source": "b", "target": "c"} in edges
+
+
+# ── F24: add_edge idempotency helpers ──────────────────────────
+
+def test_f24_edge_exists_and_nodes_exist(tmp_path):
+    """F24: edge_exists / nodes_exist helpers for idempotency checks."""
+    from run_store import RunStore
+    store = RunStore(db_path=str(tmp_path / "f24.db"))
+    run_id = store.create_run(
+        requirement="test",
+        nodes=[_mk_node("a"), _mk_node("b")],
+        edges=[{"source": "a", "target": "b"}])
+
+    assert store.edge_exists(run_id, "a", "b") is True
+    assert store.edge_exists(run_id, "b", "a") is False
+    assert store.nodes_exist(run_id, "a", "b") is True
+    assert store.nodes_exist(run_id, "a", "zzz") is False
 
 
 # ── Bug #11: api.sh newline ────────────────────────────────────

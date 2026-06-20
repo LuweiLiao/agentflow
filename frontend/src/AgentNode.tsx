@@ -129,14 +129,14 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
         overflow: "hidden",
       }}
     >
-      {/* ── Port label: "▶ in" (near top target handle) ── */}
+      {/* ── Port label: "▶" (left side, near input handle) ── */}
       <span
         aria-hidden
         style={{
           position: "absolute",
-          top: -14,
-          left: "50%",
-          transform: "translateX(-50%)",
+          top: "50%",
+          left: -14,
+          transform: "translateY(-50%)",
           fontSize: 9,
           color: colors.text.tertiary,
           whiteSpace: "nowrap",
@@ -144,17 +144,17 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
           userSelect: "none",
         }}
       >
-        ▶ in
+        ▶
       </span>
 
-      {/* ── Port label: "out ▶" (near bottom source handle) ── */}
+      {/* ── Port label: "▶" (right side, near output handle) ── */}
       <span
         aria-hidden
         style={{
           position: "absolute",
-          bottom: -14,
-          left: "50%",
-          transform: "translateX(-50%)",
+          top: "50%",
+          right: -14,
+          transform: "translateY(-50%)",
           fontSize: 9,
           color: colors.text.tertiary,
           whiteSpace: "nowrap",
@@ -162,7 +162,7 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
           userSelect: "none",
         }}
       >
-        out ▶
+        ▶
       </span>
 
       {/* ── Title bar (full-width colored header) ── */}
@@ -269,29 +269,31 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
         </span>
       </div>
 
-      {/* Source handle (bottom) */}
+      {/* Source handle (right side — Simulink-style horizontal flow) */}
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
+        id="out"
         style={{
           width: 10,
           height: 10,
           background: accent,
           border: `2px solid ${colors.bg[3]}`,
-          bottom: -5,
+          right: -5,
         }}
       />
 
-      {/* Target handle (top) */}
+      {/* Target handle (left side — Simulink-style horizontal flow) */}
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
+        id="in"
         style={{
           width: 10,
           height: 10,
           background: accent,
           border: `2px solid ${colors.bg[3]}`,
-          top: -5,
+          left: -5,
         }}
       />
 

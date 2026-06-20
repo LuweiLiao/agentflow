@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentFlow — Agent Self-Orchestration API 设计</title>
+<style>
+:root {
+  --bg: #0f1923;
+  --fg: #e6edf3;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --orange: #d29922;
+  --red: #f85149;
+  --purple: #bc8cff;
+  --card-bg: #161b22;
+  --border: #30363d;
+  --muted: #8b949e;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+  background: var(--bg); color: var(--fg); line-height: 1.6;
+  display: flex; min-height: 100vh;
+}
+nav {
+  width: 280px; background: #0d1117; border-right: 1px solid var(--border);
+  position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 20px;
+}
+nav h2 { font-size: 14px; color: var(--accent); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: .5px; }
+nav a { display: block; padding: 6px 0; color: var(--muted); text-decoration: none; font-size: 14px; }
+nav a:hover { color: var(--accent); }
+nav a.active { color: var(--fg); font-weight: 600; }
+main { flex: 1; max-width: 960px; padding: 40px 48px; }
+h1 { font-size: 32px; margin-bottom: 8px; }
+.subtitle { color: var(--muted); font-size: 16px; margin-bottom: 32px; }
+h2 { font-size: 22px; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 17px; margin: 24px 0 12px; color: var(--accent); }
+h4 { font-size: 15px; margin: 16px 0 8px; }
+p, li { color: var(--muted); margin-bottom: 8px; }
+code { background: #1e2a3a; padding: 2px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+pre { background: #1e2a3a; padding: 14px; border-radius: 8px; overflow-x: auto; margin: 12px 0; font-size: 13px; }
+pre code { background: none; padding: 0; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+th, td { padding: 8px 12px; text-align: left; border: 1px solid var(--border); }
+th { background: #1e2a3a; font-weight: 600; color: var(--fg); }
+td { color: var(--muted); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+.tag-api { background: #1f6feb33; color: #58a6ff; }
+.tag-read { background: #23863633; color: #3fb950; }
+.tag-write { background: #d2992233; color: #d29922; }
+.tag-ctrl { background: #bc8cff33; color: #bc8cff; }
+.card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 12px 0; }
+.card h4 { margin-top: 0; }
+.flow-box { background: #161b22; border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 16px 0; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.8; }
+.endpoint { display: flex; align-items: center; gap: 8px; margin: 4px 0; padding: 6px 0; }
+.endpoint .method { font-weight: 700; font-size: 12px; min-width: 60px; }
+.method-GET { color: var(--green); }
+.method-POST { color: var(--accent); }
+.method-PATCH { color: var(--orange); }
+.method-DELETE { color: var(--red); }
+</style>
+</head>
+<body>
+<nav>
+  <h2>AgentFlow</h2>
+  <a href="#overview" class="active">1. 概述</a>
+  <a href="#api">2. API 设计</a>
+  <a href="#injection">3. Agent 工具注入</a>
+  <a href="#runtime">4. 运行时 DAG 突变</a>
+  <a href="#security">5. 安全模型</a>
+  <a href="#scenarios">6. 使用场景</a>
+  <a href="#impl">7. 实现计划</a>
+</nav>
+<main>
+
+<h1>Agent Self-Orchestration API</h1>
+<p class="subtitle">让编排中的 Agent 可以动态调整 DAG 结构、重调度、互相协作，实现自适应闭环</p>
+
+<section id="overview">
+<h2>1. 概述</h2>
+<p>当前 AgentFlow 中，Agent 是被动节点——编排器控制一切。本设计引入 <strong>Self-Orchestration API</strong>，让 Agent 在运行中可以通过 12 个 REST 端点反控编排系统本身：</p>
+<div class="card">
+  <pre><code>当前: 编排器 → Agent（单向控制）
+  目标: 编排器 ⟷ Agent（双向对话）
+
+  Agent → 编排器: "Task3 工作量大，我拆成 3 个子任务并行"
+  Agent → 编排器: "我的上游产出不够，帮我插入补充分析节点"
+  Agent → 编排器: "代码 Review 未通过，请求重置 Task3 重新实现"
+  </code></pre>
+</div>
+
+<h3>设计原则</h3>
+<ul>
+  <li><strong>增量安全</strong> — 默认只允许 Agent 修改自己，需显式授权才能影响其他节点</li>
+  <li><strong>无事务冲突</strong> — 每个 Agent 的 API 调用在前一个节点完成后生效，不会出现两个 Agent 同时改同一节点</li>
+  <li><strong>轻量注入</strong> — API 信息通过环境变量 + 文件 + system prompt 三条路径注入，不改 Agent 运行时内核</li>
+  <li><strong>可观测</strong> — 所有 API 调用记录到 run_events，可在前端实时看到 DAG 变更</li>
+</ul>
+</section>
+
+<section id="api">
+<h2>2. API 设计</h2>
+<p>共 12 个端点，分为 3 类。所有端点路径以 <code>/api/runs/{run_id}</code> 为前缀。</p>
+
+<h3>2.1 只读 — 获取状态</h3>
+<table>
+<tr><th>方法</th><th>路径</th><th>用途</th><th>响应</th></tr>
+<tr>
+  <td><span class="method-GET">GET</span></td>
+  <td><code>/api/runs/{rid}</code></td>
+  <td>完整运行状态</td>
+  <td>status, nodes[], total_cost 等</td>
+</tr>
+<tr>
+  <td><span class="method-GET">GET</span></td>
+  <td><code>/api/runs/{rid}/nodes</code></td>
+  <td>获取节点拓扑</td>
+  <td>所有节点含上下游 ID</td>
+</tr>
+<tr>
+  <td><span class="method-GET">GET</span></td>
+  <td><code>/api/runs/{rid}/nodes/{nid}</code></td>
+  <td>单节点详情</td>
+  <td>result, output, cost, turns, params</td>
+</tr>
+<tr>
+  <td><span class="method-GET">GET</span></td>
+  <td><code>/api/runs/{rid}/edges</code></td>
+  <td>DAG 边列表</td>
+  <td>[{source, target}, ...]</td>
+</tr>
+</table>
+
+<h3>2.2 写操作 — 动态调整 DAG</h3>
+<table>
+<tr><th>方法</th><th>路径</th><th>用途</th><th>请求体</th></tr>
+<tr>
+  <td><span class="method-POST">POST</span></td>
+  <td><code>/api/runs/{rid}/nodes</code></td>
+  <td>新增节点到 DAG</td>
+  <td>{id, label, profile, desc, params, depends_on[]}</td>
+</tr>
+<tr>
+  <td><span class="method-PATCH">PATCH</span></td>
+  <td><code>/api/runs/{rid}/nodes/{nid}</code></td>
+  <td>修改节点</td>
+  <td>{desc?, params?, profile?, ...}</td>
+</tr>
+<tr>
+  <td><span class="method-DELETE">DELETE</span></td>
+  <td><code>/api/runs/{rid}/nodes/{nid}</code></td>
+  <td>删除节点及下游</td>
+  <td>—</td>
+</tr>
+<tr>
+  <td><span class="method-POST">POST</span></td>
+  <td><code>/api/runs/{rid}/edges</code></td>
+  <td>新增依赖边</td>
+  <td>{source, target}</td>
+</tr>
+<tr>
+  <td><span class="method-DELETE">DELETE</span></td>
+  <td><code>/api/runs/{rid}/edges</code></td>
+  <td>删除依赖边</td>
+  <td>{source, target}</td>
+</tr>
+<tr>
+  <td><span class="method-POST">POST</span></td>
+  <td><code>/api/runs/{rid}/nodes/{nid}/retry</code></td>
+  <td>重置节点重跑</td>
+  <td>{modify_desc?: str}</td>
+</tr>
+<tr>
+  <td><span class="method-POST">POST</span></td>
+  <td><code>/api/runs/{rid}/reroute</code></td>
+  <td>批量调整 DAG</td>
+  <td>{add_nodes[], remove_nodes[], add_edges[], remove_edges[]}</td>
+</tr>
+</table>
+
+<h3>2.3 控制流</h3>
+<table>
+<tr><th>方法</th><th>路径</th><th>用途</th><th>请求体</th></tr>
+<tr>
+  <td><span class="method-POST">POST</span></td>
+  <td><code>/api/runs/{rid}/feedback</code></td>
+  <td>Agent 提反馈给编排器</td>
+  <td>{from_node, type, message, suggested_action?, target_nodes?}</td>
+</tr>
+</table>
+
+<h3>统一响应格式</h3>
+<pre><code>{
+  "ok": true,
+  "data": { ... },       // 仅成功时
+  "event_id": "ev_xxx",  // 写入 run_events 的事件 ID
+  "dag_version": 3       // DAG 版本号（用于下游检测变更）
+}
+
+// 错误
+{
+  "ok": false,
+  "error": "scope_denied: 无权修改上游节点 task1",
+  "code": "SCOPE_DENIED"
+}</code></pre>
+</section>
+
+<section id="injection">
+<h2>3. Agent 工具注入</h2>
+
+<h3>3.1 环境变量注入</h3>
+<p>在 <code>AgentRunner.execute()</code> / <code>CCAgentRunner.execute()</code> 中，运行时自动注入：</p>
+<pre><code>AGENTFLOW_API_URL=http://127.0.0.1:18080
+AGENTFLOW_RUN_ID=run_d846adb5885d
+AGENTFLOW_NODE_ID=task3
+AGENTFLOW_API_TOKEN=af_xxxx        # 带 scope 限制的临时 token
+AGENTFLOW_DAG_VERSION=3             # DAG 版本，Agent 调用前可检查是否已是最新</code></pre>
+
+<h3>3.2 工作目录文件注入</h3>
+<p>每个节点的工作目录自动生成：</p>
+<pre><code>.agentflow/context.json     # 完整运行上下文
+.agentflow/api.sh           # curl 命令模板
+.agentflow/api.py           # Python 调用模板</code></pre>
+<p><code>context.json</code> 内容：</p>
+<pre><code>{
+  "run_id": "run_xxx",
+  "node_id": "task3",
+  "api_url": "http://127.0.0.1:18080",
+  "token": "af_xxxx",
+  "scope": "self",
+  "peers": [
+    {"node_id": "task1", "status": "completed", "label": "需求分析"},
+    {"node_id": "task2", "status": "completed", "label": "UI设计"},
+    {"node_id": "task4", "status": "pending", "label": "导出开发"},
+    {"node_id": "task5", "status": "pending", "label": "测试"}
+  ],
+  "dag_edges": [{"source": "task1", "target": "task2"}, ...]
+}</code></pre>
+
+<h3>3.3 System Prompt 注入</h3>
+<p>在 PromptCompiler 编译任务时，自动附加 <strong>Self-Orchestration 能力描述</strong>：</p>
+<pre><code>## 编排 API 能力
+你可以通过以下 API 动态调整工作流。API 的基础 URL 和鉴权信息在环境变量和工作目录中。
+
+### 可用操作
+1. **查看状态** — GET /api/runs/<run_id> 查看整体进度
+2. **查看同行** — GET /api/runs/<run_id>/nodes 看所有节点
+3. **新增节点** — POST /api/runs/<run_id>/nodes 添加子任务
+4. **修改自己** — PATCH /api/runs/<run_id>/nodes/<自己的节点ID>
+5. **删除自己** — DELETE /api/runs/<run_id>/nodes/<自己的节点ID>（需先确保下游被重新连接）
+6. **提反馈** — POST /api/runs/<run_id>/feedback 给编排器提建议
+
+### scope 限制
+你的 scope: self（只能修改自己的节点）
+如需修改其他节点，通过 feedback 提建议给编排器处理。
+</code></pre>
+
+<p>同时注入 <strong>tools.json</strong> 结构化工具描述（用于 GPT/Claude 的 tool calling 模式）：</p>
+<pre><code>[
+  {
+    "name": "agentflow_get_run",
+    "description": "获取运行状态",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "fields": {"type": "string", "description": "逗号分隔的字段名，默认全部"}
+      }
+    }
+  },
+  {
+    "name": "agentflow_add_node",
+    "description": "动态新增节点到 DAG",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "label": {"type": "string"},
+        "profile": {"type": "string", "enum": ["analysis","design","dev","test","doc"]},
+        "desc": {"type": "string", "description": "任务描述"},
+        "depends_on": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["id", "label", "profile", "desc"]
+    }
+  },
+  // ... 其他 10 个工具类似
+]</code></pre>
+</section>
+
+<section id="runtime">
+<h2>4. 运行时 DAG 突变机制</h2>
+
+<p>当前 <code>_execute_run</code> 的 while 循环是"读一次就运行"模式。改造后引入 <strong>DAG 版本号 + 增量检测</strong>：</p>
+
+<div class="flow-box">
+<pre>_execute_run(run_id):
+  work_dir = _run_workspace(run_id)
+  dag_version = 0
+
+  while not all_nodes_done:
+    # 检查 DAG 是否有外部变更
+    current_dag_version = get_dag_version(run_id)    ← 新
+    if current_dag_version > dag_version:
+      apply_dag_mutations(run_id, dag_version)        ← 新
+      dag_version = current_dag_version
+
+    ready = get_pending_nodes()
+    if not ready:
+      # deadlock 检测（不变）
+      break
+
+    for rn in ready:
+      # 执行节点的过程中，Agent 随时可能通过 API 修改 DAG
+      result = execute_with_agentflow_api(rn, ...)
+      # 每执行完一个节点，检查版本号
+      if get_dag_version(run_id) > dag_version:
+        break  # 跳出循环，重新评估 ready 集合</pre>
+</div>
+
+<h3>apply_dag_mutations 做什么</h3>
+<ol>
+  <li>从 DB 读取最新 DAG 快照（workflow_snapshots 表的 version 字段）</li>
+  <li>与内存中的 node_map / edge_map 对比差异</li>
+  <li><strong>新增节点</strong> — 插入 node_map，状态 pending，在下次循环中被 get_pending_nodes 拾取</li>
+  <li><strong>修改节点</strong> — 更新 node_map 中的 desc/params/profile</li>
+  <li><strong>删除节点</strong> — 标记 skipped，从 node_map 移除，释放依赖</li>
+  <li><strong>新增边</strong> — 插入 edge_map，触发依赖重新评估</li>
+  <li><strong>删除边</strong> — 从 edge_map 移除</li>
+</ol>
+
+<h3>DAG 版本号实现</h3>
+<p>在 <code>runs</code> 表新增 <code>dag_version INTEGER DEFAULT 0</code> 字段。每次写操作（add/delete/patch node/edge）自动递增。查询时原子读取：</p>
+<pre><code>-- 在事务中
+UPDATE runs SET dag_version = dag_version + 1 WHERE run_id = ?
+SELECT dag_version FROM runs WHERE run_id = ?</code></pre>
+
+<h3>一致性保证</h3>
+<ul>
+  <li>Agent 的 API 调用和后台 worker 的 while 循环共享同一个 SQLite DB（单线程串行执行，天然无竞争）</li>
+  <li>Agent 添加的节点若依赖已完成的节点 → 立即加入 ready 集合（自动执行）</li>
+  <li>Agent 删除自己时，编排器自动重新连接其上下游（父→子，跳过删除节点）</li>
+  <li>删除节点时，其下游所有节点变为 ready（不再依赖已删除的节点）</li>
+</ul>
+</section>
+
+<section id="security">
+<h2>5. Scope 安全模型</h2>
+
+<table>
+<tr><th>scope</th><th>改自己</th><th>改下游</th><th>改上游</th><th>改并行</th><th>适用场景</th></tr>
+<tr><td><code>self</code>（默认）</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>普通 dev/test 节点</td></tr>
+<tr><td><code>downstream</code></td><td>✅</td><td>✅</td><td>❌</td><td>❌</td><td>架构师/设计节点</td></tr>
+<tr><td><code>run</code></td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>Supervisor/编排节点</td></tr>
+</table>
+
+<h3>Token 生成</h3>
+<p>后端启动时生成临时 token，编码了 scope 信息：</p>
+<pre><code>token = base64(f"{run_id}:{node_id}:{scope}:{hmac(secret)}")</code></pre>
+<p>所有写操作端点验证 token：</p>
+<pre><code>def check_scope(token, target_node_id, operation):
+  payload = decode_token(token)
+  if payload.scope == "run":
+    return True
+  if payload.scope == "self":
+    return target_node_id == payload.node_id
+  if payload.scope == "downstream":
+    return is_downstream(payload.node_id, target_node_id, dag)
+  return False</code></pre>
+
+<h3>Feedback 特殊处理</h3>
+<p><code>POST /api/runs/{rid}/feedback</code> 不检查 scope——任何节点都可以给编排器提建议。编排器根据建议内容决定是否执行操作。</p>
+</section>
+
+<section id="scenarios">
+<h2>6. 使用场景</h2>
+
+<h3>场景 1：Agent 发现上游不完整，动态补充</h3>
+<div class="card">
+<p><strong>task3（开发）</strong>执行到一半发现 task2（设计）只给了文字描述没有代码骨架。</p>
+<pre><code>task3 调用: POST /api/runs/xxx/nodes
+  {
+    "id": "task2.5",
+    "label": "补充设计",
+    "profile": "design",
+    "desc": "生成代码骨架和接口定义",
+    "depends_on": ["task2"]
+  }
+task3 调用: POST /api/runs/xxx/edges
+  {"source": "task2.5", "target": "task3"}
+→ 编排器：新节点 task2.5 已插入，
+  task3 变为依赖 task2.5 和 task2，
+  task2.5 自动开始执行</code></pre>
+</div>
+
+<h3>场景 2：Agent 自我并行化</h3>
+<div class="card">
+<p><strong>task3</strong>分析发现要写 3 个独立模块（串口/UI/导出）。</p>
+<pre><code>task3 调用: POST /api/runs/xxx/reroute
+  {
+    "remove_nodes": ["task3"],
+    "add_nodes": [
+      {"id": "task3a", "label": "串口模块", "desc": "...", "depends_on": ["task2"]},
+      {"id": "task3b", "label": "UI模块", "desc": "...", "depends_on": ["task2"]},
+      {"id": "task3c", "label": "导出模块", "desc": "...", "depends_on": ["task2"]},
+      {"id": "task3_merge", "label": "集成汇总", "desc": "...",
+       "depends_on": ["task3a", "task3b", "task3c"]}
+    ],
+    "add_edges": [
+      {"source": "task3_merge", "target": "task4"}
+    ]
+  }
+→ 3 个模块并行执行，全部完成后 merge 节点汇总，再触发 task4</code></pre>
+</div>
+
+<h3>场景 3：Agent 间 Review + Retry</h3>
+<div class="card">
+<p><strong>task4</strong> Review 了 task3 的代码，发现质量不达标。</p>
+<pre><code>task4 调用: POST /api/runs/xxx/feedback
+  {
+    "from_node": "task4",
+    "type": "review_failed",
+    "message": "task3 的串口模块超时处理缺失，建议补充",
+    "suggested_action": "retry",
+    "target_nodes": ["task3"]
+  }
+
+编排器收到 feedback:
+  1. 检查 task3 的原 prompt
+  2. 追加 task4 的 review 意见作为 retry_prompt
+  3. 调用 POST /api/runs/xxx/nodes/task3/retry
+     {"modify_desc": "补充超时处理：...原 prompt..."}
+  4. task4 保持 pending 直到 task3 重新完成</code></pre>
+</div>
+</section>
+
+<section id="impl">
+<h2>7. 实现计划</h2>
+
+<h3>文件改动清单</h3>
+<table>
+<tr><th>文件</th><th>改动</th><th>新增行</th></tr>
+<tr><td><code>run_store.py</code></td><td>新增 dag_version 字段、节点/边 CRUD 方法</td><td>~80</td></tr>
+<tr><td><code>agentflow-backend.py</code></td><td>新增 12 个 API handler + DAG 突变循环 + scope 检查</td><td>~200</td></tr>
+<tr><td><code>agent_runner.py</code></td><td>注入环境变量 + .agentflow/ 文件 + tools.json</td><td>~40</td></tr>
+<tr><td><code>prompt_compiler.py</code></td><td>system prompt 注入编排能力描述</td><td>~15</td></tr>
+<tr><td><code>agentflow_schema.py</code></td><td>NodeDef 增加 scope 字段</td><td>~5</td></tr>
+<tr><td><b>总计</b></td><td></td><td><b>~340</b></td></tr>
+</table>
+
+<h3>执行顺序</h3>
+<ol>
+  <li><strong>Store 层</strong> — run_store.py 新增 dag_version + 节点/边 CRUD</li>
+  <li><strong>Schema 层</strong> — agentflow_schema.py 增加 scope 字段</li>
+  <li><strong>API 层</strong> — agentflow-backend.py 新增 12 个 handler + scope 检查</li>
+  <li><strong>运行时改造</strong> — 修改 _execute_run 的 while 循环 + DAG 突变检测</li>
+  <li><strong>注入层</strong> — agent_runner.py + prompt_compiler.py 注入</li>
+  <li><strong>端到端测试</strong> — 用 curl 测试全部 12 个端点 + 场景验证</li>
+</ol>
+</section>
+
+</main>
+</body>
+</html>

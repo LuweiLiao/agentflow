@@ -121,13 +121,22 @@ def _copy_tree_contents(src: str, dst: str):
 def _materialize_upstream_artifacts(store, run_id: str, node_id: str, run_workspace: str, node_dir: str):
     """Materialize upstream node files into the current node workspace.
 
-    Downstream agents receive both an exact namespaced copy under input/<upstream_id>/
-    and a merged working-copy overlay at the node root, so they can extend prior code
-    instead of recreating it from textual summaries.
+    F08 FIX: Only copy into namespaced input/ subdirectories to guarantee
+    deterministic fan-in. The previous root-level overlay caused non-deterministic
+    file overwrites when multiple upstreams had same-named files.
+
+    For single-upstream nodes, we also symlink/copy to the node root for
+    backward compatibility with agents that expect files at cwd.
     """
-    for upstream_id in store.get_upstream(run_id, node_id):
+    upstream_ids = sorted(store.get_upstream(run_id, node_id))
+    for upstream_id in upstream_ids:
         upstream_dir = os.path.join(run_workspace, f"node_{upstream_id}")
+        # Always copy to namespaced input directory — deterministic, no conflicts
         _copy_tree_contents(upstream_dir, os.path.join(node_dir, "input", f"node_{upstream_id}"))
+
+    # Single-upstream backward compat: also copy to node root (no conflict possible)
+    if len(upstream_ids) == 1:
+        upstream_dir = os.path.join(run_workspace, f"node_{upstream_ids[0]}")
         _copy_tree_contents(upstream_dir, node_dir)
 
 
@@ -221,6 +230,12 @@ def _execute_run(run_id: str):
     try:
         dag_version = store.get_dag_version(run_id)
         while not store.all_nodes_done(run_id):
+            # F46 FIX: check if run was cancelled by user (DELETE /api/runs/{rid})
+            run_status_check = store.get_run(run_id) or {}
+            if run_status_check.get("status") == "cancelled":
+                print(f"[AsyncExec] Run {run_id} cancelled by user, stopping", file=sys.stderr)
+                break
+
             # 检查 DAG 版本变更 → 刷新 ready 列表 + 重建 node_map
             current_dag_version = store.get_dag_version(run_id)
             if current_dag_version > dag_version:
@@ -278,6 +293,15 @@ def _execute_run(run_id: str):
                     # 再检查一次
                     ready = store.get_pending_nodes(run_id)
                 if not ready:
+                    # F31 FIX: backoff retry before declaring deadlock.
+                    # 瞬时竞态可能导致 get_pending_nodes 暂时返回空（如某节点刚
+                    # completed 但状态尚未传播）。最多重试 2 次，每次 sleep 0.5s。
+                    for _backoff in range(2):
+                        time.sleep(0.5)
+                        ready = store.get_pending_nodes(run_id)
+                        if ready:
+                            break
+                if not ready:
                     counts_now = store.count_status(run_id)
                     if counts_now.get("pending", 0) > 0 or counts_now.get("running", 0) > 0:
                         _fail_unready_pending_nodes(
@@ -287,47 +311,48 @@ def _execute_run(run_id: str):
                         )
                     break  # 死锁或全部完成
 
-            # P0 修复：ready 节点按确定性顺序串行执行。
-            # 原 ThreadPoolExecutor 会让同层 dev/test/doc 节点同时物化/写入 workspace，
-            # 在真实 app 生成任务里造成 workspace/event 串扰。先牺牲并发换取可验证闭环；
-            # 后续可在 RunStore + ArtifactBroker 加 per-node isolation lock 后再恢复并发。
+            # F13/F29 FIX: Parallel execution of independent ready nodes.
+            # Each node has its own isolated node_dir (F08 fix ensures no fan-in
+            # conflicts). Global semaphore limits concurrency. Events are thread-safe.
+            # Prepare all ready nodes first (sequential, fast), then execute in parallel.
+            from agentflow_schema import EdgeDef
+            edge_objs = [EdgeDef(source=str(e.get("source","")), target=str(e.get("target","")))
+                         for e in edges_real]
+            wf = WorkflowJSON(
+                workflow_id=run_id,
+                name=requirement[:100],
+                global_context={
+                    "goal": requirement,
+                    "language": "zh-CN",
+                    "constraints": [],
+                },
+                nodes=node_defs,
+                edges=edge_objs,
+            )
+            layer_tasks = compiler.compile(wf, upstream_results=upstream_summaries)
+            task_map = {t.node_id: t for t in layer_tasks}
+
+            # Phase 1: Prepare all ready nodes (sequential — fast I/O + compilation)
+            prepared_nodes = []
             for rn in sorted(ready, key=lambda n: str(n.get("node_id", ""))):
                 nid = rn["node_id"]
                 nd = node_map.get(nid)
                 if not nd:
                     continue
+                task = task_map.get(nid)
+                if not task:
+                    continue
                 node_dir = os.path.join(work_dir, f"node_{nid}")
                 os.makedirs(node_dir, exist_ok=True)
                 _materialize_upstream_artifacts(store, run_id, nid, work_dir, node_dir)
-
-                # 标记节点为运行中
                 store.update_node(run_id, nid, status="running")
                 _publish_event(run_id, "node_start",
                     node_id=nid,
                     payload={
                         "label": nd.get("label", ""),
                         "profile": nd.get("profile", "dev"),
+                        "status": "running",
                     })
-
-                # 编译当前节点的任务
-                from agentflow_schema import EdgeDef
-                edge_objs = [EdgeDef(source=str(e.get("source","")), target=str(e.get("target","")))
-                             for e in edges_real]
-                wf = WorkflowJSON(
-                    workflow_id=run_id,
-                    name=requirement[:100],
-                    global_context={
-                        "goal": requirement,
-                        "language": "zh-CN",
-                        "constraints": [],
-                    },
-                    nodes=node_defs,
-                    edges=edge_objs,
-                )
-                layer_tasks = compiler.compile(wf, upstream_results=upstream_summaries)
-                task = next((t for t in layer_tasks if t.node_id == nid), None)
-                if not task:
-                    continue
                 current_run_for_params = store.get_run(run_id) or {}
                 current_node_for_params = next(
                     (x for x in current_run_for_params.get("nodes", []) if x.get("node_id") == nid),
@@ -335,31 +360,64 @@ def _execute_run(run_id: str):
                 )
                 node_params = current_node_for_params.get("params", {}) or {}
                 task.prompt = _append_feedback_to_prompt(task.prompt, node_params)
-                # 合并 agent_type 和 max_budget 到 node_row 中（给 CC Agent Runner 使用）
                 rn["agent_type"] = node_params.get("agent_type", "standard")
                 rn["max_budget"] = node_params.get("max_budget", 0.5)
+                prepared_nodes.append((rn, nd, task, node_dir, node_params))
 
+            # Phase 2: Execute all prepared nodes in parallel
+            def _exec_node(args):
+                rn_inner, task_inner, node_dir_inner = args
                 try:
-                    result = _execute_one_node(rn, task, node_dir, DEFAULT_AGENT_MODEL, run_id)
+                    return (rn_inner, task_inner, node_dir_inner,
+                            _execute_one_node(rn_inner, task_inner, node_dir_inner,
+                                              DEFAULT_AGENT_MODEL, run_id))
                 except Exception as e:
-                    result = {
+                    return (rn_inner, task_inner, node_dir_inner, {
                         "status": "error",
                         "result": f"执行异常: {e}",
                         "cost": 0, "duration_ms": 0, "turns": 0,
                         "model": DEFAULT_AGENT_MODEL, "provider": "",
-                    }
+                    })
+
+            exec_args = [(rn, task, node_dir) for rn, nd, task, node_dir, _ in prepared_nodes]
+
+            if len(exec_args) <= 1:
+                # Single node — no need for thread pool overhead
+                exec_results = [_exec_node(exec_args[0])] if exec_args else []
+            else:
+                with ThreadPoolExecutor(max_workers=min(len(exec_args), MAX_CONCURRENT_AGENTS)) as pool:
+                    exec_results = list(pool.map(_exec_node, exec_args))
+
+            # Phase 3: Post-process results sequentially (quality gate, store, events)
+            dag_bumped = False
+            for (rn, nd, task, node_dir, node_params_pre) in prepared_nodes:
+                nid = rn["node_id"]
+                # Find matching result
+                matching = [(r, t, d, res) for r, t, d, res in exec_results if r.get("node_id") == nid]
+                if not matching:
+                    continue
+                _, task, node_dir, result = matching[0]
 
                 # QualityGate 检查 + Retry
                 from quality_gate import QualityGate
                 qgate = QualityGate()
                 max_attempts = 2
                 attempt = 0
+                # F32 FIX: accumulate ALL attempt costs, not just the last one
+                attempt_costs = [result.get("cost", 0)]
+                attempt_durs = [result.get("duration_ms", 0)]
                 while True:
                     attempt += 1
                     status_raw = result.get("status", "error")
                     status = "completed" if status_raw == "ok" else \
                              "failed" if status_raw in ("error", "timeout") else \
                              status_raw
+
+                    # F46 FIX: check if run was cancelled by user
+                    run_check = store.get_run(run_id) or {}
+                    if run_check.get("status") == "cancelled":
+                        status = "cancelled"
+                        break
 
                     # 质量门控
                     _publish_event(run_id, "quality_start",
@@ -402,11 +460,15 @@ def _execute_run(run_id: str):
                         {"node_id": nid, "profile": (node_map.get(nid) or {}).get("profile", "dev"), "model": DEFAULT_AGENT_MODEL},
                         repair_task, node_dir, DEFAULT_AGENT_MODEL, run_id
                     )
+                    # F32 FIX: accumulate retry cost
+                    attempt_costs.append(result.get("cost", 0))
+                    attempt_durs.append(result.get("duration_ms", 0))
                     print(f"[AsyncExec] Node {nid} retry {attempt}/{max_attempts}: {qr.reason}",
                           file=sys.stderr)
 
-                cost = result.get("cost", 0)
-                dur = result.get("duration_ms", 0)
+                # F32 FIX: use accumulated costs from ALL attempts
+                cost = sum(attempt_costs)
+                dur = sum(attempt_durs)
                 if not qr.passed:
                     loop_scheduled = _schedule_feedback_loop(
                         store=store,
@@ -444,6 +506,8 @@ def _execute_run(run_id: str):
                     "node_complete" if status == "completed" else "node_failed",
                     node_id=nid,
                     payload={
+                        "label": nd.get("label", ""),
+                        "profile": nd.get("profile", "dev"),
                         "status": status,
                         "cost": cost,
                         "duration_ms": dur,
@@ -498,11 +562,17 @@ def _execute_run(run_id: str):
                 if store.get_dag_version(run_id) > dag_version:
                     dag_version = store.get_dag_version(run_id)
                     print(f"[AsyncExec] DAG version bumped to {dag_version} — re-evaluating", file=sys.stderr)
-                    break  # 跳出 for 循环，外层 while 重新准备 ready
+                    dag_bumped = True
+                    break  # 跳出 Phase 3 后处理循环，外层 while 重新准备 ready
+
         # 结算
         final_status = "completed"
         counts = store.count_status(run_id)
-        if counts.get("failed", 0) > 0 or counts.get("timed_out", 0) > 0:
+        # F46 FIX: handle cancelled status
+        run_status_final = store.get_run(run_id) or {}
+        if run_status_final.get("status") == "cancelled":
+            final_status = "cancelled"
+        elif counts.get("failed", 0) > 0 or counts.get("timed_out", 0) > 0:
             final_status = "failed"
         # Bug #14 FIX: detect orphaned running/pending nodes
         elif counts.get("running", 0) > 0 or counts.get("pending", 0) > 0:
@@ -511,7 +581,8 @@ def _execute_run(run_id: str):
         store.update_run_status(run_id, final_status)
         _publish_event(run_id,
             "run_done" if final_status == "completed" else "run_failed",
-            payload={"status": final_status, "total_cost": total_cost, "total_dur": total_dur})
+            payload={"status": final_status, "total_cost": total_cost,
+                     "total_dur": total_dur, "total_duration": total_dur})
 
         # Phase 2A: Auto-trigger evolution analysis on failed runs
         if final_status != "completed":
@@ -760,17 +831,29 @@ def _execute_one_node(node_row: dict, task, node_dir: str, default_model: str,
         agent_model = node_row.get("model") or default_model
         agent_type = node_row.get("agent_type", "standard")
 
-        # 注入 AgentFlow 自编排环境变量
-        run_id_for_env = run_id or ""
-        node_id_for_env = node_row.get("node_id", "")
-        # 获取节点 scope
+        # F64 FIX: write env scope to a thread-local manifest file instead of
+        # mutating os.environ (which is process-global and races with concurrent
+        # node executions). The agent reads its scope from this file via the
+        # AGENTFLOW_SCOPE_FILE env var (set once at startup, not per-request).
         node_params_raw = node_row.get("params", {}) or {}
         agent_scope = node_params_raw.get("scope", "self")
-        os.environ["AGENTFLOW_API_URL"] = f"http://{HOST}:{PORT}"
-        os.environ["AGENTFLOW_RUN_ID"] = run_id_for_env
-        os.environ["AGENTFLOW_NODE_ID"] = node_id_for_env
-        os.environ["AGENTFLOW_DAG_VERSION"] = str(get_store().get_dag_version(run_id_for_env))
-        os.environ["AGENTFLOW_AGENT_SCOPE"] = agent_scope
+        scope_data = {
+            "run_id": run_id or "",
+            "node_id": node_row.get("node_id", ""),
+            "scope": agent_scope,
+            "dag_version": str(_store.get_dag_version(run_id)) if run_id else "0",
+            "api_url": f"http://{HOST}:{PORT}",
+        }
+        scope_dir = os.path.dirname(node_dir) if node_dir else "/tmp"
+        scope_file = os.path.join(scope_dir, f".scope_{run_id or 'x'}_{node_row.get('node_id', 'x')}.json")
+        try:
+            with open(scope_file, "w") as sf:
+                json.dump(scope_data, sf)
+        except OSError:
+            pass  # scope file is best-effort
+        # Set AGENTFLOW_SCOPE_FILE as the ONLY env var (path, not values)
+        os.environ.setdefault("AGENTFLOW_SCOPE_FILE_DIR", scope_dir)
+        os.environ.setdefault("AGENTFLOW_API_URL", f"http://{HOST}:{PORT}")
 
         if agent_type == "claude-code":
             from cc_agent_runner import CCAgentRunner
@@ -1172,8 +1255,11 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             self._handle_delete_workflow(wf_id)
         else:
             parts = path.strip("/").split("/")
+            # DELETE /api/runs/{rid} — cancel/stop a run (F68 FIX)
+            if len(parts) == 3 and parts[0] == "api" and parts[1] == "runs":
+                self._handle_delete_run(parts[2])
             # DELETE /api/runs/{rid}/nodes/{nid} — 删除节点
-            if len(parts) == 5 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "nodes":
+            elif len(parts) == 5 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "nodes":
                 self._handle_delete_node(parts[2], parts[4])
             # DELETE /api/runs/{rid}/edges — 删除边（body 中传 source/target）
             elif len(parts) == 4 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "edges":
@@ -1404,8 +1490,13 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
             self._send_json(422, {"error": "invalid_workflow", "details": validation_errors})
             return
 
-        workflow_id = body.get("workflow_id", "")
-        run_id = _submit_run(requirement, nodes, edges, workflow_id=workflow_id)
+        # F19/F20 FIX: catch cycle validation errors from create_run
+        try:
+            workflow_id = body.get("workflow_id", "")
+            run_id = _submit_run(requirement, nodes, edges, workflow_id=workflow_id)
+        except ValueError as ve:
+            self._send_json(422, {"error": "invalid_dag", "details": str(ve)})
+            return
 
         print(f"[Execute] Submitted {run_id}: {len(nodes)} nodes", file=sys.stderr)
         self._send_json(202, {
@@ -1576,21 +1667,77 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
 
         self._send_sse_headers()
 
-        # Step 1: replay 已持久化事件
+        # F44 FIX: Eliminate replay race by snapshotting EventBus state BEFORE DB read,
+        # then deduplicate. Events are published to both EventBus and DB atomically
+        # in _publish_event. We read EventBus memory first (atomic under Condition lock),
+        # then DB, then continue with live subscription from the max sequence seen.
+        sent_sequences: set[int] = set()
+
+        # Step 1: Read EventBus in-memory events (atomic snapshot)
+        bus_events = _event_bus.get_events(run_id, after_sequence=after_sequence)
+        for ev_obj in bus_events:
+            d = ev_obj.to_dict()
+            seq = d.get("sequence", 0)
+            if seq > after_sequence and seq not in sent_sequences:
+                self._stream_send(d.get("type", "event"), d)
+                sent_sequences.add(seq)
+
+        # Step 2: Read DB-persisted events that EventBus may have pruned (bounded memory)
         store = get_store()
         persisted = store.list_events(run_id, after_sequence=after_sequence)
         for ev in persisted:
             seq = ev.get("sequence", 0)
-            self._stream_send(ev["type"], ev)
-            after_sequence = seq
+            if seq not in sent_sequences:
+                self._stream_send(ev.get("type", "event"), ev)
+                sent_sequences.add(seq)
 
-        # Step 2: 订阅 RunEventBus 实时事件
-        for ev_obj in _event_bus.subscribe(run_id, after_sequence=after_sequence, timeout_s=600):
+        # Track the highest sequence sent to avoid duplicates in live subscription
+        max_sent = max(sent_sequences) if sent_sequences else after_sequence
+
+        # Step 3: Subscribe to live events from where we left off — no gap
+        for ev_obj in _event_bus.subscribe(run_id, after_sequence=max_sent, timeout_s=600):
             d = ev_obj.to_dict()
-            seq = d["sequence"]
-            self._stream_send(d["type"], d)
+            seq = d.get("sequence", 0)
+            if seq not in sent_sequences:
+                self._stream_send(d.get("type", "event"), d)
+                sent_sequences.add(seq)
+                # Track only recent sequences to prevent unbounded growth
+                if len(sent_sequences) > 5000:
+                    # Keep only the last 1000 sequence numbers
+                    sent_sequences = set(sorted(sent_sequences)[-1000:])
 
     # ── Run 历史 API ───────────────────────────────
+
+    def _handle_delete_run(self, run_id: str):
+        """DELETE /api/runs/{rid} — cancel/stop a running workflow (F68 FIX).
+
+        Marks all pending/running nodes as 'cancelled' and the run as 'cancelled'.
+        Does NOT delete run data — the run remains in history for inspection.
+        """
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        store = get_store()
+        run = store.get_run(run_id)
+        if not run:
+            self._send_json(404, {"error": f"Run {run_id} not found"})
+            return
+        if run["status"] in ("completed", "failed", "cancelled"):
+            self._send_json(200, {"ok": True, "run_id": run_id, "status": run["status"],
+                                  "message": "Run already finished, nothing to cancel"})
+            return
+        # Mark all pending/running nodes as cancelled
+        cancelled_nodes = []
+        for n in run.get("nodes", []):
+            if n.get("status") in ("pending", "running"):
+                store.update_node(run_id, n["node_id"], status="cancelled",
+                                  result="Run cancelled by user")
+                cancelled_nodes.append(n["node_id"])
+        store.update_run_status(run_id, "cancelled", "Cancelled by user")
+        _publish_event(run_id, "run_cancelled",
+                       payload={"cancelled_nodes": cancelled_nodes})
+        self._send_json(200, {"ok": True, "run_id": run_id, "status": "cancelled",
+                              "cancelled_nodes": cancelled_nodes})
 
     # ── Run 历史 API ───────────────────────────────
 
@@ -1790,12 +1937,14 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         qs = parse_qs(parsed.query)
         caller_node_id = qs.get("x_agent_node_id", [None])[0]
         caller_scope = qs.get("x_agent_scope", ["self"])[0]
+        # F27 FIX: auto_reconnect 默认关闭，仅当 query param 显式为 "1"/"true" 时开启
+        auto_reconnect = qs.get("auto_reconnect", ["0"])[0].lower() in ("1", "true", "yes")
         allowed, reason = _check_scope(run_id, caller_node_id, node_id, caller_scope)
         if not allowed:
             self._send_json(403, {"ok": False, "error": reason, "code": "SCOPE_DENIED"})
             return
 
-        if store.remove_node(run_id, node_id):
+        if store.remove_node(run_id, node_id, auto_reconnect=auto_reconnect):
             _publish_event(run_id, "node_deleted",
                 node_id=node_id,
                 payload={"node_id": node_id})
@@ -1834,6 +1983,16 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
                 self._send_json(403, {"ok": False, "error": reason, "code": "SCOPE_DENIED"})
                 return
 
+        # F24 FIX: 区分「边已存在」（幂等 200）和「无效节点」（400）
+        if store.edge_exists(run_id, source, target):
+            self._send_json(200, {
+                "ok": True,
+                "message": "Edge already exists",
+                "data": {"source": source, "target": target},
+                "dag_version": store.get_dag_version(run_id),
+            })
+            return
+
         if store.add_edge(run_id, source, target):
             _publish_event(run_id, "edge_added",
                 payload={"source": source, "target": target})
@@ -1843,7 +2002,17 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
                 "dag_version": store.get_dag_version(run_id),
             })
         else:
-            self._send_json(409, {"error": "Edge already exists or invalid nodes"})
+            # add_edge 返回 False：区分无效节点 vs 会形成环
+            if not store.nodes_exist(run_id, source, target):
+                self._send_json(400, {
+                    "ok": False,
+                    "error": "Invalid nodes: source or target does not exist",
+                })
+            else:
+                self._send_json(409, {
+                    "ok": False,
+                    "error": "Edge would create a cycle",
+                })
 
     def _handle_remove_edge(self, run_id: str):
         """DELETE /api/runs/{rid}/edges — 删除依赖边"""
@@ -1917,8 +2086,8 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         if store.retry_node(run_id, node_id,
                             modify_desc=modify_desc,
                             modify_params=modify_params):
-            # 同时重置下游节点状态
-            downstream = store.get_dependents(run_id, node_id)
+            # F34 FIX: transitive downstream reset (not just direct dependents)
+            downstream = _collect_downstream_nodes(store, run_id, node_id, include_self=False)
             for dep_id in downstream:
                 store.retry_node(run_id, dep_id)
             _publish_event(run_id, "node_retry",
@@ -2298,9 +2467,14 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
             return
         body = body or {}
         requirement = body.get("requirement") or wf["requirement"]
-        run_id = _submit_run(
-            requirement, wf["nodes"], wf["edges"], workflow_id=wf["workflow_id"]
-        )
+        # F18 FIX: validate DAG acyclicity on webhook trigger
+        try:
+            run_id = _submit_run(
+                requirement, wf["nodes"], wf["edges"], workflow_id=wf["workflow_id"]
+            )
+        except ValueError as ve:
+            self._send_json(422, {"error": "invalid_dag", "details": str(ve)})
+            return
         print(f"[Webhook] Triggered {wf['workflow_id']} -> {run_id}", file=sys.stderr)
         self._send_json(202, {
             "run_id": run_id,

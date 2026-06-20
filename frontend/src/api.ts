@@ -16,6 +16,7 @@ export interface RunEventCallbacks {
   onNodeComplete?: (evt: SSENodeEvent) => void;
   onNodeFailed?: (evt: SSENodeEvent) => void;
   onWorkflowDone?: (evt: SSEWorkflowDone) => void;
+  onRunCancelled?: (evt: unknown) => void;
   onQualityUpdate?: (evt: unknown) => void;
   onEvolutionAnalysis?: (evt: unknown) => void;
   onUpgradeDecisions?: (evt: unknown) => void;
@@ -83,19 +84,30 @@ export class ApiClient {
     return resp.json();
   }
 
-  /** SSE 事件流：监听 run 状态变更（fetch + ReadableStream + AbortController） */
+  /** SSE 事件流：监听 run 状态变更（fetch + ReadableStream + AbortController）
+   * F47 FIX: auto-reconnect with Last-Event-ID on unexpected disconnects.
+   */
   subscribeRunEvents(runId: string, callbacks: RunEventCallbacks): AbortController {
     const controller = new AbortController();
+    let lastEventId = -1;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT = 5;
+    let isTerminal = false;
 
-    (async () => {
+    const connect = async () => {
       try {
+        const headers: Record<string, string> = {};
+        if (lastEventId >= 0) headers["Last-Event-ID"] = String(lastEventId);
+
         const resp = await fetch(`${BASE}/api/runs/${runId}/events`, {
           signal: controller.signal,
+          headers,
         });
         if (!resp.ok) {
           callbacks.onError?.(new Error(`SSE HTTP ${resp.status}`));
           return;
         }
+        reconnectAttempts = 0; // reset on successful connection
         const reader = resp.body!.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -113,16 +125,27 @@ export class ApiClient {
           for (const line of lines) {
             if (line.startsWith("event: ")) eventType = line.slice(7);
             else if (line.startsWith("data: ")) eventData += line.slice(6);
+            else if (line.startsWith("id: ")) {
+              const id = parseInt(line.slice(4));
+              if (!isNaN(id)) lastEventId = id;
+            }
             else if (line === "" && eventType && eventData) {
               try {
                 const data = JSON.parse(eventData);
+                if (typeof data.sequence === "number") lastEventId = data.sequence;
                 // G5 — handle all documented event types including evolution ones
                 if (eventType === "node_start") callbacks.onNodeStart?.(data);
                 else if (eventType === "node_complete") callbacks.onNodeComplete?.(data);
                 else if (eventType === "node_failed") callbacks.onNodeFailed?.(data);
                 else if (eventType === "run_done" || eventType === "run_failed"
-                         || eventType === "workflow_done" || eventType === "workflow_failed")
+                         || eventType === "workflow_done" || eventType === "workflow_failed") {
+                  isTerminal = true;
                   callbacks.onWorkflowDone?.(data);
+                }
+                else if (eventType === "run_cancelled") {
+                  isTerminal = true;
+                  callbacks.onRunCancelled?.(data);
+                }
                 else if (eventType === "quality_start" || eventType === "quality_pass"
                          || eventType === "quality_fail" || eventType === "retry_scheduled")
                   callbacks.onQualityUpdate?.(data);
@@ -136,12 +159,28 @@ export class ApiClient {
             }
           }
         }
+
+        // F47 FIX: auto-reconnect on unexpected disconnect (non-terminal, non-aborted)
+        if (!isTerminal && !controller.signal.aborted && reconnectAttempts < MAX_RECONNECT) {
+          reconnectAttempts++;
+          const delay = Math.min(1000 * reconnectAttempts, 5000); // 1s, 2s, 3s, 4s, 5s backoff
+          setTimeout(() => connect(), delay);
+        }
       } catch (err: unknown) {
         if (err instanceof Error && err.name !== "AbortError") {
-          callbacks.onError?.(err);
+          // F47 FIX: reconnect on network error
+          if (!isTerminal && reconnectAttempts < MAX_RECONNECT) {
+            reconnectAttempts++;
+            const delay = Math.min(1000 * reconnectAttempts, 5000);
+            setTimeout(() => connect(), delay);
+          } else {
+            callbacks.onError?.(err);
+          }
         }
       }
-    })();
+    };
+
+    connect();
 
     return controller;
   }

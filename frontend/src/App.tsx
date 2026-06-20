@@ -339,6 +339,17 @@ function CanvasInner() {
           addLog(`🏁 工作流完成: ${evt.status} · 总费用: ${formatCost(evt.total_cost)}`);
           setIsRunning(false);
         },
+        onRunCancelled: () => {
+          addLog(`🛑 工作流已取消`);
+          setIsRunning(false);
+          setNodes((nds) =>
+            nds.map((n) =>
+              n.data.status === "running" || n.data.status === "pending"
+                ? { ...n, data: { ...n.data, status: "cancelled" } }
+                : n
+            )
+          );
+        },
         onQualityUpdate: (evt: any) => {
           if (evt?.event_type === "quality_fail" || evt?.type === "quality_fail") {
             addLog(`⚠️ 质量检查未通过: ${evt?.reason || ""}`);
@@ -431,6 +442,40 @@ function CanvasInner() {
       setSelectedNode(updated);
     }
   }, [nodes]);
+
+  // ── F07: isValidConnection — real-time connection validation during drag ──
+  const isValidConnection = useCallback(
+    (connection: Connection | Edge) => {
+      const c = connection as Connection;
+      // 1. No self-connection
+      if (!c.source || !c.target || c.source === c.target) return false;
+      // 2. No duplicate edge
+      const exists = stateRef.current.edges.some(
+        (e) => e.source === c.source && e.target === c.target
+      );
+      if (exists) return false;
+      // 3. No cycle — DFS from target back to source
+      const adj = new Map<string, string[]>();
+      for (const e of stateRef.current.edges) {
+        if (!adj.has(e.source)) adj.set(e.source, []);
+        adj.get(e.source)!.push(e.target);
+      }
+      // Temporarily add the new edge
+      if (!adj.has(c.source)) adj.set(c.source, []);
+      adj.get(c.source)!.push(c.target);
+      const visited = new Set<string>();
+      const stack = [c.target];
+      while (stack.length > 0) {
+        const cur = stack.pop()!;
+        if (cur === c.source) return false; // cycle detected
+        if (visited.has(cur)) continue;
+        visited.add(cur);
+        for (const next of adj.get(cur) || []) stack.push(next);
+      }
+      return true;
+    },
+    []
+  );
 
   // ── 连线（含环检测）──
   const onConnect = useCallback(
@@ -544,7 +589,39 @@ function CanvasInner() {
       try {
         const text = await file.text();
         const data = JSON.parse(text);
-        if (data.nodes) loadWorkflow(data.nodes, data.edges || []);
+        if (data.nodes) {
+          // F16 FIX: validate imported edges for cycles before applying
+          const importedEdges = data.edges || [];
+          const hasCycle = (() => {
+            const adj = new Map<string, string[]>();
+            for (const e of importedEdges) {
+              if (!adj.has(e.source)) adj.set(e.source, []);
+              adj.get(e.source)!.push(e.target);
+            }
+            const visited = new Set<string>();
+            const stack = new Set<string>();
+            const dfs = (node: string): boolean => {
+              if (stack.has(node)) return true;
+              if (visited.has(node)) return false;
+              visited.add(node);
+              stack.add(node);
+              for (const next of adj.get(node) || []) {
+                if (dfs(next)) return true;
+              }
+              stack.delete(node);
+              return false;
+            };
+            for (const n of data.nodes) {
+              if (dfs(n.id || n.node_id)) return true;
+            }
+            return false;
+          })();
+          if (hasCycle) {
+            addLog(`❌ 导入失败: 导入的工作流包含环，无法加载`);
+            return;
+          }
+          loadWorkflow(data.nodes, importedEdges);
+        }
         if (data.requirement) updateRequirement(data.requirement);
         addLog(`📥 导入工作流: ${file.name}`);
       } catch (err) {
@@ -859,6 +936,7 @@ function CanvasInner() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            isValidConnection={isValidConnection}
             onNodeClick={onNodeClick}
             onPaneClick={onPaneClick}
             nodeTypes={nodeTypes}

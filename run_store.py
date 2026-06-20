@@ -255,6 +255,11 @@ class RunStore:
     def create_run(self, requirement: str, nodes: list,
                    edges: list | None = None, workflow_id: str = "") -> str:
         """创建新 run，返回 run_id。同时存储边信息和快照。"""
+        # F19/F20 FIX: validate DAG is acyclic before creating
+        if edges:
+            cycle = self._find_cycle_in_edges(nodes, edges)
+            if cycle:
+                raise ValueError(f"DAG contains a cycle: {' → '.join(cycle)}")
         run_id = f"run_{os.urandom(6).hex()}"
         now = time.time()
         with _write_lock:
@@ -603,6 +608,24 @@ class RunStore:
                                 " (run_id, source_node_id, target_node_id) VALUES (?,?,?)",
                                 [run_id, dep, nid],
                             )
+                # F19/F20 FIX: cycle detection — if the newly added edges form a
+                # cycle, rollback the node + edges and return False.
+                if isinstance(deps_raw, list) and any(d for d in deps_raw):
+                    edge_rows = conn.execute(
+                        "SELECT source_node_id, target_node_id FROM workflow_edges WHERE run_id=?",
+                        [run_id],
+                    ).fetchall()
+                    node_rows = conn.execute(
+                        "SELECT node_id FROM nodes WHERE run_id=?", [run_id]
+                    ).fetchall()
+                    edges_for_check = [
+                        {"source": r["source_node_id"], "target": r["target_node_id"]}
+                        for r in edge_rows
+                    ]
+                    nodes_for_check = [{"id": r["node_id"]} for r in node_rows]
+                    if self._find_cycle_in_edges(nodes_for_check, edges_for_check):
+                        conn.rollback()
+                        return False
                 conn.execute(
                     "UPDATE runs SET dag_version = dag_version + 1, updated_at=? WHERE run_id=?",
                     [time.time(), run_id],
@@ -615,8 +638,13 @@ class RunStore:
             finally:
                 conn.close()
 
-    def remove_node(self, run_id: str, node_id: str) -> bool:
-        """从运行中的 run 删除节点及其边。返回是否成功。"""
+    def remove_node(self, run_id: str, node_id: str,
+                    auto_reconnect: bool = False) -> bool:
+        """从运行中的 run 删除节点及其边。返回是否成功。
+
+        F27 FIX: 默认不自动重连上游→下游（会改变 DAG 语义）。
+        只有 auto_reconnect=True 时才重连。
+        """
         with _write_lock:
             conn = self._get_conn()
             try:
@@ -634,16 +662,17 @@ class RunStore:
                     "DELETE FROM workflow_edges WHERE run_id=? AND (source_node_id=? OR target_node_id=?)",
                     [run_id, node_id, node_id],
                 )
-                # 重连：本节点的上游 → 本节点的下游
-                for src_row in upstream:
-                    src = src_row["source_node_id"]
-                    for tgt_row in downstream:
-                        tgt = tgt_row["target_node_id"]
-                        conn.execute(
-                            "INSERT OR IGNORE INTO workflow_edges"
-                            " (run_id, source_node_id, target_node_id) VALUES (?,?,?)",
-                            [run_id, src, tgt],
-                        )
+                # F27 FIX: 重连上游→下游仅在显式请求时进行（默认不重连）
+                if auto_reconnect:
+                    for src_row in upstream:
+                        src = src_row["source_node_id"]
+                        for tgt_row in downstream:
+                            tgt = tgt_row["target_node_id"]
+                            conn.execute(
+                                "INSERT OR IGNORE INTO workflow_edges"
+                                " (run_id, source_node_id, target_node_id) VALUES (?,?,?)",
+                                [run_id, src, tgt],
+                            )
                 # 删除本节点作为 source 和 target 的边（再删一次确保清理干净）
                 conn.execute(
                     "DELETE FROM workflow_edges WHERE run_id=? AND (source_node_id=? OR target_node_id=?)",
@@ -667,6 +696,72 @@ class RunStore:
                 raise
             finally:
                 conn.close()
+
+    def edge_exists(self, run_id: str, source_id: str, target_id: str) -> bool:
+        """检查指定的边是否已存在（用于 F24 幂等性检查）。"""
+        rows = self._read(
+            "SELECT 1 FROM workflow_edges"
+            " WHERE run_id=? AND source_node_id=? AND target_node_id=?",
+            [run_id, source_id, target_id],
+        )
+        return len(rows) > 0
+
+    def nodes_exist(self, run_id: str, *node_ids: str) -> bool:
+        """检查给定的所有 node_id 是否都存在于指定 run 中。"""
+        ids = [i for i in node_ids if i]
+        if not ids:
+            return False
+        placeholders = ",".join("?" for _ in ids)
+        rows = self._read(
+            f"SELECT COUNT(*) AS c FROM nodes WHERE run_id=? AND node_id IN ({placeholders})",
+            [run_id] + ids,
+        )
+        return rows[0]["c"] == len(set(ids))
+
+    def _find_cycle_in_edges(self, nodes: list, edges: list) -> list[str] | None:
+        """F16/F17/F18 FIX: Detect cycle in edge list before creating a run.
+        
+        Uses DFS with 3-color marking (white=unvisited, gray=on-stack, black=done).
+        Returns the cycle path if found, None if acyclic.
+        """
+        node_ids = {str(n.get("id", n.get("node_id", ""))) for n in nodes}
+        adj: dict[str, list[str]] = {nid: [] for nid in node_ids}
+        for e in edges:
+            src = str(e.get("source", ""))
+            tgt = str(e.get("target", ""))
+            if src in adj:
+                adj[src].append(tgt)
+            else:
+                adj.setdefault(src, []).append(tgt)
+        
+        WHITE, GRAY, BLACK = 0, 1, 2
+        color: dict[str, int] = {nid: WHITE for nid in adj}
+        path: list[str] = []
+        
+        def dfs(u: str) -> list[str] | None:
+            color[u] = GRAY
+            path.append(u)
+            for v in adj.get(u, []):
+                if v not in color:
+                    color[v] = WHITE
+                if color.get(v, WHITE) == GRAY:
+                    # Found cycle — extract it from path
+                    cycle_start = path.index(v)
+                    return path[cycle_start:] + [v]
+                if color.get(v, WHITE) == WHITE:
+                    result = dfs(v)
+                    if result:
+                        return result
+            path.pop()
+            color[u] = BLACK
+            return None
+        
+        for nid in adj:
+            if color.get(nid, WHITE) == WHITE:
+                result = dfs(nid)
+                if result:
+                    return result
+        return None
 
     def _can_reach(self, conn, run_id: str, source: str, target: str,
                    visited: set | None = None) -> bool:
