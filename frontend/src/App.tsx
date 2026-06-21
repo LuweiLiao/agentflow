@@ -80,9 +80,24 @@ function applyNodeUpdates(data: AgentNodeData, updates: Partial<WorkflowNode>): 
   return newData;
 }
 
+const STORAGE_KEY = "agentflow_workflow";
+function loadSavedState(): { nodes: Node<AgentNodeData>[]; edges: Edge[] } {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore parse errors */ }
+  return { nodes: [], edges: [] };
+}
+function saveState(nodes: Node<AgentNodeData>[], edges: Edge[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes, edges }));
+  } catch { /* storage full or disabled */ }
+}
+
 function CanvasInner() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<AgentNodeData>>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const saved = loadSavedState();
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<AgentNodeData>>(saved.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(saved.edges);
   const [requirement, setRequirement] = useState("");
   const [selectedNode, setSelectedNode] = useState<Node<AgentNodeData> | null>(null);
   const [logs, setLogs] = useState<string[]>([`[${new Date().toLocaleTimeString()}] AgentFlow 已启动`]);
@@ -106,6 +121,11 @@ function CanvasInner() {
   const undoLockRef = useRef(false);
   const stateRef = useRef({ nodes, edges });
   stateRef.current = { nodes, edges }; // 始终持有最新快照
+
+  // ── localStorage 持久化: 自动保存 nodes/edges ──
+  useEffect(() => {
+    saveState(nodes, edges);
+  }, [nodes, edges]);
 
   // H3 — focus management refs
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -721,8 +741,8 @@ function CanvasInner() {
           id: nextId(),
           type: "agent",
           position: position ?? {
-            x: 140 + Math.random() * 120,
-            y: 60 + (idx - 1) * 100,  // R2-#2: 100px spacing for ~64px node height
+            x: 140,
+            y: 60 + (idx - 1) * 100,
           },
           data: {
             icon: def?.icon || "🤖",
@@ -981,6 +1001,28 @@ function CanvasInner() {
           onDrop={onDrop}
           onDragOver={onDragOver}
         >
+          {nodes.length === 0 && (
+            <div style={{
+              position: "absolute", inset: 0, display: "flex",
+              flexDirection: "column", alignItems: "center", justifyContent: "center",
+              zIndex: 10, pointerEvents: "none", userSelect: "none",
+            }}>
+              <div style={{
+                fontSize: 48, opacity: 0.15, marginBottom: 16,
+              }}>🧬</div>
+              <div style={{
+                fontSize: 14, color: "rgba(232,237,245,0.3)", textAlign: "center",
+                lineHeight: 1.6,
+              }}>
+                从左侧模块库拖拽或点击模块开始创建
+              </div>
+              <div style={{
+                fontSize: 12, color: "rgba(232,237,245,0.15)", marginTop: 8,
+              }}>
+                点击模块 → 添加到画布 | 拖拽模块 → 指定位置
+              </div>
+            </div>
+          )}
           <ReactFlow
             nodes={nodes}
             edges={edges}

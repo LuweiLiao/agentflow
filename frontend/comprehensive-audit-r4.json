@@ -1,0 +1,810 @@
+{
+  "summary": "AgentFlow 视觉+代码综合审计 R4",
+  "total_visual": 56,
+  "total_code": 28,
+  "grand_total": 84,
+  "severity_distribution": {
+    "P1": 10,
+    "P2": 30,
+    "P3": 16
+  },
+  "category_distribution": {
+    "布局": 11,
+    "视觉": 8,
+    "交互": 10,
+    "代码质量": 10,
+    "无障碍": 4,
+    "性能": 4,
+    "响应式": 2,
+    "稳定性": 5,
+    "增强": 2
+  },
+  "visual_findings": [
+    {
+      "id": "V-001",
+      "severity": "P1",
+      "category": "布局",
+      "title": "节点X偏差22px",
+      "description": "节点translate X:170.9/189.3/171.9px, 节点2比1/3偏右18px",
+      "fix_suggestion": "autolayout统一X坐标",
+      "source": "3-node DOM measurement"
+    },
+    {
+      "id": "V-002",
+      "severity": "P2",
+      "category": "布局",
+      "title": "Toolbar高度5种不一致",
+      "description": "输入框35px AI37px 下拉34px 工具32px 执行35px",
+      "fix_suggestion": "统一34px",
+      "source": "Blank annotations"
+    },
+    {
+      "id": "V-003",
+      "severity": "P2",
+      "category": "布局",
+      "title": "Toolbar Y基线偏移",
+      "description": "input@y=9 AI@y=8 dropdown@y=10 mini@y=11",
+      "fix_suggestion": "align-items:center",
+      "source": "Blank annotations"
+    },
+    {
+      "id": "V-004",
+      "severity": "P2",
+      "category": "布局",
+      "title": "Toolbar间距无规范",
+      "description": "间距4/8/17px交替无规律",
+      "fix_suggestion": "组内8px 组间16px",
+      "source": "Blank annotations"
+    },
+    {
+      "id": "V-005",
+      "severity": "P2",
+      "category": "布局",
+      "title": "Inspector与模块库宽度不匹配",
+      "description": "模块库199px vs Inspector 249px",
+      "fix_suggestion": "统一240px",
+      "source": "Inspector"
+    },
+    {
+      "id": "V-006",
+      "severity": "P3",
+      "category": "布局",
+      "title": "Inspector padding不对称",
+      "description": "Label输入框239px 面板约280px padding~20px",
+      "fix_suggestion": "统一12px",
+      "source": "Inspector"
+    },
+    {
+      "id": "V-007",
+      "severity": "P1",
+      "category": "布局",
+      "title": "删除按钮需滚动",
+      "description": "按钮y=558 面板底y~580",
+      "fix_suggestion": "sticky bottom固定",
+      "source": "Inspector"
+    },
+    {
+      "id": "V-008",
+      "severity": "P2",
+      "category": "布局",
+      "title": "进化面板未居中",
+      "description": "x=837开始 中心约640",
+      "fix_suggestion": "transform(-50%,-50%)",
+      "source": "Evolution"
+    },
+    {
+      "id": "V-009",
+      "severity": "P1",
+      "category": "布局",
+      "title": "进化面板与Inspector重叠",
+      "description": "面板837-1263 vs Inspector 1015-1264 重叠248px",
+      "fix_suggestion": "独立modal不覆盖",
+      "source": "Evolution"
+    },
+    {
+      "id": "V-010",
+      "severity": "P2",
+      "category": "布局",
+      "title": "进化面板195px空白",
+      "description": "标签y=154到按钮y=349全白",
+      "fix_suggestion": "填充历史数据/引导",
+      "source": "Evolution"
+    },
+    {
+      "id": "V-011",
+      "severity": "P3",
+      "category": "布局",
+      "title": "版权文字与日志间距紧",
+      "description": "版权y=589 日志y=602 仅13px",
+      "fix_suggestion": "增加padding",
+      "source": "Screen"
+    },
+    {
+      "id": "V-012",
+      "severity": "P2",
+      "category": "视觉",
+      "title": "节点边框全灰不标色",
+      "description": "3节点border全#e8edf5 仅左侧4px色条",
+      "fix_suggestion": "border用profile色(透明0.35)",
+      "source": "3-node"
+    },
+    {
+      "id": "V-013",
+      "severity": "P1",
+      "category": "视觉",
+      "title": "角色按钮选中态不可辨",
+      "description": "选中fg/bg亮度均~145 难区分选中/非选中",
+      "fix_suggestion": "选中白字#fff+彩色bg",
+      "source": "Inspector"
+    },
+    {
+      "id": "V-014",
+      "severity": "P2",
+      "category": "视觉",
+      "title": "日志过滤按钮高19px",
+      "description": "低于标准触摸44/48px",
+      "fix_suggestion": "提升至28-32px",
+      "source": "Log panel"
+    },
+    {
+      "id": "V-015",
+      "severity": "P2",
+      "category": "视觉",
+      "title": "过滤按钮标签错误",
+      "description": "文字\"信息4\"应为\"全部/信息/警告/错误\"",
+      "fix_suggestion": "修正标签",
+      "source": "Prev session"
+    },
+    {
+      "id": "V-016",
+      "severity": "P3",
+      "category": "视觉",
+      "title": "日志12小时制",
+      "description": "显示1:35:02 AM应为13:35:02",
+      "fix_suggestion": "改为24h HH:MM:SS",
+      "source": "Prev session"
+    },
+    {
+      "id": "V-017",
+      "severity": "P3",
+      "category": "视觉",
+      "title": "emoji渲染不一致",
+      "description": "emoji各平台渲染高度不同",
+      "fix_suggestion": "换SVG图标",
+      "source": "Module library"
+    },
+    {
+      "id": "V-018",
+      "severity": "P2",
+      "category": "视觉",
+      "title": "节点无外层阴影",
+      "description": "内层card有shadow 外层RF节点无",
+      "fix_suggestion": "外层节点加box-shadow",
+      "source": "3-node"
+    },
+    {
+      "id": "V-019",
+      "severity": "P2",
+      "category": "视觉",
+      "title": "Zoom文字10px",
+      "description": "缩放指示仅10px",
+      "fix_suggestion": "至少12px",
+      "source": "Screen"
+    },
+    {
+      "id": "V-020",
+      "severity": "P1",
+      "category": "交互",
+      "title": "AI编排按钮始终禁用",
+      "description": "3节点已创建仍disabled",
+      "fix_suggestion": "节点>=3或字数>=10启用",
+      "source": "3-node"
+    },
+    {
+      "id": "V-021",
+      "severity": "P1",
+      "category": "交互",
+      "title": "执行按钮始终禁用",
+      "description": "3节点就绪仍disabled",
+      "fix_suggestion": "节点>0且依赖满足启用",
+      "source": "3-node"
+    },
+    {
+      "id": "V-022",
+      "severity": "P2",
+      "category": "交互",
+      "title": "撤销空栈可点击",
+      "description": "边界条件需验证",
+      "fix_suggestion": "确认handleUndo边界",
+      "source": "3-node"
+    },
+    {
+      "id": "V-023",
+      "severity": "P2",
+      "category": "交互",
+      "title": "自动布局始终禁用",
+      "description": "3节点仍disabled",
+      "fix_suggestion": "节点>=2启用",
+      "source": "3-node"
+    },
+    {
+      "id": "V-024",
+      "severity": "P1",
+      "category": "交互",
+      "title": "画布无空状态引导",
+      "description": "空白画布无任何文字提示",
+      "fix_suggestion": "拖拽模块到画布开始 叠层",
+      "source": "Blank"
+    },
+    {
+      "id": "V-025",
+      "severity": "P2",
+      "category": "交互",
+      "title": "进化面板内容空洞",
+      "description": "内容区仅有执行分析按钮 无数据",
+      "fix_suggestion": "添加历史/引导说明",
+      "source": "Evolution"
+    },
+    {
+      "id": "V-026",
+      "severity": "P3",
+      "category": "交互",
+      "title": "无Ctrl+Enter",
+      "description": "无法键盘执行工作流",
+      "fix_suggestion": "Ctrl/Cmd+Enter绑定",
+      "source": "Interaction"
+    },
+    {
+      "id": "V-027",
+      "severity": "P2",
+      "category": "交互",
+      "title": "拖拽位置不可撤销",
+      "description": "拖动后Ctrl+Z不恢复",
+      "fix_suggestion": "onNodeDragStop pushUndo",
+      "source": "Code logic"
+    },
+    {
+      "id": "V-028",
+      "severity": "P2",
+      "category": "交互",
+      "title": "Inspector无未保存指示",
+      "description": "编辑后无任何视觉反馈",
+      "fix_suggestion": "边框变色/已修改标记",
+      "source": "Inspector"
+    },
+    {
+      "id": "V-029",
+      "severity": "P3",
+      "category": "交互",
+      "title": "无批量操作",
+      "description": "不能多选批量删除移动",
+      "fix_suggestion": "RF多选+批量操作",
+      "source": "Interaction"
+    },
+    {
+      "id": "V-030",
+      "severity": "P1",
+      "category": "代码质量",
+      "title": "模块单点击不工作",
+      "description": "只有onDoubleClick触发生成",
+      "fix_suggestion": "onClick(onAdd) 已修复",
+      "source": "R4-001"
+    },
+    {
+      "id": "V-031",
+      "severity": "P1",
+      "category": "代码质量",
+      "title": "撤销读取过期闭包",
+      "description": "快速双按撤销丢失层级",
+      "fix_suggestion": "functional updater",
+      "source": "R4-002/003"
+    },
+    {
+      "id": "V-032",
+      "severity": "P2",
+      "category": "代码质量",
+      "title": "debounce提交旧值",
+      "description": "onBlur使用闭包旧值",
+      "fix_suggestion": "ref跟踪最新值",
+      "source": "R4-004"
+    },
+    {
+      "id": "V-033",
+      "severity": "P2",
+      "category": "代码质量",
+      "title": "切换节点丢编辑",
+      "description": "未触发debounce的编辑被丢弃",
+      "fix_suggestion": "切换前commit",
+      "source": "R4-005"
+    },
+    {
+      "id": "V-034",
+      "severity": "P3",
+      "category": "代码质量",
+      "title": "SSE重连定时器残留",
+      "description": "setTimeout在abort时未清理",
+      "fix_suggestion": "cleanup clearTimeout",
+      "source": "R4-007"
+    },
+    {
+      "id": "V-035",
+      "severity": "P2",
+      "category": "代码质量",
+      "title": "删除确认定时器未重置",
+      "description": "切换节点定时器持续运行",
+      "fix_suggestion": "switch时reset",
+      "source": "R4-006"
+    },
+    {
+      "id": "V-036",
+      "severity": "P2",
+      "category": "代码质量",
+      "title": "fetch无超时",
+      "description": "后端挂起UI死锁",
+      "fix_suggestion": "AbortController",
+      "source": "R4-010"
+    },
+    {
+      "id": "V-037",
+      "severity": "P2",
+      "category": "代码质量",
+      "title": "导入允许null",
+      "description": "zod验证不够严格",
+      "fix_suggestion": "非空数组校验",
+      "source": "R4-011"
+    },
+    {
+      "id": "V-038",
+      "severity": "P3",
+      "category": "代码质量",
+      "title": "log在state前发出",
+      "description": "显示过时信息",
+      "fix_suggestion": "先commit再log",
+      "source": "R4-013"
+    },
+    {
+      "id": "V-039",
+      "severity": "P3",
+      "category": "代码质量",
+      "title": "双击非幂等",
+      "description": "快速双击添加多节点",
+      "fix_suggestion": "isAddingRef锁定",
+      "source": "Live test"
+    },
+    {
+      "id": "V-040",
+      "severity": "P2",
+      "category": "无障碍",
+      "title": "状态仅颜色区分",
+      "description": "色盲用户无法区分状态",
+      "fix_suggestion": "图标+文字+颜色三重",
+      "source": "A11Y"
+    },
+    {
+      "id": "V-041",
+      "severity": "P3",
+      "category": "无障碍",
+      "title": "日志aria-live全播报",
+      "description": "每次新日志播报全列表",
+      "fix_suggestion": "aria-live=off",
+      "source": "Code review"
+    },
+    {
+      "id": "V-042",
+      "severity": "P3",
+      "category": "无障碍",
+      "title": "输入框无aria-describedby",
+      "description": "Label输入框缺无障碍关联",
+      "fix_suggestion": "添加aria-describedby",
+      "source": "Inspector"
+    },
+    {
+      "id": "V-043",
+      "severity": "P2",
+      "category": "无障碍",
+      "title": "Tab到不了画布节点",
+      "description": "键盘用户无法编辑",
+      "fix_suggestion": "keyboard focus",
+      "source": "A11Y"
+    },
+    {
+      "id": "V-044",
+      "severity": "P2",
+      "category": "性能",
+      "title": "Inspector重建对象",
+      "description": "每次渲染重建props",
+      "fix_suggestion": "useMemo",
+      "source": "Code logic"
+    },
+    {
+      "id": "V-045",
+      "severity": "P2",
+      "category": "性能",
+      "title": "日志无虚拟化",
+      "description": "200+DOM全渲染",
+      "fix_suggestion": "react-window",
+      "source": "Log panel"
+    },
+    {
+      "id": "V-046",
+      "severity": "P3",
+      "category": "性能",
+      "title": "hover触发重排",
+      "description": "CSS transition改布局属性",
+      "fix_suggestion": "will-change+transform",
+      "source": "BlockLibrary"
+    },
+    {
+      "id": "V-047",
+      "severity": "P2",
+      "category": "性能",
+      "title": "内联样式vs React冲突",
+      "description": "onMouseEnter改el.style",
+      "fix_suggestion": "CSS class替换",
+      "source": "BlockLibrary"
+    },
+    {
+      "id": "V-048",
+      "severity": "P3",
+      "category": "响应式",
+      "title": "1280px以下不处理",
+      "description": "固定总宽480px挤压画布",
+      "fix_suggestion": "min-width breakpoint",
+      "source": "Layout"
+    },
+    {
+      "id": "V-049",
+      "severity": "P2",
+      "category": "响应式",
+      "title": "日志展开canvas缩17%",
+      "description": "canvas h=521->433",
+      "fix_suggestion": "max-height+滚动",
+      "source": "Log panel"
+    },
+    {
+      "id": "V-050",
+      "severity": "P1",
+      "category": "稳定性",
+      "title": "刷新丢失所有状态",
+      "description": "仅内存保存 刷新即失",
+      "fix_suggestion": "localStorage持久化",
+      "source": "Persistence"
+    },
+    {
+      "id": "V-051",
+      "severity": "P2",
+      "category": "稳定性",
+      "title": "导出可能未捕获异常",
+      "description": "console有exception",
+      "fix_suggestion": "try/catch+用户提示",
+      "source": "Prev session"
+    },
+    {
+      "id": "V-052",
+      "severity": "P2",
+      "category": "稳定性",
+      "title": "evolve静默无操作",
+      "description": "runId=null时无反应",
+      "fix_suggestion": "早期return+日志",
+      "source": "R4-026"
+    },
+    {
+      "id": "V-053",
+      "severity": "P3",
+      "category": "稳定性",
+      "title": "空catch吞解析错误",
+      "description": "SSE JSON.parse错被吞",
+      "fix_suggestion": "记录错误+重试",
+      "source": "R4-009"
+    },
+    {
+      "id": "V-054",
+      "severity": "P3",
+      "category": "稳定性",
+      "title": "边ID可能冲突",
+      "description": "时间戳边ID快速创建碰撞",
+      "fix_suggestion": "UUID",
+      "source": "R4-022"
+    },
+    {
+      "id": "V-055",
+      "severity": "P3",
+      "category": "增强",
+      "title": "节点不可左右连接",
+      "description": "仅垂直排列无法DAG拓扑",
+      "fix_suggestion": "自由拖拽+自动连线",
+      "source": "3-node"
+    },
+    {
+      "id": "V-056",
+      "severity": "P2",
+      "category": "增强",
+      "title": "示例不自动填充",
+      "description": "选示例后需求框仍空",
+      "fix_suggestion": "自动填充需求框",
+      "source": "Blank"
+    }
+  ],
+  "code_findings": [
+    {
+      "id": "R4-001",
+      "file": "BlockLibrary.tsx",
+      "line": 208,
+      "severity": "high",
+      "category": "UX Bug",
+      "title": "Block card single-click does not add node to canvas",
+      "description": "BlockCard only calls onAdd via onDoubleClick (line 208). The footer text says '点击添加' (click to add) and onAddNode exists, but there is no onClick handler — only double-click triggers node creation. Users will try clicking once and nothing happens, breaking the expected interaction. onKeyDown handles Enter/Space correctly but single-click is completely missing. This matches the task description 'click doesn't work'.",
+      "fix_suggestion": "Add onClick={onAdd} to the BlockCard div alongside onDoubleClick. Remove or update the onDoubleClick-only pattern so single-click works as the primary interaction, or add a dedicated Add button."
+    },
+    {
+      "id": "R4-002",
+      "file": "App.tsx",
+      "line": 132,
+      "severity": "high",
+      "category": "State Management",
+      "title": "handleUndo reads stale undoStack after queuing setUndoStack mutation",
+      "description": "Line 134-137 calls setUndoStack to pop the top element, then line 138-140 reads undoStack (the pre-render value) to find the state to restore. In React 18 automatic batching, if handleUndo is pressed twice rapidly before a re-render, both calls see the same undoStack and both restore the same previous state — effectively losing one undo level. The second undo also pushes the current state to redoStack twice, corrupting the redo history.",
+      "fix_suggestion": "Use a functional updater for the entire undo operation. Instead of reading undoStack after setUndoStack, do setUndoStack((prev) => { ... pop ... }) and simultaneously setNodes/setEdges inside the same updater, or use refs to track undo state without the stale closure risk."
+    },
+    {
+      "id": "R4-003",
+      "file": "App.tsx",
+      "line": 150,
+      "severity": "high",
+      "category": "State Management",
+      "title": "handleRedo reads stale redoStack after queuing setRedoStack mutation",
+      "description": "Same pattern as handleUndo: line 152-155 pops from redoStack via setRedoStack, but lines 156-158 read the stale redoStack variable to find the state to restore. Rapid double-redo pushes corrupted entries to undoStack and loses redo history levels.",
+      "fix_suggestion": "Use functional updaters throughout. Replace the pattern with a single atomic state update that reads from a ref or performs the entire undo/redo transition inside a single functional setState chain."
+    },
+    {
+      "id": "R4-004",
+      "file": "InspectorPanel.tsx",
+      "line": 50,
+      "severity": "high",
+      "category": "State Management",
+      "title": "useDebouncedField commit function has stale local value closure",
+      "description": "The commit() function (line 50-53) captures `local` from the enclosing closure at call time. When called synchronously after update() (e.g., onBlur immediately after onChange), commit() still holds the stale `local` value from the current render, not the newly typed value. This means onBlur can commit the wrong (old) value, discarding the user's latest edit. The debounced update() path works correctly because it uses setTimeout which triggers after render, but direct commit() is broken.",
+      "fix_suggestion": "Use a ref to track the latest local value. Replace `const commit = useCallback(() => { ... onCommitRef.current(local) ... }, [local])` with `const localRef = useRef(local); localRef.current = local;` then `commit` reads `localRef.current` instead of `local`. This gives commit() access to the latest value regardless of render timing."
+    },
+    {
+      "id": "R4-005",
+      "file": "InspectorPanel.tsx",
+      "line": 44,
+      "severity": "medium",
+      "category": "UX Bug",
+      "title": "Unsaved debounced edits are discarded when switching nodes",
+      "description": "When switching selectedNode, useDebouncedField resets local state to the new node's values (line 46-48: setLocal(value)). Any debounced but uncommitted edits on the previous node are silently discarded — there is no commit-on-switch logic. The old node's data is permanently lost if the user switches before the 500ms debounce fires or before they blur the field.",
+      "fix_suggestion": "Add a useEffect that calls commit() for each debounced field before the dependency value changes, or pass a 'key' prop to force the hook to commit before remounting. Alternatively, commit immediately on node selection change before applying the new node's data."
+    },
+    {
+      "id": "R4-006",
+      "file": "InspectorPanel.tsx",
+      "line": 45,
+      "severity": "medium",
+      "category": "UX Bug",
+      "title": "Delete confirmation timer not reset when selected node changes",
+      "description": "The confirming state (line 86) is local to InspectorPanel and does not reset when `node` prop changes. If user starts delete confirmation on node A (click once → '确认删除?'), then clicks node B, the delete button still shows '确认删除?' for node B. Clicking it would then immediately delete node B without a confirmation step.",
+      "fix_suggestion": "Add a useEffect that resets confirming to false when the node prop changes: useEffect(() => { setConfirming(false); if (confirmTimer.current) { clearTimeout(confirmTimer.current); confirmTimer.current = null; } }, [node?.id]);"
+    },
+    {
+      "id": "R4-007",
+      "file": "api.ts",
+      "line": 167,
+      "severity": "high",
+      "category": "Memory Leak",
+      "title": "SSE reconnect setTimeout not cleared when controller is aborted",
+      "description": "Lines 167 and 175 use setTimeout(() => connect(), delay) without storing the timer ID on a ref. If the user stops execution (which calls controller.abort()), the delayed connect() still fires because the setTimeout was never cleared. connect() then checks controller.signal.aborted (line 164) and would skip reconnecting, but the function still executes unnecessarily. Under rapid start/stop cycles, multiple pending setTimeout callbacks accumulate, causing wasted work and potential race conditions.",
+      "fix_suggestion": "Store the setTimeout ID in a ref (e.g., reconnectTimerRef). In a useEffect cleanup or in the abort flow, call clearTimeout(reconnectTimerRef.current). Check controller.signal.aborted at the TOP of connect() before doing any work."
+    },
+    {
+      "id": "R4-008",
+      "file": "api.ts",
+      "line": 111,
+      "severity": "medium",
+      "category": "Error Handling",
+      "title": "Non-null assertion on resp.body could throw uncaught TypeError",
+      "description": "Line 111: `const reader = resp.body!.getReader()` uses TypeScript non-null assertion. If the server returns an HTTP response with no body (e.g., a 204 No Content or a misconfigured response), resp.body is null and .getReader() throws TypeError. This exception is caught by the outer try-catch (line 169) in the catch branch, but the reconnect logic then fires with corrupted state — lastEventId may be wrong and the error message is confusing.",
+      "fix_suggestion": "Replace `resp.body!` with an explicit guard: `if (!resp.body) { callbacks.onError?.(new Error('SSE response has no body')); return; }` before calling getReader()."
+    },
+    {
+      "id": "R4-009",
+      "file": "api.ts",
+      "line": 154,
+      "severity": "medium",
+      "category": "Error Handling",
+      "title": "Empty catch block silently swallows all SSE JSON parse errors",
+      "description": "Line 154: `catch { /* ignore parse errors */ }`. Any malformed SSE event data is silently dropped with zero visibility. If the backend sends slightly malformed JSON (extra trailing comma, wrong encoding, truncation), the frontend silently ignores it while the user sees stale UI state with no indication of a problem. Debugging data pipeline issues becomes extremely difficult.",
+      "fix_suggestion": "At minimum, log parse errors to console.warn with the raw eventData (truncated to 200 chars). Optionally expose a callback onError for parse failures so the UI can show a subtle indicator."
+    },
+    {
+      "id": "R4-010",
+      "file": "api.ts",
+      "line": 39,
+      "severity": "medium",
+      "category": "Error Handling",
+      "title": "All fetch requests lack timeout — network hangs freeze the UI",
+      "description": "Every api method (decompose, execute, getRun, deleteRun, listRuns, supervisor, subscribeRunEvents, evolve, getEvolution, upgrade, getEvolutionStats, getEvolutionHistory) uses fetch() with no AbortSignal timeout wrapper. If the server hangs, the Promise never settles, leaving the UI in a loading/decomposing/running state indefinitely. The user has no way to recover except refreshing the page.",
+      "fix_suggestion": "Create a helper `fetchWithTimeout(url, options, ms=30000)` that wraps fetch with AbortController.timeout (or a manual timeout via setTimeout + controller.abort()). Use it in all API methods. For SSE connections (subscribeRunEvents), the existing AbortController already covers user-initiated cancellation, but a network-level idle timeout should also be added."
+    },
+    {
+      "id": "R4-011",
+      "file": "App.tsx",
+      "line": 617,
+      "severity": "medium",
+      "category": "Code Quality",
+      "title": "Import validation type check is too broad — does not reject null",
+      "description": "Line 617: `if (!data || typeof data !== \"object\")` — `typeof null` returns `\"object\"` in JavaScript, so a JSON-parsed value of `null` passes this check. If the imported JSON file contains bare `null`, `data.nodes` on line 621 would throw a TypeError. The check should explicitly reject null before testing typeof.",
+      "fix_suggestion": "Change to: `if (!data || data === null || typeof data !== \"object\" || Array.isArray(data))`. The Array.isArray check is also important because `typeof [] === \"object\"` and the subsequent `.nodes` access on an array would be wrong."
+    },
+    {
+      "id": "R4-012",
+      "file": "App.tsx",
+      "line": 635,
+      "severity": "low",
+      "category": "Code Quality",
+      "title": "Redundant data.nodes check inside validated node loop",
+      "description": "Line 635: `if (data.nodes) { ... }` is inside a block already guarded by `if (data.nodes.length > 0)` (via the node validation loop above). After iterating data.nodes and returning on missing id/label (line 630-633), data.nodes is guaranteed to be a non-empty array. The outer conditional is dead code.",
+      "fix_suggestion": "Remove the outer `if (data.nodes)` wrapper (lines 635-667). The code at line 637 and below can run unconditionally since data.nodes is already validated to be a non-empty array by the loop above."
+    },
+    {
+      "id": "R4-013",
+      "file": "App.tsx",
+      "line": 541,
+      "severity": "low",
+      "category": "UX Bug",
+      "title": "addLog for edge connection fires before setEdges updater commits",
+      "description": "In onConnect, pushUndo() is called on line 504, then setEdges with a functional updater on line 505, then addLog on line 541. The addLog runs synchronously, but the edge is only committed during the next render cycle. If the edge creation fails inside the updater (e.g., cycle detected, line 524-525 returns eds unchanged), the log still says '🔗 连线' even though no edge was actually added. The user sees a misleading positive log message.",
+      "fix_suggestion": "Move addLog inside the setEdges updater, or check whether the edge was actually added by comparing the returned array length. Better: refactor so the cycle detection and edge creation happen outside setEdges, then setEdges only if the edge was validated."
+    },
+    {
+      "id": "R4-014",
+      "file": "App.tsx",
+      "line": 359,
+      "severity": "medium",
+      "category": "Code Quality",
+      "title": "onQualityUpdate uses `any` type bypassing all type safety",
+      "description": "Line 359: `onQualityUpdate: (evt: any) => { ... }` explicitly types the event as `any`. This circumvents the RunEventCallbacks interface which already defines `onQualityUpdate?: (evt: unknown) => void`. The property access `evt?.event_type` and `evt?.reason` are unchecked and could access nonexistent properties silently, producing undefined behavior.",
+      "fix_suggestion": "Use the actual SSE event type or a discriminated union. Define a QualityUpdateEvent interface with the known fields (event_type, type, reason, etc.) and type the callback parameter properly. Replace `any` with `QualityUpdateEvent` or at minimum `Record<string, unknown>` with proper property checks."
+    },
+    {
+      "id": "R4-015",
+      "file": "App.tsx",
+      "line": 755,
+      "severity": "medium",
+      "category": "UX Bug",
+      "title": "Drag-and-drop failure provides zero user feedback",
+      "description": "onDrop (line 752-760) silently returns if `getData(DRAG_MIME)` returns an empty string (line 754-755). No visual feedback, no toast, no log entry. If a user drags something else (a bookmark, an image) onto the canvas, or if the drag data is lost (browser quirk), nothing happens and the user is left confused about whether the drop was registered.",
+      "fix_suggestion": "Add an addLog call or a brief visual flash when a drop is ignored. Show a log entry like '⚠️ 无法识别拖放内容' when profile is empty. Also add CSS class af-canvas--dragover onDragEnter/onDragLeave to highlight the canvas when a valid drag hovers over it (the CSS class exists in global.css line 302 but is never toggled)."
+    },
+    {
+      "id": "R4-016",
+      "file": "BlockLibrary.tsx",
+      "line": 227,
+      "severity": "low",
+      "category": "Code Quality",
+      "title": "Imperative inline style mutations on BlockCard hover bypass React rendering",
+      "description": "onMouseEnter (line 227-231) and onMouseLeave (line 233-237) directly mutate `e.currentTarget.style.borderColor`, `.style.transform`, and `.style.boxShadow`. These imperative mutations compete with the CSS `transition` property and the React-managed inline styles. If React re-renders the card (e.g., filter change), the React inline styles reset, but the hover-mutated values may persist inconsistently. This pattern is fragile and defeats React's declarative styling model.",
+      "fix_suggestion": "Replace imperative mutations with CSS class toggling or React state. Define CSS classes for hover states and use onMouseEnter/onMouseLeave to toggle a className, or use React state to track hovered card and apply styles declaratively via the style prop."
+    },
+    {
+      "id": "R4-017",
+      "file": "BlockLibrary.tsx",
+      "line": 137,
+      "severity": "low",
+      "category": "Code Quality",
+      "title": "spacing[6] key does not exist in spacing theme object",
+      "description": "Line 137: `${spacing[6] || 6}px` — the spacing object only defines keys 4, 8, 12, 16, 20, 24, 32. Indexing with 6 returns undefined, and the fallback to 6 is used. This is semantically misleading — the code looks like it's using a design token but is actually hardcoding a fallback value. This will confuse future maintainers who may expect spacing[6] to work.",
+      "fix_suggestion": "Replace with the literal 6 or add spacing[6] to the spacing theme if the 6px value is intentional. Either use `${spacing[4] + 2}px` (4+2=6) or define a named token for search-input vertical padding."
+    },
+    {
+      "id": "R4-018",
+      "file": "layout.ts",
+      "line": 35,
+      "severity": "low",
+      "category": "Performance",
+      "title": "Array.shift() used as queue in Kahn's algorithm — O(n) per operation",
+      "description": "Line 35: `const node = queue.shift()!` — Array.shift() is O(n) in JavaScript because it re-indexes all remaining elements. For a graph with N nodes, the total cost is O(N²). While AgentFlow workflows are typically small (<100 nodes), this pattern could cause noticeable jank with larger graphs or rapid re-layouts (e.g., during SSE streaming updates).",
+      "fix_suggestion": "Replace the array+shift with a proper indexed queue: use an integer head pointer `let head = 0;` and access via `queue[head++]` instead of `queue.shift()`. This reduces dequeuing to O(1)."
+    },
+    {
+      "id": "R4-019",
+      "file": "global.css",
+      "line": 221,
+      "severity": "medium",
+      "category": "CSS Bug",
+      "title": "Slide-in animation has unintended 350ms delay from theme transition token",
+      "description": "Line 221: `animation: slide-in-right 0.28s var(--transition-slow);` where var(--transition-slow) = '0.3s cubic-bezier(0.4,0,0.2,1)'. In the CSS animation shorthand, the first <time> value is duration and the second is delay. So this becomes: duration=0.28s, delay=0.3s, timing-function=cubic-bezier(...). The intended effect was to use the easing curve as the animation's timing function, but instead a 300ms delay is introduced before the animation starts. The user will experience a noticeable delay between opening the Evolution panel and seeing the slide-in animation.",
+      "fix_suggestion": "Separate animation properties or use a bare cubic-bezier value directly. Change to: `animation: slide-in-right 0.28s cubic-bezier(0.4, 0, 0.2, 1);` with the easing hardcoded, or use the individual animation-* properties."
+    },
+    {
+      "id": "R4-020",
+      "file": "theme.ts",
+      "line": 10,
+      "severity": "low",
+      "category": "Code Quality",
+      "title": "cssVariables exports missing accent-orange and accent-cyan tokens",
+      "description": "The colors object defines accent.orange ('#fb923c') and accent.cyan ('#22d3ee') (lines 38 and 41), but the cssVariables template string (lines 164-198) does not include --color-accent-orange or --color-accent-cyan. However, global.css line 24-25 defines both of these CSS custom properties. This means the CSS has tokens that the TypeScript theme system doesn't expose, and vice versa — they will drift out of sync over time.",
+      "fix_suggestion": "Add --color-accent-orange and --color-accent-cyan to the cssVariables template in theme.ts. Also consider auto-generating cssVariables from the colors object to prevent future drift."
+    },
+    {
+      "id": "R4-021",
+      "file": "App.tsx",
+      "line": 462,
+      "severity": "low",
+      "category": "Code Quality",
+      "title": "Duplicate cycle detection logic in isValidConnection and onConnect",
+      "description": "Both isValidConnection (lines 462-493) and onConnect (lines 496-543, particularly lines 512-528) implement identical DFS cycle detection algorithms. This duplicates approximately 25 lines of complex graph logic. If a bug is found in one, fixing it in the other is easy to miss. The two implementations also have subtle behavioral differences — isValidConnection prevents the edge from being drawn at all, while onConnect silently returns the old edges array.",
+      "fix_suggestion": "Extract the cycle detection into a shared utility function `detectCycle(edges, source, target): boolean` in utils.ts. Both isValidConnection and onConnect should call the same function, ensuring consistent behavior."
+    },
+    {
+      "id": "R4-022",
+      "file": "utils.ts",
+      "line": 76,
+      "severity": "low",
+      "category": "Functional Bug",
+      "title": "Edge ID uses Date.now() — possible collision under rapid edge creation",
+      "description": "Line 76: `id: `e_${source}_${target}_${Date.now().toString(36)}`` — Date.now() has millisecond precision. If two edges between the same source and target are created in the same millisecond (possible via programmatic API calls or very rapid user interaction), the IDs collide, and the second setEdges call would add a duplicate edge with the same ID, causing React Flow rendering glitches.",
+      "fix_suggestion": "Append a random component to the edge ID: `_${Math.random().toString(36).slice(2, 6)}` after the timestamp, or use a monotonic counter (stored in a ref or module-level variable) instead of Date.now()."
+    },
+    {
+      "id": "R4-023",
+      "file": "LogPanel.tsx",
+      "line": 21,
+      "severity": "low",
+      "category": "UX Bug",
+      "title": "ℹ️ and 📋 log lines are misclassified as 'warning' level",
+      "description": "Line 25: `if (line.startsWith('ℹ️') || line.startsWith('📋')) return 'warning';` — These emoji prefixes are used for informational messages (ℹ️ = info, 📋 = clipboard/list). Classifying them as 'warning' means they appear with yellow/orange color styling, confusing users who expect warnings to indicate actual problems. Informational messages should map to 'info', not 'warning'.",
+      "fix_suggestion": "Add an 'info' detection early in the function: `if (line.startsWith('ℹ️') || line.startsWith('📋')) return 'info';` before the warning check, or reorder checks so warning is only for actual warning prefixes."
+    },
+    {
+      "id": "R4-024",
+      "file": "EvolutionPanel.tsx",
+      "line": 35,
+      "severity": "low",
+      "category": "UX Bug",
+      "title": "Evolution panel backdrop does not prevent body scrolling",
+      "description": "The backdrop (line 35-43) is an absolutely-positioned div with z-index 99 and background 'rgba(0,0,0,0.35)', but overflow on the body/html is not set to 'hidden'. If the page content extends beyond the viewport, users can scroll the body behind the Evolution panel overlay, creating a disjointed visual appearance. The backdrop onClick closes the panel, but the body scrolls underneath.",
+      "fix_suggestion": "Add a useEffect in EvolutionPanel that sets document.body.style.overflow = 'hidden' on mount and restores it on unmount. Also consider setting overflow on the panel's container to ensure consistent behavior."
+    },
+    {
+      "id": "R4-025",
+      "file": "EvolutionPanel.tsx",
+      "line": 173,
+      "severity": "low",
+      "category": "State Management",
+      "title": "Tab-switching useEffect missing decisions variable from dependency array",
+      "description": "Line 177-178: the useEffect dependency array is `[tab, runId, loadReport, loadStats, runUpgrade, upgradeLoaded, decisions.length]`. It includes `decisions.length` but not the `decisions` array itself. If the decisions array is replaced (not mutated), the `.length` is the same but the reference changed, and any code reading `decisions` (not shown directly in the effect body, but the effect triggers based on this condition) could miss the update.",
+      "fix_suggestion": "Include `decisions` in addition to or instead of `decisions.length`. The eslint-disable comment on line 177 should be removed and the dependency array completed properly."
+    },
+    {
+      "id": "R4-026",
+      "file": "EvolutionPanel.tsx",
+      "line": 233,
+      "severity": "medium",
+      "category": "UX Bug",
+      "title": "Evolve button rendered and functional when runId is null",
+      "description": "Line 233 renders an action button `<button onClick={runEvolve} ...>` inside the EmptyState inside the `!report` branch. runEvolve (line 128-139) immediately returns if `!runId` is true. When no workflow has been executed yet (currentRunId.current is ''), runId is null/empty and clicking the button does nothing silently. Users will click this button multiple times with no visible result, creating frustration.",
+      "fix_suggestion": "Disable the button when runId is null, or show a different message: '运行工作流后可进行进化分析'. Also add visual feedback (disabled styling, tooltip)."
+    },
+    {
+      "id": "R4-027",
+      "file": "App.tsx",
+      "line": 1001,
+      "severity": "low",
+      "category": "Performance",
+      "title": "Inline style objects recreated on every render causing unnecessary reconciliation",
+      "description": "Lines 927-932 (evolution button active style), line 1001 (ReactFlow background style), lines 1005-1011 (Controls style), and lines 1015-1020 (MiniMap style) all create new style object literals on every render of CanvasInner. This forces React to diff and potentially update DOM attributes each time, even when no actual style values change. While the performance impact is small per-render, during rapid SSE events (which trigger many state updates), this creates unnecessary garbage collection pressure.",
+      "fix_suggestion": "Extract static style objects to module-level constants (like existing style exports in styles.ts). For dynamic styles, use useMemo. This is particularly impactful for the ReactFlow component which re-renders all children on every nodes/edges change."
+    },
+    {
+      "id": "R4-028",
+      "file": "LogPanel.tsx",
+      "line": 73,
+      "severity": "low",
+      "category": "UX Bug",
+      "title": "Auto-scroll to bottom triggers on filter/query change, confusing filtered view",
+      "description": "The auto-scroll effect (lines 73-78) has dependencies `[logs, collapsed, query, level]`. When the user applies a text filter or changes the level filter, the effect fires. If stickToBottom.current is true (default), the view scrolls to the bottom of the filtered log list, which may not contain the most recent logs. A user searching for a specific error pattern and seeing results at the top would be forcibly scrolled away.",
+      "fix_suggestion": "Separate the auto-scroll logic: scroll to bottom only when new logs are APPENDED (logs changed), not when the filter/query changes. Remove query and level from the effect's dependency array, or add a guard that prevents auto-scroll when the filter is active."
+    }
+  ]
+}

@@ -204,11 +204,12 @@ function BlockCard({
   return (
     <div
       draggable
+      onClick={onAdd}
       onDragStart={onDragStart}
       onDoubleClick={onAdd}
       role="button"
       tabIndex={0}
-      title={`拖拽到画布添加「${block.label}」节点`}
+      title={`点击或拖拽到画布添加「${block.label}」节点`}
       style={{
         position: "relative",
         display: "flex",

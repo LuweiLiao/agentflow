@@ -217,8 +217,8 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
                     fontSize: 11,
                     cursor: "pointer",
                     border: `1px solid ${active ? p.color : colors.border.default}`,
-                    background: active ? `${p.color}22` : colors.bg[1],
-                    color: active ? p.color : colors.text.secondary,
+                    background: active ? p.color : colors.bg[1],
+                    color: active ? "#fff" : colors.text.secondary,
                     fontWeight: active ? 600 : 400,
                     transition: `background ${transition.fast}, border-color ${transition.fast}`,
                   }}
@@ -301,7 +301,9 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
           onClick={handleDeleteClick}
           aria-label={confirming ? "确认删除节点" : "删除节点"}
           style={{
-            marginTop: 12,  // R2-#12: was 16 — tighter
+            position: "sticky",
+            bottom: 8,
+            marginTop: 12,
             width: "100%",
             padding: "7px 10px",
             background: confirming ? "rgba(248,113,113,0.25)" : "rgba(248,113,113,0.1)",

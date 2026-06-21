@@ -361,6 +361,7 @@ html {
   background: rgba(11, 13, 18, 0.6) !important;
   color: var(--color-text-tertiary) !important;
   font-size: 9px !important;
+  bottom: 4px !important;
 }
 .react-flow__attribution a {
   color: var(--color-text-tertiary) !important;
