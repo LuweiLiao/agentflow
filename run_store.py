@@ -27,6 +27,27 @@ _COMPILER_VERSION = "2.0.0"
 # ── 锁 —— 所有写操作受此保护 ──────────────────────────
 _write_lock = threading.Lock()
 
+# R3-P0-1: SQL注入防护 — 列名白名单，任何动态拼入 SET 子句的 kwargs key
+#          都必须在此白名单内，拒绝任意列名注入。
+ALLOWED_NODE_FIELDS = frozenset({
+    # 节点元数据
+    "label", "icon", "color", "profile", "description", "desc",
+    # 执行状态/结果
+    "status", "result", "output", "error", "attempt",
+    "cost", "duration_ms", "turns", "model", "provider",
+    # 心跳/租约
+    "heartbeat_at", "lease_owner", "lease_expires_at",
+    # 参数/版本
+    "params_json", "versioned_status",
+    # 兼容审计报告中提到的别名（表中不存在但无害）
+    "result_text", "result_cost", "result_duration_ms",
+    "error_message", "started_at", "completed_at",
+})
+ALLOWED_WORKFLOW_FIELDS = frozenset({
+    "name", "requirement", "nodes_json", "edges_json",
+    "updated_at",
+})
+
 
 def _get_conn() -> sqlite3.Connection:
     """每次调用创建独立连接。读操作无需锁，写操作在调用方加 _write_lock。"""
@@ -428,9 +449,12 @@ class RunStore:
 
     def update_node(self, run_id: str, node_id: str, **kwargs):
         """更新节点字段。支持 versioned_status 乐观锁。"""
-        fields = {k: v for k, v in kwargs.items() if v is not None}
-        if not fields:
+        # R3-P0-1: 只允许白名单内的列名，杜绝 SQL 列名注入。
+        filtered = {k: v for k, v in kwargs.items()
+                    if k in ALLOWED_NODE_FIELDS and v is not None}
+        if not filtered:
             return
+        fields = filtered
         sets = ", ".join(f"{k}=?" for k in fields)
         vals = list(fields.values())
         vals.extend([run_id, node_id])
@@ -850,6 +874,7 @@ class RunStore:
         with _write_lock:
             conn = self._get_conn()
             try:
+                # R3-P0-1: 列名全为硬编码字面量，不接受外部 kwargs，无注入面。
                 sets = "status='pending', result='', output='', error='', attempt=attempt+1"
                 vals = []
                 if modify_desc:
@@ -974,6 +999,7 @@ class RunStore:
         return [dict(r) for r in rows]
 
     def update_workflow(self, workflow_id: str, **kwargs) -> dict | None:
+        # R3-P0-1: 使用模块级白名单常量统一过滤，防止列名注入。
         allowed = {"name", "requirement", "nodes", "edges"}
         fields: dict = {}
         for k, v in kwargs.items():
@@ -988,6 +1014,9 @@ class RunStore:
         if not fields:
             return self.get_workflow(workflow_id)
         fields["updated_at"] = time.time()
+        # 二次校验：拼入 SET 子句的所有列名必须在白名单内
+        assert all(k in ALLOWED_WORKFLOW_FIELDS for k in fields), \
+            f"非法列名: {set(fields) - ALLOWED_WORKFLOW_FIELDS}"
         sets = ", ".join(f"{k}=?" for k in fields)
         vals = list(fields.values()) + [workflow_id]
         cur = self._write(f"UPDATE workflows SET {sets} WHERE workflow_id=?", vals)

@@ -18,6 +18,7 @@ Usage:
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -84,7 +85,9 @@ class ClaudeCodeAdapter:
             f"--output-format={output_format}",
             f"--max-budget-usd={max_budget_usd}",
             "--bare",  # skip hooks, enable simple mode
-            "--permission-mode", "bypassPermissions",  # auto-approve all ops
+            # R3-P0-6: 不再传 --permission-mode bypassPermissions，避免 Agent
+            #          在宿主机上无审批执行任意文件系统/Shell 操作。改用默认
+            #          权限模式（需调用方显式审批或预置细粒度允许列表）。
         ]
         if append_system_prompt:
             cmd.append(f"--append-system-prompt={append_system_prompt}")
@@ -120,12 +123,16 @@ class ClaudeCodeAdapter:
             stderr=subprocess.PIPE,
             cwd=str(cwd or self.engine_dir),
             text=True,
+            # R3-P0-2: 以独立进程组启动，确保 kill 时可杀死整个进程树
+            #          （bun → node → 子工作进程），避免孤儿/僵尸进程残留。
+            start_new_session=True,
         )
 
         try:
             stdout, stderr = proc.communicate(input=prompt, timeout=timeout)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            # R3-P0-2: 用 SIGTERM → 等待 → SIGKILL 杀死整个进程组。
+            self._kill_process_group(proc)
             stdout, stderr = proc.communicate()
             return CCEngineResult(
                 text=f"Timed out after {timeout}s",
@@ -158,29 +165,63 @@ class ClaudeCodeAdapter:
 
         return self._parse_output(stdout)
 
+    @staticmethod
+    def _kill_process_group(proc: subprocess.Popen):
+        """R3-P0-2: 终止整个进程组，先 SIGTERM 再 SIGKILL。
+
+        需与 Popen(start_new_session=True) 配合使用。
+        """
+        try:
+            pgid = os.getpgid(proc.pid)
+        except ProcessLookupError:
+            return
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+            time.sleep(0.5)
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # 进程组已退出
+        except OSError:
+            # killpg 失败时回退到直接 kill
+            proc.kill()
+
     def _parse_output(self, stdout: str) -> CCEngineResult:
-        """Parse the JSON output from CC engine stdout."""
-        # First try to find a complete JSON result line
-        for line in stdout.strip().split('\n'):
-            line = line.strip()
-            if line.startswith('{') and '"type":"result"' in line:
-                try:
-                    data = json.loads(line)
-                    return CCEngineResult(
-                        text=data.get("result", ""),
-                        raw=data,
-                        is_error=data.get("is_error", False),
-                        duration_ms=data.get("duration_ms", 0),
-                        cost_usd=data.get("total_cost_usd", 0.0),
-                        session_id=data.get("session_id", ""),
-                        num_turns=data.get("num_turns", 0),
-                        usage=data.get("usage", {}),
-                        model_usage=data.get("modelUsage", {}),
-                        errors=data.get("errors", []),
-                        stop_reason=data.get("stop_reason", ""),
-                    )
-                except json.JSONDecodeError:
-                    continue
+        """Parse the JSON output from CC engine stdout.
+
+        R3-P0-3: 使用 json.JSONDecoder().raw_decode() 做括号匹配解析，
+                 而非逐行 split('\\n')。JSON 值中的换行符不会再导致截断失败。
+        """
+        decoder = json.JSONDecoder()
+        text = stdout.strip()
+        idx = 0
+        length = len(text)
+        while idx < length:
+            # 跳过非 JSON 文本（引擎日志/进度行）
+            while idx < length and text[idx] not in '{[':
+                idx += 1
+            if idx >= length:
+                break
+            try:
+                data, consumed = decoder.raw_decode(text[idx:])
+            except json.JSONDecodeError:
+                # 当前位置不是合法 JSON 开头，前进一位继续找
+                idx += 1
+                continue
+            idx += consumed
+            if isinstance(data, dict) and data.get("type") == "result":
+                return CCEngineResult(
+                    text=data.get("result", ""),
+                    raw=data,
+                    is_error=data.get("is_error", False),
+                    duration_ms=data.get("duration_ms", 0),
+                    cost_usd=data.get("total_cost_usd", 0.0),
+                    session_id=data.get("session_id", ""),
+                    num_turns=data.get("num_turns", 0),
+                    usage=data.get("usage", {}),
+                    model_usage=data.get("modelUsage", {}),
+                    errors=data.get("errors", []),
+                    stop_reason=data.get("stop_reason", ""),
+                )
 
         # Fallback: return raw text
         return CCEngineResult(

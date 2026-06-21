@@ -1,0 +1,359 @@
+[
+  {
+    "file": "/home/llw/agentflow/run_store.py",
+    "line": 438,
+    "issue": "SQL注入：update_node() 使用 f-string 拼接用户可控的列名 (f\"UPDATE nodes SET {sets}\")。sets变量来自kwargs的key，攻击者可传入包含恶意的key（如 key=\"status='completed' WHERE 1=1--\"）来构造任意SQL语句",
+    "severity": "P0",
+    "fix": "使用白名单允许的字段名集合过滤所有key，拒绝任何不在白名单中的key"
+  },
+  {
+    "file": "/home/llw/agentflow/run_store.py",
+    "line": 864,
+    "issue": "SQL注入：retry_node() 中同样使用 f-string 拼接 SET 子句 (f\"UPDATE nodes SET {sets}\")，sets 中的字段名参数未经过滤",
+    "severity": "P0",
+    "fix": "使用白名单允许的字段名集合，或者重构为使用预定义SET子句"
+  },
+  {
+    "file": "/home/llw/agentflow/run_store.py",
+    "line": 993,
+    "issue": "SQL注入：update_workflow() 中同样使用 f-string 拼接 SET 子句 (f\"UPDATE workflows SET {sets}\")",
+    "severity": "P0",
+    "fix": "使用白名单允许的字段名集合：name, requirement, nodes_json, edges_json"
+  },
+  {
+    "file": "/home/llw/agentflow/provider_adapter.py",
+    "line": 287,
+    "issue": "并发死锁/瓶颈：_global_throttle() 在持有 _RATE_LIMIT_LOCK 锁的情况下调用 time.sleep(wait)。所有等待限流的线程同时持有锁，导致全系统序列化超过实际需要的时长",
+    "severity": "P0",
+    "fix": "先释放锁再 sleep，或者使用 asyncio 或定时器实现非阻塞限流"
+  },
+  {
+    "file": "/home/llw/agentflow/claude_code_adapter.py",
+    "line": 127,
+    "issue": "僵尸进程：proc.kill() 只杀死直接子进程，不会杀死子进程的子进程（例如 bun → node → child processes）。CC引擎可能启动后台工作进程，kill后变成孤儿/僵尸进程",
+    "severity": "P0",
+    "fix": "使用 preexec_fn=os.setsid 创建进程组，然后用 os.killpg() 杀死整个进程组"
+  },
+  {
+    "file": "/home/llw/agentflow/claude_code_adapter.py",
+    "line": 164,
+    "issue": "IPC协议解析错误：_parse_output() 使用 stdout.strip().split('\\n') 逐行解析 JSON。如果 JSON 字符串值中包含换行符，会被错误地截断成多行，导致解析失败",
+    "severity": "P0",
+    "fix": "使用逐字符括号匹配解析JSON块，或使用 ijson 等流式JSON解析器"
+  },
+  {
+    "file": "/home/llw/agentflow/claude_code_adapter.py",
+    "line": 87,
+    "issue": "安全风险：--permission-mode=bypassPermissions 自动批准所有文件系统/Shell操作，CC Agent 可在宿主机上执行任意操作",
+    "severity": "P0",
+    "fix": "删除 bypassPermissions 标志，使用细粒度权限（白名单文件路径+命令）"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 1556,
+    "issue": "SSE连接断开检测缺失：handle_execute_stream() 用 time.sleep(1) 轮询，但客户端断开连接后 HTTP 线程仍在运行，直到 max_wait=600s 才退出。仅末尾 catch BrokenPipeError，轮询循环中无断开检测",
+    "severity": "P0",
+    "fix": "每次 wfile.write() 后检查连接状态，或使用非阻塞I/O + 可中断的睡眠"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 97,
+    "issue": "工作空间无限增长：_run_workspace() 在 .agentflow/workspaces/run_id 创建目录，但没有清理机制。每次运行都永久保留，磁盘空间耗尽",
+    "severity": "P0",
+    "fix": "添加 workspace 清理策略：保留最近N次运行的工作空间，或配置TTL自动清理"
+  },
+  {
+    "file": "/home/llw/agentflow/agent_runner.py",
+    "line": 729,
+    "issue": "临时目录泄露：tempfile_get() 在 /tmp 创建目录，但从不清理。每次工具调用都产生一个永久残留目录",
+    "severity": "P1",
+    "fix": "使用 tempfile.TemporaryDirectory() 或注册 atexit/shutdown 清理"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 848,
+    "issue": "路径遍历漏洞：scope_file 路径使用 run_id 和 node_id 直接拼接路径，如果 node_id 包含 ../ 可导致路径穿越",
+    "severity": "P0",
+    "fix": "对 run_id 和 node_id 进行路径安全过滤，拒绝含 '..' 或 '/' 的 ID"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 386,
+    "issue": "线程池泄漏：每次 while 循环迭代都创建新的 ThreadPoolExecutor，如果不释放可积累大量线程",
+    "severity": "P1",
+    "fix": "在 while 循环外部创建线程池并复用，或使用全局线程池"
+  },
+  {
+    "file": "/home/llw/agentflow/agent_runner.py",
+    "line": 855,
+    "issue": "环境变量竞态条件：os.environ.setdefault() 在多线程并发执行 _execute_one_node 时，多个线程同时修改进程全局环境变量",
+    "severity": "P0",
+    "fix": "完全去掉 os.environ 写入，改为通过子进程的 env 参数传递环境变量"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 275,
+    "issue": "死循环风险：while changed: 循环内每次都 store.get_run(run_id) 全量读取数据库，且在大型 DAG 上可能迭代很多次",
+    "severity": "P1",
+    "fix": "增加最大迭代次数保护（如 max_iterations=1000），优先使用 SQL 批量更新"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 406,
+    "issue": "硬编码重试次数：max_attempts = 2 硬编码，无法通过节点参数或环境变量配置",
+    "severity": "P2",
+    "fix": "从 node_params 读取 max_retries 配置，默认 2"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 271,
+    "issue": "跳过传播逻辑错误：status_check 使用 counts.get('failed') 和 counts.get('skipped')，但如果一个节点既是 failed 又有 pending 下游，算法可能无法正确处理",
+    "severity": "P1",
+    "fix": "检查具体节点的状态，对每个 failed 节点递归标记其所有下游为 skipped"
+  },
+  {
+    "file": "/home/llw/agentflow/run_event_bus.py",
+    "line": 119,
+    "issue": "事件丢失：subscribe() 默认 after_sequence=None 时从最新序列开始订阅，跳过所有已有事件。新连入的 SSE 客户端会丢失历史事件",
+    "severity": "P1",
+    "fix": "subscribe() 默认 after_sequence=-1 以重放所有事件，或在文档中明确说明行为"
+  },
+  {
+    "file": "/home/llw/agentflow/run_event_bus.py",
+    "line": 69,
+    "issue": "事件数据丢失：bounded memory 裁剪时简单截断前 excess 个事件，没有将这些事件持久化到数据库的机制",
+    "severity": "P1",
+    "fix": "在 prune 前将过期事件 flush 到 DB，或增大 max_events_per_run 默认值到 10000"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 1705,
+    "issue": "性能问题：sent_sequences 超过 5000 时执行 set(sorted(sent_sequences)[-1000:])，复杂度 O(n log n)，频繁触发",
+    "severity": "P2",
+    "fix": "使用 collections.deque 或手动维护固定大小的有序集合"
+  },
+  {
+    "file": "/home/llw/agentflow/sandbox_runner.py",
+    "line": 174,
+    "issue": "Docker工作区只读挂载：read_only_rootfs=True 时使用 :ro 只读挂载工作区，但 Agent 需要在工作区写入文件，导致所有写操作失败",
+    "severity": "P0",
+    "fix": "工作区始终使用读写挂载（移除 :ro），仅对根文件系统设置 --read-only"
+  },
+  {
+    "file": "/home/llw/agentflow/sandbox_runner.py",
+    "line": 203,
+    "issue": "Docker容器泄漏：超时后执行 docker rm -f 作为独立 subprocess，如果该子进程也超时，容器将永久泄漏",
+    "severity": "P1",
+    "fix": "在 Popen 的 try/finally 块中确保容器被清理，增加重试逻辑"
+  },
+  {
+    "file": "/home/llw/agentflow/cc_agent_runner.py",
+    "line": 95,
+    "issue": "流式契约破坏：stream_execute() 调用同步的 self.execute() 等待全部完成，然后一次性分割段落 yield。这不是真正的流式，事件总线收不到中间事件",
+    "severity": "P1",
+    "fix": "实现真正的流式执行，通过 CC adapter 的逐 chunk 回调 yield 事件"
+  },
+  {
+    "file": "/home/llw/agentflow/cc_agent_runner.py",
+    "line": 116,
+    "issue": "输出截断：stream_execute() 最多只 send 10段结果，超过部分被静默丢弃",
+    "severity": "P2",
+    "fix": "移除段落数量限制，或通过事件总线流式传输完整输出"
+  },
+  {
+    "file": "/home/llw/agentflow/supervisor.py",
+    "line": 179,
+    "issue": "会话内存泄漏：_sessions 只在添加新会话且超过100个时才清理。如果长期只有50个会话，过期会话永不清除",
+    "severity": "P1",
+    "fix": "启动独立后台线程定期清理过期会话，或每次 process() 调用时检查"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 1294,
+    "issue": "重复代码/不一致：handle_decompose() 手动解析 JSON body 而不是使用统一的 _read_json_body() 方法，缺少 MAX_BODY_SIZE 一致性检查",
+    "severity": "P2",
+    "fix": "改用 self._read_json_body() 统一 body 解析入口"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 1454,
+    "issue": "重复代码：handle_execute() 手动解析 body，与 _read_json_body() 重复",
+    "severity": "P2",
+    "fix": "改用 self._read_json_body()"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 1516,
+    "issue": "重复代码：handle_execute_stream() 手动解析 body",
+    "severity": "P2",
+    "fix": "改用 self._read_json_body()"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 2502,
+    "issue": "重复代码：handle_supervisor() 手动解析 body",
+    "severity": "P2",
+    "fix": "改用 self._read_json_body()"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 2539,
+    "issue": "双worker风险：hasattr + attribute 标记防止后台 worker 重复启动。模块热重载时 hasattr 返回 True 但线程已死，worker 无法重新启动",
+    "severity": "P2",
+    "fix": "改用线程安全标志（如 threading.Event）+ 定期健康检查重启机制"
+  },
+  {
+    "file": "/home/llw/agentflow/artifact_broker.py",
+    "line": 149,
+    "issue": "访问控制绕过：_check_access() 在无 downstream 缓存时默认返回 True（放行），这意味着任何下游节点可以读取任意上游的 artifact",
+    "severity": "P1",
+    "fix": "无缓存时通过 RunStore 实时查询依赖关系，而不是默认放行"
+  },
+  {
+    "file": "/home/llw/agentflow/artifact_broker.py",
+    "line": 229,
+    "issue": "artifact 内容未清理：delete_run_artifacts() 只删除 registry 中的条目，不删除 blobs 目录中的实际文件内容",
+    "severity": "P1",
+    "fix": "删除 registry 条目的同时删除对应的 blob 文件（注意引用计数）"
+  },
+  {
+    "file": "/home/llw/agentflow/run_store.py",
+    "line": 192,
+    "issue": "线程不安全：_init_db() 临时替换模块级全局变量 DB_PATH/RUNS_DIR，此操作没有 _write_lock 保护，并发测试中可能触发竞态条件",
+    "severity": "P1",
+    "fix": "临时替换操作也受 _write_lock 保护，或使用线程本地存储"
+  },
+  {
+    "file": "/home/llw/agentflow/run_store.py",
+    "line": 28,
+    "issue": "单锁瓶颈：所有写操作共享一个 threading.Lock，即使操作不同的 run_id 也必须串行",
+    "severity": "P2",
+    "fix": "使用分段锁（per-run 锁）或读写锁（共享锁用于读）"
+  },
+  {
+    "file": "/home/llw/agentflow/run_store.py",
+    "line": 33,
+    "issue": "SQLite并发隐患：check_same_thread=False 允许跨线程使用连接，但每次操作只在一个线程内使用，不应需要这个设置。如果有 bug 导致连接泄漏到其他线程，会触发 sqlite3 异常",
+    "severity": "P2",
+    "fix": "移除 check_same_thread=False，每次在创建线程内使用和关闭连接"
+  },
+  {
+    "file": "/home/llw/agentflow/run_store.py",
+    "line": 1074,
+    "issue": "事件持久化使用 INSERT OR REPLACE：如果 sequence 冲突，会静默覆盖已有事件，导致事件丢失",
+    "severity": "P1",
+    "fix": "使用 INSERT OR IGNORE + 单独检查，或使用 INSERT ... ON CONFLICT DO NOTHING"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 77,
+    "issue": "事件持久化的非原子性：_publish_event() 先写入内存 EventBus 再持久化 DB。如果进程在两者之间崩溃，事件在内存中但不在 DB 中。重启后该事件丢失",
+    "severity": "P1",
+    "fix": "先写入 DB 再写入 EventBus，或使用 Write-Ahead Log 保证持久化"
+  },
+  {
+    "file": "/home/llw/agentflow/supervisor.py",
+    "line": 130,
+    "issue": "AgentRunner 缓存泄漏：_agent_cache 使用 model 名作为 key，每次调用不同的 model 都会创建新实例，永不释放",
+    "severity": "P2",
+    "fix": "限制缓存大小，添加 LRU 淘汰策略"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 1270,
+    "issue": "整数溢出风险：_read_json_body() 中 Content-Length 转换为 int，如果恶意客户端发送超大数值，可能引发 MemoryError",
+    "severity": "P1",
+    "fix": "添加 Content-Length 上限检查（已在 L1276 检查但应在 int 转换前检查字符串长度）"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 108,
+    "issue": "目录遍历：_copy_tree_contents() 使用 os.listdir(src) 遍历内容，如果 src 包含符号链接指向系统目录，可复制敏感文件",
+    "severity": "P1",
+    "fix": "在遍历前检查并跳过符号链接（使用 os.path.islink()）"
+  },
+  {
+    "file": "/home/llw/agentflow/agent_runner.py",
+    "line": 615,
+    "issue": "Shell 注入风险：subprocess.run(cmd, shell=True, ...) 使用 shell=True 执行 Agent 提供的命令，虽然通过 _is_command_safe 检查，但黑名单模式总有遗漏",
+    "severity": "P1",
+    "fix": "使用 shell=False + 白名单命令列表，或使用 Docker 容器隔离执行"
+  },
+  {
+    "file": "/home/llw/agentflow/quality_gate.py",
+    "line": 118,
+    "issue": "Shell 注入风险：validate_commands 使用 shell=True 执行，命令来自用户/Agent 配置",
+    "severity": "P1",
+    "fix": "对 validation_commands 使用相同的安全检查，并在 Docker 容器内执行"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 184,
+    "issue": "后台工作器缺乏异常隔离：_background_worker() 的 while True 循环中如果 _execute_run 抛出严重异常（如 SystemExit），整个 worker 线程死亡",
+    "severity": "P1",
+    "fix": "添加内部 try/except 捕获 SystemExit 和 KeyboardInterrupt，确保 worker 永不退出"
+  },
+  {
+    "file": "/home/llw/agentflow/run_store.py",
+    "line": 547,
+    "issue": "非原子操作：increment_dag_version() 先 UPDATE 再 SELECT 读取新版本号，两个操作之间另一个线程可能再次递增版本号，返回不准确的值",
+    "severity": "P1",
+    "fix": "使用 RETURNING 子句（SQLite 3.35+）或直接返回 dag_version+1 的本地计算结果"
+  },
+  {
+    "file": "/home/llw/agentflow/run_store.py",
+    "line": 430,
+    "issue": "update_node 不验证字段名：kwargs 中任何 key 都直接用于 SET 子句，可传入 status 等字段但不在白名单中",
+    "severity": "P2",
+    "fix": "定义 ALLOWED_NODE_FIELDS 白名单，过滤所有不在白名单中的 key"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 1536,
+    "issue": "SSE 轮询效率低：1秒间隔轮询整个 run 状态，对于大型 DAG 频繁执行 DB 查询",
+    "severity": "P2",
+    "fix": "使用 RunEventBus.subscribe() 事件驱动的推送替代轮询"
+  },
+  {
+    "file": "/home/llw/agentflow/run_store.py",
+    "line": 1117,
+    "issue": "单例模式非线程安全：get_store() 使用简单的 if _db is None 检查，没有锁保护。多个线程首次同时调用可能创建多个实例",
+    "severity": "P2",
+    "fix": "使用 threading.Lock 保护第一次初始化，或使用模块导入时立即初始化"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 104,
+    "issue": "shutil.copytree 符号链接问题：_copy_tree_contents 不处理 src 中的符号链接，如果符号链接指向大文件，会复制整个文件",
+    "severity": "P2",
+    "fix": "使用 shutil.copy2 时指定 follow_symlinks=False"
+  },
+  {
+    "file": "/home/llw/agentflow/agentflow-backend.py",
+    "line": 225,
+    "issue": "下游缓存陈旧：在 DAG 突变后重新设置 broker 下游缓存，但如果突变发生在 node 执行过程中，缓存可能在突变完成前被使用",
+    "severity": "P1",
+    "fix": "在 DAG 版本变更时增加屏障，确保所有 running 节点完成后再刷新缓存"
+  },
+  {
+    "file": "/home/llw/agentflow/provider_adapter.py",
+    "line": 119,
+    "issue": "重试指数退避错误：DEFAULT_RETRY_DELAY ** attempt 的退避过小（1.5^0=1, 1.5^1=1.5, 1.5^2=2.25秒），对 5xx 服务器错误恢复不够",
+    "severity": "P2",
+    "fix": "使用 math.pow(2, attempt) * 初始延迟实现指数退避"
+  },
+  {
+    "file": "/home/llw/agentflow/provider_adapter.py",
+    "line": 130,
+    "issue": "429 退避策略：30 * (2 ** attempt) 对于 attempt=4 时退避 480秒（8分钟），客户端可能早已超时断开",
+    "severity": "P2",
+    "fix": "设置最大退避上限（如 120秒），超过上限后返回错误而不是继续等待"
+  },
+  {
+    "file": "/home/llw/agentflow/agent_runner.py",
+    "line": 207,
+    "issue": "execute() 忽略 profile 参数：execute 方法接收 profile 参数但未使用，profile 仅在 stream_execute 的 _system_prompt 中使用",
+    "severity": "P2",
+    "fix": "在 execute() 中传递 profile 给 stream_execute() 或在文档中说明"
+  }
+]

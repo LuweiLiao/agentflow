@@ -41,7 +41,9 @@ function useDebouncedField<T>(
   onCommitRef.current = onCommit;
 
   // Keep local in sync when the upstream value changes (e.g. node switch).
+  // R3-BUG-P0-001: clear pending debounce timer before overwriting local state
   useEffect(() => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
     setLocal(value);
   }, [value]);
 

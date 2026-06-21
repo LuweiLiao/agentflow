@@ -112,16 +112,13 @@ function CanvasInner() {
   const inspectorWrapRef = useRef<HTMLDivElement>(null);
 
   /** 保存当前状态到 undo 栈（通过 ref 读取最新 state，避免 deps 抖动） */
+  // R3-BUG-P1-006: deep compare with JSON.stringify instead of just length
   const pushUndo = useCallback(() => {
     if (undoLockRef.current) return;
     const cur = stateRef.current;
     setUndoStack((prev) => {
       const last = prev[prev.length - 1];
-      if (
-        last &&
-        last.nodes.length === cur.nodes.length &&
-        last.edges.length === cur.edges.length
-      ) {
+      if (last && JSON.stringify(last.nodes) === JSON.stringify(cur.nodes) && JSON.stringify(last.edges) === JSON.stringify(cur.edges)) {
         return prev; // 无变化则跳过
       }
       const snapshot = { nodes: [...cur.nodes], edges: [...cur.edges] };
@@ -131,38 +128,47 @@ function CanvasInner() {
   }, []);
 
   /** 撤销 */
+  // R3-BUG-P0-002: split nested setState into sequential calls
   const handleUndo = useCallback(() => {
     const cur = stateRef.current;
     setUndoStack((prev) => {
       if (prev.length === 0) return prev;
-      const prevState = prev[prev.length - 1];
-      setRedoStack((r) => [...r.slice(-(UNDO_MAX - 1)), { nodes: [...cur.nodes], edges: [...cur.edges] }]);
-      undoLockRef.current = true;
-      setNodes(prevState.nodes);
-      setEdges(prevState.edges);
-      setTimeout(() => { undoLockRef.current = false; }, 0);
       return prev.slice(0, -1);
     });
-  }, [setNodes, setEdges]);
+    const prevStack = undoStack;
+    if (prevStack.length === 0) return;
+    const prevState = prevStack[prevStack.length - 1];
+    setRedoStack((r) => [...r.slice(-(UNDO_MAX - 1)), { nodes: [...cur.nodes], edges: [...cur.edges] }]);
+    undoLockRef.current = true;
+    setNodes(prevState.nodes);
+    setEdges(prevState.edges);
+    setTimeout(() => { undoLockRef.current = false; }, 0);
+  }, [setNodes, setEdges, undoStack]);
 
   /** 重做 */
+  // R3-BUG-P0-002: split nested setState into sequential calls
   const handleRedo = useCallback(() => {
     const cur = stateRef.current;
     setRedoStack((prev) => {
       if (prev.length === 0) return prev;
-      const nextState = prev[prev.length - 1];
-      setUndoStack((u) => [...u.slice(-(UNDO_MAX - 1)), { nodes: [...cur.nodes], edges: [...cur.edges] }]);
-      undoLockRef.current = true;
-      setNodes(nextState.nodes);
-      setEdges(nextState.edges);
-      setTimeout(() => { undoLockRef.current = false; }, 0);
       return prev.slice(0, -1);
     });
-  }, [setNodes, setEdges]);
+    const prevRedoStack = redoStack;
+    if (prevRedoStack.length === 0) return;
+    const nextState = prevRedoStack[prevRedoStack.length - 1];
+    setUndoStack((u) => [...u.slice(-(UNDO_MAX - 1)), { nodes: [...cur.nodes], edges: [...cur.edges] }]);
+    undoLockRef.current = true;
+    setNodes(nextState.nodes);
+    setEdges(nextState.edges);
+    setTimeout(() => { undoLockRef.current = false; }, 0);
+  }, [setNodes, setEdges, redoStack]);
 
   // ── 键盘快捷键 ──
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // R3-BUG-P1-004: skip when focus is in an input/textarea (don't hijack native undo)
+      const tag = document.activeElement?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea") return;
       if ((e.ctrlKey || e.metaKey) && e.key === "z") {
         e.preventDefault();
         if (e.shiftKey) handleRedo();
@@ -383,6 +389,7 @@ function CanvasInner() {
     else addLog("▶ 已继续");
   }, [addLog]);
 
+  // R3-BUG-P1-008: clear running node states on stop
   const handleStop = useCallback(async () => {
     addLog("⏹ 正在停止执行...");
     try {
@@ -400,8 +407,16 @@ function CanvasInner() {
     pausedQueueRef.current = [];
     setIsPaused(false);
     setIsRunning(false);
+    // Reset all running nodes back to pending
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.data.status === "running"
+          ? { ...n, data: { ...n.data, status: "pending" as NodeStatus } }
+          : n
+      )
+    );
     addLog("⏹ 已停止");
-  }, [addLog]);
+  }, [addLog, setNodes]);
 
   // ── Signal-flow animation: animate outgoing edges of running/completed nodes ──
   // Recompute edge `animated` flags whenever node statuses change.
@@ -481,6 +496,11 @@ function CanvasInner() {
   const onConnect = useCallback(
     (connection: Connection) => {
       if (connection.source === connection.target) return;
+      // R3-BUG-P0-003: compute labels before setEdges so addLog can use them after
+      const srcNode = stateRef.current.nodes.find((n) => n.id === connection.source);
+      const tgtNode = stateRef.current.nodes.find((n) => n.id === connection.target);
+      const srcLabel = srcNode?.data.label || connection.source || "";
+      const tgtLabel = tgtNode?.data.label || connection.target || "";
       pushUndo();
       setEdges((eds) => {
         const alreadyExists = eds.some(
@@ -508,11 +528,7 @@ function CanvasInner() {
         }
 
         // Simulink-style edge: orthogonal routing, source-colored, hover label.
-        const srcNode = stateRef.current.nodes.find((n) => n.id === connection.source);
-        const tgtNode = stateRef.current.nodes.find((n) => n.id === connection.target);
         const srcColor = srcNode?.data.color || DEFAULT_COLOR;
-        const srcLabel = srcNode?.data.label || connection.source || "";
-        const tgtLabel = tgtNode?.data.label || connection.target || "";
         const newEdge = makeSignalEdge(
           connection.source!,
           connection.target!,
@@ -520,9 +536,9 @@ function CanvasInner() {
           eds.length,
           `${srcLabel} → ${tgtLabel}`
         );
-        addLog(`🔗 连线: ${srcLabel} → ${tgtLabel}`);
         return addEdge(newEdge, eds);
       });
+      addLog(`🔗 连线: ${srcLabel} → ${tgtLabel}`);
     },
     [setEdges, addLog, pushUndo]
   );
@@ -561,6 +577,14 @@ function CanvasInner() {
     [pushUndo, setNodes, setEdges, addLog]
   );
 
+  // R3-BUG-P1-005: capture undo snapshot when React Flow deletes nodes via keyboard
+  const onNodesDelete = useCallback(
+    (_deleted: Node<AgentNodeData>[]) => {
+      pushUndo();
+    },
+    [pushUndo]
+  );
+
   // ── 导出/导入 JSON ──
   const handleExport = useCallback(() => {
     const data = {
@@ -589,6 +613,25 @@ function CanvasInner() {
       try {
         const text = await file.text();
         const data = JSON.parse(text);
+        // R3-BUG-P1-012: basic schema validation
+        if (!data || typeof data !== "object") {
+          addLog(`❌ 导入失败: 无效的工作流格式`);
+          return;
+        }
+        if (!Array.isArray(data.nodes)) {
+          addLog(`❌ 导入失败: 缺少 nodes 数组`);
+          return;
+        }
+        if (!Array.isArray(data.edges)) {
+          addLog(`❌ 导入失败: 缺少 edges 数组`);
+          return;
+        }
+        for (const n of data.nodes) {
+          if (!n.id || !n.label) {
+            addLog(`❌ 导入失败: 节点缺少 id 或 label`);
+            return;
+          }
+        }
         if (data.nodes) {
           // F16 FIX: validate imported edges for cycles before applying
           const importedEdges = data.edges || [];
@@ -632,6 +675,7 @@ function CanvasInner() {
   }, [loadWorkflow, addLog, updateRequirement]);
 
   // ── 重置 ──
+  // R3-BUG-P1-007: reset isRunning and isPaused states
   const handleReset = useCallback(() => {
     pushUndo();
     setNodes([]);
@@ -644,8 +688,12 @@ function CanvasInner() {
       sseController.current.abort();
       sseController.current = null;
     }
+    isPausedRef.current = false;
+    pausedQueueRef.current = [];
+    setIsRunning(false);
+    setIsPaused(false);
     addLog("🔄 已重置");
-  }, [pushUndo, setNodes, setEdges, addLog]);
+  }, [pushUndo, setNodes, setEdges, addLog, setIsRunning, setIsPaused]);
 
   // ── 示例选择 (B7 — controlled empty value → resets to placeholder) ──
   const handleExample = useCallback(
@@ -939,6 +987,7 @@ function CanvasInner() {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onNodesDelete={onNodesDelete}
             isValidConnection={isValidConnection}
             onNodeClick={onNodeClick}
             onPaneClick={onPaneClick}

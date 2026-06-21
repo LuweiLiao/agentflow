@@ -44,10 +44,25 @@ DEFAULT_AGENT_MODEL = os.environ.get("AGENT_MODEL", "deepseek-v4-flash")
 # 服务监听地址
 HOST = os.environ.get("AGENTFLOW_HOST", "127.0.0.1")
 
+# R3-P0-7: 在模块加载时一次性设置 Agent 所需的环境变量（只写一次，
+#          消除并发 setdefault 竞态）。Agent 进程内通过 os.environ.get 读取。
+os.environ.setdefault("AGENTFLOW_API_URL", f"http://{HOST}:{PORT}")
+
 # 全局并发控制
 MAX_CONCURRENT_AGENTS = int(os.environ.get("AGENTFLOW_MAX_CONCURRENT", "10"))
 MAX_BODY_SIZE = int(os.environ.get("AGENTFLOW_MAX_BODY_SIZE", str(512 * 1024)))
 _global_semaphore = threading.Semaphore(MAX_CONCURRENT_AGENTS)
+
+
+def _validate_id(id_str: str) -> bool:
+    """R3-P0-4: Reject IDs containing path traversal characters.
+
+    Used to validate run_id / node_id / workflow_id before they are joined
+    into filesystem paths. Any ID containing '..', '/', or '\\' is rejected.
+    """
+    if not id_str:
+        return False
+    return ".." not in id_str and "/" not in id_str and "\\" not in id_str
 
 # API 鉴权
 AGENTFLOW_API_TOKEN = os.environ.get("AGENTFLOW_API_TOKEN", "")
@@ -98,7 +113,46 @@ def _run_workspace(run_id: str) -> str:
     """Return durable per-run workspace path. Never use ephemeral /tmp for run artifacts."""
     path = os.path.join(SCRIPT_DIR, ".agentflow", "workspaces", run_id)
     os.makedirs(path, exist_ok=True)
+    # R3-P0-10: 启动时清理超过 24 小时的旧 workspace 目录，防止磁盘无限增长。
+    _cleanup_old_workspaces()
     return path
+
+
+# R3-P0-10: workspace 清理状态锁，避免多线程并发清理。
+_workspace_cleanup_lock = threading.Lock()
+_workspace_cleanup_done = False
+
+
+def _cleanup_old_workspaces(max_age_seconds: int = 86400):
+    """删除超过 max_age_seconds 的 workspace 子目录（best-effort）。
+
+    使用模块级标志确保每次进程生命周期内只执行一次全量扫描，
+    后续由操作系统或外部 cron 处理。异常静默忽略。
+    """
+    global _workspace_cleanup_done
+    if _workspace_cleanup_done:
+        return
+    with _workspace_cleanup_lock:
+        if _workspace_cleanup_done:
+            return
+        _workspace_cleanup_done = True
+        ws_root = os.path.join(SCRIPT_DIR, ".agentflow", "workspaces")
+        if not os.path.isdir(ws_root):
+            return
+        now = time.time()
+        try:
+            for name in os.listdir(ws_root):
+                dpath = os.path.join(ws_root, name)
+                if not os.path.isdir(dpath):
+                    continue
+                try:
+                    mtime = os.path.getmtime(dpath)
+                except OSError:
+                    continue
+                if (now - mtime) > max_age_seconds:
+                    shutil.rmtree(dpath, ignore_errors=True)
+        except OSError:
+            pass
 
 
 def _copy_tree_contents(src: str, dst: str):
@@ -227,6 +281,9 @@ def _execute_run(run_id: str):
         downstream_ids = set(store.get_dependents(run_id, nid))
         broker.set_downstream_cache(run_id, nid, downstream_ids)
 
+    # R3-P0-11: 线程池在 while 循环外部创建并复用，避免每次 batch 都
+    #          创建/销毁 ThreadPoolExecutor 造成线程资源泄漏。
+    _run_pool = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_AGENTS)
     try:
         dag_version = store.get_dag_version(run_id)
         while not store.all_nodes_done(run_id):
@@ -273,8 +330,12 @@ def _execute_run(run_id: str):
                     has_failure = store.count_status(run_id).get("skipped", 0) > 0
                 if has_failure:
                     # 递归标记所有 downstream 为 skipped
+                    # R3-P0-12: 限制最大迭代次数，防止 DAG 异常时死循环。
+                    _MAX_SKIP_ITER = 1000
                     changed = True
-                    while changed:
+                    for _skip_iter in range(_MAX_SKIP_ITER):
+                        if not changed:
+                            break
                         changed = False
                         current_nodes = store.get_run(run_id).get("nodes", [])
                         for n in current_nodes:
@@ -290,6 +351,8 @@ def _execute_run(run_id: str):
                                                 result=f"上游节点 {uid} {un['status']}，跳过")
                                             changed = True
                                             break
+                    else:
+                        print(f"[AsyncExec] WARNING: skip-propagation hit max iterations ({_MAX_SKIP_ITER}) for run {run_id}", file=sys.stderr)
                     # 再检查一次
                     ready = store.get_pending_nodes(run_id)
                 if not ready:
@@ -385,8 +448,8 @@ def _execute_run(run_id: str):
                 # Single node — no need for thread pool overhead
                 exec_results = [_exec_node(exec_args[0])] if exec_args else []
             else:
-                with ThreadPoolExecutor(max_workers=min(len(exec_args), MAX_CONCURRENT_AGENTS)) as pool:
-                    exec_results = list(pool.map(_exec_node, exec_args))
+                # R3-P0-11: 复用循环外创建的 _run_pool，而非每次创建新池。
+                exec_results = list(_run_pool.map(_exec_node, exec_args))
 
             # Phase 3: Post-process results sequentially (quality gate, store, events)
             dag_bumped = False
@@ -594,6 +657,9 @@ def _execute_run(run_id: str):
     except Exception as e:
         store.update_run_status(run_id, "failed", str(e)[:500])
         print(f"[AsyncExec] Run {run_id} error: {e}", file=sys.stderr)
+    finally:
+        # R3-P0-11: 确保线程池在 run 结束后关闭（无论成功/失败/异常）。
+        _run_pool.shutdown(wait=False)
 
 
 def _run_evolution_analysis(run_id: str) -> dict:
@@ -845,15 +911,20 @@ def _execute_one_node(node_row: dict, task, node_dir: str, default_model: str,
             "api_url": f"http://{HOST}:{PORT}",
         }
         scope_dir = os.path.dirname(node_dir) if node_dir else "/tmp"
-        scope_file = os.path.join(scope_dir, f".scope_{run_id or 'x'}_{node_row.get('node_id', 'x')}.json")
+        # R3-P0-4: 校验 run_id / node_id 不含路径穿越字符，防止写入任意路径。
+        safe_run = run_id if (not run_id or _validate_id(run_id)) else "x"
+        safe_node = node_row.get("node_id", "x")
+        if not _validate_id(safe_node):
+            safe_node = "x"
+        scope_file = os.path.join(scope_dir, f".scope_{safe_run}_{safe_node}.json")
         try:
             with open(scope_file, "w") as sf:
                 json.dump(scope_data, sf)
         except OSError:
             pass  # scope file is best-effort
-        # Set AGENTFLOW_SCOPE_FILE as the ONLY env var (path, not values)
-        os.environ.setdefault("AGENTFLOW_SCOPE_FILE_DIR", scope_dir)
-        os.environ.setdefault("AGENTFLOW_API_URL", f"http://{HOST}:{PORT}")
+        # R3-P0-7: 不再在每次 _execute_one_node 调用中 setdefault 环境变量，
+        #          消除多线程并发写 os.environ 的竞态。AGENTFLOW_API_URL 已在
+        #          模块初始化时设置；scope 路径由 per-node 文件传递。
 
         if agent_type == "claude-code":
             from cc_agent_runner import CCAgentRunner
@@ -1037,6 +1108,17 @@ def _build_workflow_edges(nodes_data: list) -> list:
 class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
     server_version = "AgentFlow/3"
 
+    def _check_id(self, id_str: str, label: str = "id") -> str | None:
+        """R3-P0-4: Validate a path parameter ID for traversal safety.
+
+        Returns the ID if valid, otherwise sends a 400 and returns None
+        (the caller should ``return`` immediately on None).
+        """
+        if not _validate_id(id_str):
+            self._send_json(400, {"error": f"Invalid {label}: path traversal rejected"})
+            return None
+        return id_str
+
     def _cors_headers(self, origin: str = "") -> dict:
         allowed = os.environ.get("AGENTFLOW_ALLOWED_ORIGIN", "")
         if allowed and origin and origin == allowed:
@@ -1168,21 +1250,38 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             return
         if path.startswith("/api/workflows/"):
             wf_id = path.split("/")[-1]
+            # R3-P0-4: 校验 workflow_id 不含路径穿越字符
+            if not _validate_id(wf_id):
+                self._send_json(400, {"error": "Invalid workflow_id"})
+                return
             self._handle_get_workflow(wf_id)
             return
         if path.startswith("/api/runs/"):
             parts = path.strip("/").split("/")
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "events":
+                # R3-P0-4
+                if not _validate_id(parts[2]):
+                    self._send_json(400, {"error": "Invalid run_id"}); return
                 self._handle_run_events(parts[2])
             elif len(parts) == 4 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "nodes":
+                if not _validate_id(parts[2]):
+                    self._send_json(400, {"error": "Invalid run_id"}); return
                 self._handle_get_run_nodes(parts[2])
             elif len(parts) == 4 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "edges":
+                if not _validate_id(parts[2]):
+                    self._send_json(400, {"error": "Invalid run_id"}); return
                 self._handle_get_run_edges(parts[2])
             elif len(parts) == 4 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "evolution":
+                if not _validate_id(parts[2]):
+                    self._send_json(400, {"error": "Invalid run_id"}); return
                 self._handle_get_evolution(parts[2])
             elif len(parts) == 5 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "nodes":
+                if not _validate_id(parts[2]) or not _validate_id(parts[4]):
+                    self._send_json(400, {"error": "Invalid run_id/node_id"}); return
                 self._handle_get_run_node(parts[2], parts[4])
             elif len(parts) == 3 and parts[0] == "api" and parts[1] == "runs":
+                if not _validate_id(parts[2]):
+                    self._send_json(400, {"error": "Invalid run_id"}); return
                 self._handle_get_run(parts[2])
             else:
                 self.send_error(404)
@@ -1207,6 +1306,13 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             self._handle_webhook_trigger(token)
         else:
             parts = path.strip("/").split("/")
+            # R3-P0-4: 校验所有从 URL 提取的 run_id / node_id
+            if parts[0] == "api" and parts[1] == "runs" and len(parts) >= 3:
+                if not _validate_id(parts[2]):
+                    self._send_json(400, {"error": "Invalid run_id"}); return
+                if len(parts) >= 5 and parts[3] == "nodes":
+                    if not _validate_id(parts[4]):
+                        self._send_json(400, {"error": "Invalid node_id"}); return
             # POST /api/runs/{rid}/nodes — 新增节点
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "nodes":
                 self._handle_add_node(parts[2])
@@ -1235,6 +1341,9 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         path = _api_path(self.path)
         if path.startswith("/api/workflows/"):
             wf_id = path.split("/")[-1]
+            # R3-P0-4
+            if not _validate_id(wf_id):
+                self._send_json(400, {"error": "Invalid workflow_id"}); return
             self._handle_update_workflow(wf_id)
         else:
             self.send_error(404)
@@ -1243,7 +1352,10 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         path = _api_path(self.path)
         # PATCH /api/runs/{rid}/nodes/{nid}
         parts = path.strip("/").split("/")
+        # R3-P0-4
         if len(parts) == 5 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "nodes":
+            if not _validate_id(parts[2]) or not _validate_id(parts[4]):
+                self._send_json(400, {"error": "Invalid run_id/node_id"}); return
             self._handle_patch_node(parts[2], parts[4])
         else:
             self.send_error(404)
@@ -1252,9 +1364,19 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         path = _api_path(self.path)
         if path.startswith("/api/workflows/"):
             wf_id = path.split("/")[-1]
+            # R3-P0-4
+            if not _validate_id(wf_id):
+                self._send_json(400, {"error": "Invalid workflow_id"}); return
             self._handle_delete_workflow(wf_id)
         else:
             parts = path.strip("/").split("/")
+            # R3-P0-4: 校验 run_id / node_id
+            if parts[0] == "api" and parts[1] == "runs" and len(parts) >= 3:
+                if not _validate_id(parts[2]):
+                    self._send_json(400, {"error": "Invalid run_id"}); return
+                if len(parts) >= 5 and parts[3] == "nodes":
+                    if not _validate_id(parts[4]):
+                        self._send_json(400, {"error": "Invalid node_id"}); return
             # DELETE /api/runs/{rid} — cancel/stop a run (F68 FIX)
             if len(parts) == 3 and parts[0] == "api" and parts[1] == "runs":
                 self._handle_delete_run(parts[2])
@@ -1551,6 +1673,8 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         poll_interval = 1.0  # 1s 轮询
         max_wait = 600  # 最多等 10 分钟
         waited = 0
+        # R3-P0-5: 客户端断连标志，由 _stream_send / keepalive 写异常设置。
+        self._sse_disconnected = False
 
         try:
             while waited < max_wait:
@@ -1585,16 +1709,34 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
                                 "provider": node.get("provider", ""),
                             })
 
+                # R3-P0-5: 检测客户端是否已断开。_stream_send 写失败时设置标志。
+                if getattr(self, "_sse_disconnected", False):
+                    break
+
                 # 检查是否完成
                 if run["status"] in ("completed", "failed"):
                     break
 
-                time.sleep(poll_interval)
-                waited += poll_interval
+                # R3-P0-5: 用短轮询替代 time.sleep(1)，更快响应断连。
+                #          每次写一个 SSE 注释 keepalive 来探测连接活性；
+                #          如果客户端已断开，write 会抛 BrokenPipeError。
+                _chunk = 0.2
+                _end = waited + poll_interval
+                while waited < _end:
+                    try:
+                        self.wfile.write(b": keepalive\n\n")
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError, OSError):
+                        self._sse_disconnected = True
+                        break
+                    time.sleep(_chunk)
+                    waited += _chunk
+                if getattr(self, "_sse_disconnected", False):
+                    break
 
             # 回执最终结果
             final = store.get_run(run_id)
-            if final:
+            if final and not getattr(self, "_sse_disconnected", False):
                 self._stream_send("workflow_done", {
                     "run_id": run_id,
                     "status": final["status"],
@@ -1602,7 +1744,7 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
                     "total_duration": final["total_dur"],
                     "nodes": final["nodes"],
                 })
-            else:
+            elif not getattr(self, "_sse_disconnected", False):
                 self._stream_send("workflow_done", {"run_id": run_id, "status": "unknown"})
         except BrokenPipeError:
             pass  # 客户端断连，正常
@@ -1646,8 +1788,9 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         try:
             self.wfile.write(payload.encode())
             self.wfile.flush()
-        except (BrokenPipeError, OSError):
-            pass
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            # R3-P0-5: 标记客户端已断开，SSE 轮询循环将据此提前退出。
+            self._sse_disconnected = True
 
     # ── Run 状态 SSE 事件流 ────────────────────────
 

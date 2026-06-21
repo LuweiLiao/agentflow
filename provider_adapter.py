@@ -285,7 +285,11 @@ class ProviderAdapter:
                 f"calls={self._stats['total_calls']})")
 
     def _global_throttle(self):
-        """全局跨实例限流 — 同一 provider 每秒最多 1 次请求。"""
+        """全局跨实例限流 — 同一 provider 每秒最多 1 次请求。
+
+        R3-P0-9: 持锁计算等待时间后释放锁，在锁外 sleep。避免所有等待
+                 限流的线程同时持锁导致全系统序列化等待。
+        """
         with _RATE_LIMIT_LOCK:
             key = self.model.split("/")[0] if "/" in self.model else self.model
             last_call, min_interval = _GLOBAL_RATE_LIMITER.get(key, (0, 1.0))
@@ -293,9 +297,14 @@ class ProviderAdapter:
             elapsed = now - last_call
             if elapsed < min_interval:
                 wait = min_interval - elapsed
-                self._log(f"全局限流: 等待 {wait:.1f}s ({key})")
-                time.sleep(wait)
-            _GLOBAL_RATE_LIMITER[key] = (time.time(), min_interval)
+                # 预占位（更新 last_call 为预期完成时间），锁内不 sleep
+                _GLOBAL_RATE_LIMITER[key] = (now + wait, min_interval)
+            else:
+                _GLOBAL_RATE_LIMITER[key] = (now, min_interval)
+                wait = 0
+        if wait > 0:
+            self._log(f"全局限流: 等待 {wait:.1f}s ({key})")
+            time.sleep(wait)
 
 
 class ProviderError(Exception):

@@ -171,13 +171,18 @@ class DockerRunner(SandboxRunner):
             "--user", self.user,
             "--memory", self.memory_limit,
             "--cpus", self.cpu_limit,
-            f"--volume={workspace}:/workspace:ro" if self.read_only_rootfs
-            else f"--volume={workspace}:/workspace",
+            # R3-P0-8: 工作区始终以读写挂载。Agent 需要在此目录写文件
+            #          （代码、产物、临时文件等）。只读挂载会导致所有写
+            #          操作失败。根文件系统级别的只读仍由 --read-only 控制。
+            f"--volume={workspace}:/workspace",
             "--workdir", "/workspace",
         ]
 
         if self.read_only_rootfs:
             docker_args.append("--read-only")
+            # --read-only 模式下必须显式挂载可写 /tmp 和 /run，
+            # 否则容器内程序无法写临时文件。
+            docker_args.extend(["--tmpfs", "/tmp:rw,size=64m"])
 
         if self.network_disabled:
             docker_args.extend(["--network", "none"])

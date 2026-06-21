@@ -1,0 +1,302 @@
+[
+  {
+    "id": "BUG-001",
+    "file": "InspectorPanel.tsx",
+    "line": 44,
+    "category": "组件生命周期",
+    "title": "useDebouncedField 值变更时未清除 pending timer → 跨节点数据污染",
+    "description": "useEffect([value]) 重置 local 状态但不清除 pending 的 debounce timer。用户编辑节点 A 标签后 500ms 内切换到节点 B，pending timer 会将 A 的编辑内容写入节点 B，导致数据污染。这是因节点切换时 timer.current 未被清除所致。同时 commit() 回调的依赖数组含 local，在 StrictMode 下可能出现捕获过期值。",
+    "severity": "P0",
+    "fix": "在 useEffect([value]) 中增加 timer.current 清除逻辑，并考虑在 update() 中添加上游值变更检测。"
+  },
+  {
+    "id": "BUG-002",
+    "file": "App.tsx",
+    "line": 134,
+    "category": "React 状态管理",
+    "title": "handleUndo/handleRedo 在 setState updater 内嵌套调用 setState，StrictMode 下破坏 undo/redo 栈",
+    "description": "setUndoStack(prev => { setRedoStack(...); setNodes(...); setEdges(...); }) 在 React StrictMode 下 updater 函数被调用两次，导致 setRedoStack 被调用两次，redo 栈出现重复条目。同时 setNodes/setEdges 也被调用两次，虽值相同但违反纯函数原则。React 18 并发模式下可能引发不可预测的栈状态。",
+    "severity": "P0",
+    "fix": "将 setRedoStack/setNodes/setEdges 移至 setUndoStack 外部，使用 useEffect 或直接调用。"
+  },
+  {
+    "id": "BUG-003",
+    "file": "App.tsx",
+    "line": 523,
+    "category": "React 状态管理",
+    "title": "onConnect 在 setEdges updater 内调用 addLog（调用 setLogs），违反纯函数原则",
+    "description": "setEdges((eds)=>{ ... addLog(...); return ... }) 中 addLog 是副作用（setLogs）。StrictMode 下 updater 调用两次，日志重复记录。更严重的是 setEdges updater 内调用另一个 setState 违背了 React 纯函数要求，可能在并发模式下导致渲染不一致。",
+    "severity": "P0",
+    "fix": "将 addLog 从 setEdges updater 中提取到外部，或在 useEffect 中处理。"
+  },
+  {
+    "id": "BUG-004",
+    "file": "App.tsx",
+    "line": 164,
+    "category": "键盘快捷键",
+    "title": "Ctrl+Z 键盘监听未排除 input/textarea 聚焦态，劫持文本输入的原生撤销",
+    "description": "全局 keydown 监听器在用户聚焦于 requirement textarea 或 inspector input 时也拦截 Ctrl+Z，阻止了浏览器原生文本撤销行为，同时错误触发了画布撤销操作。此外 e.key 比较区分大小写，CapsLock 激活时 'Z' !== 'z' 导致快捷键失效。",
+    "severity": "P1",
+    "fix": "添加 e.target 检查：若目标为 input/textarea/[contenteditable] 则不拦截。使用 e.key.toLowerCase() === 'z' 处理 CapsLock。"
+  },
+  {
+    "id": "BUG-005",
+    "file": "App.tsx",
+    "line": 949,
+    "category": "React Flow 集成",
+    "title": "Delete/Backspace 删除节点不保存 undo 快照",
+    "description": "ReactFlow 的 deleteKeyCode={['Backspace', 'Delete']} 通过内部 onNodesChange/onEdgesChange 处理删除，不经过 handleNodeDelete 或 pushUndo。删除操作不可撤销，用户丢失节点后无法恢复。",
+    "severity": "P1",
+    "fix": "使用 ReactFlow 的 onDelete 回调或自定义 onNodesChange 拦截删除操作并在前调用 pushUndo()。"
+  },
+  {
+    "id": "BUG-006",
+    "file": "App.tsx",
+    "line": 120,
+    "category": "数据持久化",
+    "title": "pushUndo 仅基于节点/边数量做去重，无法保存属性变更历史",
+    "description": "pushUndo 中比较 last.nodes.length === cur.nodes.length && last.edges.length === cur.edges.length 来判断是否跳过。连续编辑同一节点的 label/desc/model/profile（不增删节点）时，第二次及之后的编辑不会创建新的 undo 快照，导致中间状态丢失。",
+    "severity": "P1",
+    "fix": "使用 JSON.stringify 或深比较节点内容来判断是否有真实变更，或移除去重逻辑由调用者控制。"
+  },
+  {
+    "id": "BUG-007",
+    "file": "App.tsx",
+    "line": 635,
+    "category": "组件生命周期",
+    "title": "handleReset 未重置 isRunning/isPaused 状态，UI 卡死在执行模式",
+    "description": "handleReset 清空 nodes/edges 并 abort SSE，但未调用 setIsRunning(false) 和 setIsPaused(false)。若运行中点击重置，isRunning 仍为 true → 执行按钮禁用、transport 控件残留、进度条不消失。SSE abort 后 onWorkflowDone/onError 可能不会触发来修正此状态。",
+    "severity": "P1",
+    "fix": "在 handleReset 末尾添加 setIsRunning(false); setIsPaused(false);。"
+  },
+  {
+    "id": "BUG-008",
+    "file": "App.tsx",
+    "line": 386,
+    "category": "组件生命周期",
+    "title": "handleStop 未清除节点运行状态，中止 SSE 后节点永远停留在 running 状态",
+    "description": "handleStop 调用 api.deleteRun + sseController.abort()，但不更新节点状态。如果服务端在 DELETE 到达前已发送 run_cancelled 事件（通过 SSE），则 onRunCancelled 回调会更新节点状态。但若 SSE 已被 abort 先于事件到达，节点永远停留在 running/pending 状态，无法恢复。",
+    "severity": "P1",
+    "fix": "在 handleStop 中添加 setNodes 清理逻辑，将所有 running/pending 节点标记为 cancelled。"
+  },
+  {
+    "id": "BUG-009",
+    "file": "App.tsx",
+    "line": 338,
+    "category": "SSE 事件处理",
+    "title": "onWorkflowDone 忽略事件中的最终 nodes 数组，错过 SSE 事件时状态不同步",
+    "description": "SSEWorkflowDone 事件包含完整的 nodes 数组（最终状态），但 onWorkflowDone 回调仅记录日志，未使用该数组更新画布节点。若某个 node_complete 事件因网络问题丢失（如 SSE 重连时），节点在画布上永远显示错误状态。",
+    "severity": "P1",
+    "fix": "在 onWorkflowDone 回调中使用 evt.nodes 数据调用 setNodes 做最终状态同步。"
+  },
+  {
+    "id": "BUG-010",
+    "file": "App.tsx",
+    "line": 353,
+    "category": "SSE 事件处理",
+    "title": "SSE 失败后节点状态永久卡死在 running，无恢复机制",
+    "description": "onError 回调仅记录日志并 setIsRunning(false)，但未清除 nodes 中 stuck 在 running/pending 状态的节点。当 SSE 所有重连尝试耗尽后，用户看到节点仍显示「运行中」但实际已无活连接。",
+    "severity": "P1",
+    "fix": "在 onError 中添加节点状态清理逻辑，将所有 running/pending 节点标记为 failed 或 cancelled。"
+  },
+  {
+    "id": "BUG-011",
+    "file": "api.ts",
+    "line": 122,
+    "category": "SSE 事件处理",
+    "title": "SSE 缓冲区按 \\n 分割，不支持 \\r\\n 行尾导致事件静默丢失",
+    "description": "buffer.split('\\n') 处理 \\r\\n 行尾时，每行末尾残留 \\r 字符。eventType 变为 'node_start\\r' 而非 'node_start'，不匹配任何事件类型判断，事件被静默丢弃。\\r\\n 是 HTTP 标准行尾格式，许多服务器和代理中间件会转换为此格式。",
+    "severity": "P1",
+    "fix": "在 split 之前用 buffer.replace(/\\r\\n/g, '\\n') 规范化行尾，或使用 split(/\\r?\\n/)。"
+  },
+  {
+    "id": "BUG-012",
+    "file": "App.tsx",
+    "line": 585,
+    "category": "类型安全",
+    "title": "handleImport 缺乏运行时验证，恶意/畸形 JSON 可导致应用崩溃",
+    "description": "JSON.parse 后仅检查 if (data.nodes) 的真值性（对象/数组/字符串均为 true），未验证 nodes 是否为数组、每个节点是否有 id/label 等必需字段。循环检测算法假设 nodes 有 id 属性，缺失时抛出 TypeError 且未被 catch（在 nested 函数内部）。畸形 JSON 或在 loadWorkflow 过程中抛出不可捕获异常。",
+    "severity": "P1",
+    "fix": "添加 zod 或自定义 schema 验证确保 nodes 为 WorkflowNode[] 且必需字段存在。将循环检测包裹在 try-catch 中。"
+  },
+  {
+    "id": "BUG-013",
+    "file": "EvolutionPanel.tsx",
+    "line": 173,
+    "category": "API 通信层",
+    "title": "EvolutionPanel 标签切换无请求取消，race condition 导致冗余 API 调用",
+    "description": "useEffect 在 tab/runId 变化时自动加载，但无 AbortController 取消飞行请求。快速切换标签时：1) 前一个标签的请求仍会完成并设置不相关状态 2) loadReport/runUpgrade/loadStats 都依赖 runId，runId 变化时三个函数身份全部变更，触发三个请求同时发出 3) loading 状态在不同请求间互相覆盖，可能导致 loading spinner 提前消失或永久显示。",
+    "severity": "P1",
+    "fix": "使用 AbortController 取消飞行请求，或使用 useRef 跟踪最新请求 ID 并忽略过期响应。"
+  },
+  {
+    "id": "BUG-014",
+    "file": "EvolutionPanel.tsx",
+    "line": 115,
+    "category": "React 状态管理",
+    "title": "EvolutionPanel 多请求并发时 loading 状态互相覆盖",
+    "description": "loadReport/runUpgrade/loadStats 共享同一个 setLoading(true/false)。快速切换标签时，请求 A 完成设置 loading=false，但请求 B 还未完成，loading 短暂隐藏后再次显示，造成 UI 闪烁。更严重的是若请求 A 在请求 B 之后完成，loading=false 会提前结束请求 B 的加载指示。",
+    "severity": "P1",
+    "fix": "为每个标签使用独立的 loading 状态，或使用计数器管理全局 loading。"
+  },
+  {
+    "id": "BUG-015",
+    "file": "App.tsx",
+    "line": 103,
+    "category": "React 状态管理",
+    "title": "stateRef 在 pushUndo 中保存的是原引用浅拷贝，undo 恢复后可能指向被后续操作修改的对象",
+    "description": "pushUndo 中 snapshot = { nodes: [...cur.nodes], edges: [...] } 仅浅拷贝数组。ReactFlow onNodesChange 创建新对象替换原有节点，因此正常情况下节点引用安全。但若任何代码路径原地修改节点对象（如手动设置 node.position = ...），undo 快照中的引用会反映这些变更。此外 stateRef.current = { nodes, edges } 在每次渲染时更新，与 React 批处理时序相关。",
+    "severity": "P1",
+    "fix": "考虑结构化克隆（structuredClone）进行深拷贝，或在 pushUndo 保存时序列化为 JSON。"
+  },
+  {
+    "id": "BUG-016",
+    "file": "api.ts",
+    "line": 167,
+    "category": "SSE 事件处理",
+    "title": "SSE 重连定时器未追踪/清除，组件卸载后可能继续触发连接",
+    "description": "setTimeout(() => connect(), delay) 的返回值未被存储。组件卸载时 sseController.abort() 中断当前连接，但已调度的重连定时器仍会触发 connect()。虽然 fetch 使用已 abort 的 signal 会立即报错，但定时器本身构成微泄漏。MAX_RECONNECT=5 次连接每累计 5 秒，在组件频繁挂载/卸载场景下累积。",
+    "severity": "P2",
+    "fix": "存储 reconnectTimer ref，在 abort 时 clearTimeout。考虑使用 useRef 管理重连状态。"
+  },
+  {
+    "id": "BUG-017",
+    "file": "App.tsx",
+    "line": 143,
+    "category": "组件生命周期",
+    "title": "handleUndo/handleRedo 中 setTimeout 在卸载后仍执行",
+    "description": "setTimeout(() => { undoLockRef.current = false; }, 0) 使用 ref 而非 state，卸载后执行无害但浪费。更严重的是：undoLockRef 可能在下一个 undo/redo 操作执行期间被释放，若用户在 0ms 窗口内连续触发撤销，锁保护可能失效。",
+    "severity": "P2",
+    "fix": "使用取消引用标记或使用状态管理锁。考虑在组件卸载清理中标记 ref。"
+  },
+  {
+    "id": "BUG-018",
+    "file": "App.tsx",
+    "line": 256,
+    "category": "React 状态管理",
+    "title": "handleExecute 闭包捕获 nodes/edges，SSE 更新期间节点引用可能不一致",
+    "description": "handleExecute 的依赖数组为 [nodes, edges, ...]，每次 nodes 变更时重新创建。但函数体第一行 const wfNodes = nodes.map() 使用的闭包值是 handleExecute 被创建时的版本。正常执行流程中（execute 按钮在执行期间 disabled），不存在新 execute 调用覆盖旧的问题。但 nodes 在依赖数组中导致频繁重创建，子组件（如 EvolutionPanel 的 useCallback）的依赖链可能触发不必要的重新加载。",
+    "severity": "P2",
+    "fix": "考虑使用 useRef 获取最新 nodes/edges 而非依赖数组，减少回调重创建。"
+  },
+  {
+    "id": "BUG-019",
+    "file": "App.tsx",
+    "line": 408,
+    "category": "React Flow 集成",
+    "title": "statusSignature useMemo 每次 nodes 变更时 O(n) 遍历，大图场景性能开销",
+    "description": "nodes.map(n => `${n.id}:${n.data.status}`).join('|') 在每次 nodes 引用变化时执行全量遍历。100+ 节点时每次 node 移动/拖拽都触发遍历。useEffect 依赖 statusSignature（字符串），任何节点属性变化（不仅仅是 status）都会触发边缘动效重新计算。",
+    "severity": "P2",
+    "fix": "将 status 变化检测提取为独立的比较逻辑，或使用不可变数据结构避免全量遍历。"
+  },
+  {
+    "id": "BUG-020",
+    "file": "utils.ts",
+    "line": 25,
+    "category": "类型安全",
+    "title": "nextId 和 makeSignalEdge 使用 Date.now() 生成 ID，高并发时可能碰撞",
+    "description": "nextId 使用 crypto.randomUUID()（fallback Date.now），但 makeSignalEdge 使用 `e_${source}_${target}_${Date.now().toString(36)}`。单个操作中快速创建多条边（如 loadWorkflow 内 map）时，所有边在同一毫秒创建，ID 可能重复。ReactFlow 使用 id 作为 key，重复 ID 导致节点/边渲染异常。",
+    "severity": "P2",
+    "fix": "在 makeSignalEdge 中增加递增计数器或使用 crypto.randomUUID。"
+  },
+  {
+    "id": "BUG-021",
+    "file": "App.tsx",
+    "line": 720,
+    "category": "性能问题",
+    "title": "progress 统计在每次渲染时全量遍历 nodes，未使用 useMemo",
+    "description": "const progress = nodes.reduce(...) 在每个 render 中执行 O(n) 遍历，即使 isRunning 为 false（非运行状态）也执行。频繁的 toolbar 更新（打字、鼠标移动等）都会触发此计算。nodes 作为依赖变量随每次 SSE 更新或拖拽变化。",
+    "severity": "P2",
+    "fix": "包裹在 useMemo 中，仅在 isRunning && nodes 变化时计算。"
+  },
+  {
+    "id": "BUG-022",
+    "file": "App.tsx",
+    "line": 301,
+    "category": "类型安全",
+    "title": "SSE 事件响应中多处使用 as 类型断言绕过编译检查，无运行时验证",
+    "description": "evt.status as NodeStatus (line 303)、rfNode.data.profile as WorkflowNode['profile'] (utils.ts:43)、rfNode.data.status as NodeStatus (utils.ts:45) 在多处使用 as 断言。后端返回未知 status/profile 值时，类型系统无保护，错误值传播到 AgentNode 渲染逻辑导致 STATUS_CONFIG 查找失败回退到 pending。",
+    "severity": "P2",
+    "fix": "引入运行时校验函数 isNodeStatus()/isProfile()，在断言点进行兜底处理。"
+  },
+  {
+    "id": "BUG-023",
+    "file": "InspectorPanel.tsx",
+    "line": 91,
+    "category": "性能问题",
+    "title": "useDebouncedField 的 onCommit 回调在每次渲染时创建新闭包",
+    "description": "const [label, setLabel, commitLabel] = useDebouncedField(node?.label ?? '', (v) => node && onUpdate(node.id, { label: v })) 中 (v) => ... 在每次渲染创建新函数。虽通过 onCommitRef.current 更新避免了定时器捕获过期回调，但内联箭头函数在每次节点数据更新（SSE 频繁触发）时造成 GC 压力。",
+    "severity": "P2",
+    "fix": "将 onCommit 回调用 useCallback 包装，或使用 useRef 在外部持有 node.id。"
+  },
+  {
+    "id": "BUG-024",
+    "file": "InspectorPanel.tsx",
+    "line": 62,
+    "category": "组件生命周期",
+    "title": "useDebouncedField 清理函数未包含在依赖数组中",
+    "description": "useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []) 的空依赖数组意味着此清理函数在组件初始挂载时创建一次。若 timer 实现在后续更新中变化（理论上 delay 参数变化重建 update 函数），清理函数仍持有最初的 timer ref。当前实现中 timer ref 不变，暂不影响，但不符合 React hooks 最佳实践。",
+    "severity": "P2",
+    "fix": "添加空注释 eslint-disable（当前已有），或考虑使用 useRef 管理清理函数。"
+  },
+  {
+    "id": "BUG-025",
+    "file": "App.tsx",
+    "line": 83,
+    "category": "数据持久化",
+    "title": "无工作流自动保存/持久化，页面刷新丢失所有状态",
+    "description": "工作流状态（nodes/edges/requirement/logs）完全保存在内存中，未持久化到 localStorage 或 sessionStorage。用户编辑复杂工作流后意外刷新页面、浏览器崩溃、或关闭标签页后所有工作丢失。仅 BlockLibrary 和 LogPanel 的折叠状态持久化到 localStorage。",
+    "severity": "P1",
+    "fix": "添加自动保存机制：使用 debounce（如 2s）将 stateRef.current 的序列化版本写入 localStorage。在 App 初始化时从 localStorage 恢复，或提供明确的保存/恢复按钮。"
+  },
+  {
+    "id": "BUG-026",
+    "file": "App.tsx",
+    "line": 189,
+    "category": "React 状态管理",
+    "title": "loadWorkflow 在 pushUndo 中保存当前状态后又立即用新布局覆盖，undo 操作先恢复布局前状态立即又被布局覆盖",
+    "description": "loadWorkflow 先 pushUndo()（保存当前状态为撤销点），然后 toRfNodes → autoLayout → setNodes → setEdges。undo 时恢复的是节点的原始位置（自动布局前的状态），但 fitView 后用户看到的是新布局。实际上 undo 正确恢复到了布局前状态（含原始位置），但 fitView 在 loadWorkflow 中调用，undo 时不调用。因此 undo 后需要用户手动 fitView。",
+    "severity": "P2",
+    "fix": "不视为 bug。在 handleAutoLayout 中行为一致，用户预期内。可考虑在 undo/redo 后自动调用 fitView 改善 UX。"
+  },
+  {
+    "id": "BUG-027",
+    "file": "App.tsx",
+    "line": 210,
+    "category": "React Flow 集成",
+    "title": "handleAutoLayout 和 handleDecompose 中 setTimeout(() => rf.fitView(...), 100) 竞争条件",
+    "description": "setTimeout 100ms 延迟假设布局在该时间片内完成。若节点数量多导致布局计算超 100ms，fitView 在布局完成前触发，viewport 定位错误。同时多个并发的 setTimeout 可能互相覆盖（handleDecompose while 循环中多个 if 分支各调度一个），最后调度的 fitView 可能基于错误的状态。",
+    "severity": "P2",
+    "fix": "使用 requestAnimationFrame 或布局完成后的回调调用 fitView，而非固定延迟。"
+  },
+  {
+    "id": "BUG-028",
+    "file": "api.ts",
+    "line": 88,
+    "category": "API 通信层",
+    "title": "SSE 使用 Fetch ReadableStream 而非原生 EventSource，失去自动重连和 lastEventId 标准支持",
+    "description": "自定义 Fetch+ReadableStream SSE 实现在 api.ts 中手动解析 event/data/id 行。与原生 EventSource 相比：1) HTTP 状态码非 200 时手动重连（EventSource 自动处理）2) Last-Event-ID 手动追踪，不自带标准重放语义 3) 不支持 event: message（默认事件类型）4) 若服务端 CORS 不设置 Content-Type: text/event-stream，某些浏览器可能不流式响应。原生 EventSource 提供成熟的重连逻辑和跨浏览器兼容性。",
+    "severity": "P2",
+    "fix": "评估是否迁移到原生 EventSource。若保留自定义实现，增加 Content-Type 检测和更健壮的流式解析。"
+  },
+  {
+    "id": "BUG-029",
+    "file": "App.tsx",
+    "line": 97,
+    "category": "React 状态管理",
+    "title": "isPausedRef/pausedQueueRef 回调队列在组件卸载后可能执行",
+    "description": "pausedQueueRef.current 存储 setNodes 回调函数，handleResume 在组件卸载后仍可能被调用。此时执行队列中的 setNodes 回调在 unmounted component 上无影响（React 18 忽略），但 pausedQueueRef 中的闭包可能捕获已卸载的资源，构成微内存泄漏。",
+    "severity": "P2",
+    "fix": "在组件清理 useEffect 中清空 pausedQueue 并标记已卸载。"
+  },
+  {
+    "id": "BUG-030",
+    "file": "App.tsx",
+    "line": 943,
+    "category": "React Flow 集成",
+    "title": "onNodesChange 缺失 onNodeDragStop 回调，拖拽位置变更不可撤销",
+    "description": "ReactFlow 的 onNodesChange 处理 position 变更（拖拽），但 CanvasInner 未注册 onNodeDragStop 事件来调用 pushUndo()。用户拖拽节点到新位置后 Ctrl+Z 无法恢复原位。onNodeClick 注册了但仅作选择用途。",
+    "severity": "P2",
+    "fix": "添加 onNodeDragStart/onNodeDragStop 回调，在 dragStart 时保存位置快照，dragStop 时 pushUndo()。"
+  }
+]
