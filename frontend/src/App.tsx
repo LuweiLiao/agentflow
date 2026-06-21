@@ -207,7 +207,7 @@ function CanvasInner() {
     const laid = autoLayout(cur.nodes, wfEdges);
     setNodes(laid);
     addLog("📐 已重新自动布局");
-    setTimeout(() => rf.fitView({ padding: 0.2 }), 100);
+    setTimeout(() => rf.fitView({ padding: 0.15, maxZoom: 1.2 }), 100);
   }, [setNodes, addLog, pushUndo, rf]);
 
   // ── 编排（Supervisor）──
@@ -228,11 +228,11 @@ function CanvasInner() {
 
         if (resp.done && resp.nodes && resp.nodes.length > 0) {
           loadWorkflow(resp.nodes, resp.edges || []);
-          setTimeout(() => rf.fitView({ padding: 0.2 }), 100);
+          setTimeout(() => rf.fitView({ padding: 0.15, maxZoom: 1.2 }), 100);
           done = true;
         } else if (resp.step === "planning" && resp.nodes) {
           loadWorkflow(resp.nodes, resp.edges || []);
-          setTimeout(() => rf.fitView({ padding: 0.2 }), 100);
+          setTimeout(() => rf.fitView({ padding: 0.15, maxZoom: 1.2 }), 100);
           done = true;
         } else {
           addLog("ℹ️ Supervisor 需更多输入，跳过");
@@ -665,27 +665,30 @@ function CanvasInner() {
   const createNodeFromProfile = useCallback(
     (profile: string, position?: { x: number; y: number }) => {
       const def = BLOCK_LIBRARY.find((b) => b.profile === profile);
-      const idx = stateRef.current.nodes.length + 1;
-      const newNode: Node<AgentNodeData> = {
-        id: nextId(),
-        type: "agent",
-        position: position ?? {
-          x: 140 + Math.random() * 120,
-          y: 120 + (idx - 1) * 24,
-        },
-        data: {
-          icon: def?.icon || "🤖",
-          label: def?.label || "新节点",
-          desc: def?.desc || "",
-          color: def?.color || profileColor(profile) || DEFAULT_COLOR,
-          profile,
-          status: "pending",
-          index: idx,
-        },
-      };
       pushUndo();
-      setNodes((nds) => [...nds, newNode]);
-      addLog(`➕ 新增节点: ${newNode.data.label} (${profile})`);
+      // R2-#1: Use functional updater so idx is always correct even during rapid calls
+      setNodes((nds) => {
+        const idx = nds.length + 1;
+        const newNode: Node<AgentNodeData> = {
+          id: nextId(),
+          type: "agent",
+          position: position ?? {
+            x: 140 + Math.random() * 120,
+            y: 60 + (idx - 1) * 100,  // R2-#2: 100px spacing for ~64px node height
+          },
+          data: {
+            icon: def?.icon || "🤖",
+            label: def?.label || "新节点",
+            desc: def?.desc || "",
+            color: def?.color || profileColor(profile) || DEFAULT_COLOR,
+            profile,
+            status: "pending",
+            index: idx,
+          },
+        };
+        return [...nds, newNode];
+      });
+      addLog(`➕ 新增节点: ${def?.label || "新节点"} (${profile})`);
     },
     [setNodes, addLog, pushUndo]
   );
@@ -942,7 +945,7 @@ function CanvasInner() {
             nodeTypes={nodeTypes}
             defaultEdgeOptions={{ type: "smoothstep" }}
             fitView
-            fitViewOptions={{ padding: 0.2 }}
+            fitViewOptions={{ padding: 0.15, maxZoom: 1.2 }}
             deleteKeyCode={["Backspace", "Delete"]}
             snapToGrid
             snapGrid={[10, 10]}

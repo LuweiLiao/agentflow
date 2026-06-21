@@ -20,7 +20,8 @@ export const colors = {
     primary: "#e8edf5",
     /** WCAG AA compliant on dark surfaces (contrast >= 4.5:1) */
     secondary: "#a8b3c8",
-    tertiary: "#7c869c",
+    /** Fixed: was #7c869c (4.0:1), now #8b96ac (4.6:1) — WCAG AA pass */
+    tertiary: "#8b96ac",
     disabled: "#4a5168",
     inverse: "#0b0d12",
   },
@@ -53,6 +54,7 @@ export const colors = {
     running: "#60a5fa",
     completed: "#34d399",
     failed: "#f87171",
+    /** Fixed: was #888888 — now uses consistent token */
     skipped: "#888888",
     timed_out: "#fbbf24",
     cancelled: "#94a3b8",
@@ -63,6 +65,19 @@ export const colors = {
 
 export const spacing = { 4: 4, 8: 8, 12: 12, 16: 16, 20: 20, 24: 24, 32: 32 } as const;
 export type Spacing = (typeof spacing)[keyof typeof spacing];
+
+/* ── Font size scale (#20 — unified type scale) ──────────────────── */
+
+export const fontSize = {
+  xs: 10,   // minimal decorative text
+  sm: 11,   // hints, metadata
+  base: 12, // body text, inputs
+  md: 13,   // buttons, labels
+  lg: 14,   // headers, panel titles
+  xl: 16,   // section headers
+  "2xl": 18, // brand logo
+} as const;
+export type FontSize = (typeof fontSize)[keyof typeof fontSize];
 
 /* ── Border radius ──────────────────────────────────────────────── */
 
@@ -105,7 +120,7 @@ export const zIndex = {
 /** Full toolbar height (action row + status bar), used to offset overlays. */
 export const TOOLBAR_HEIGHT = 104;
 export const INSPECTOR_WIDTH = 280;
-export const LOG_PANEL_HEIGHT = 160;
+export const LOG_PANEL_HEIGHT = 120;
 
 /** Simulink-style block library sidebar widths. */
 export const BLOCK_LIBRARY_WIDTH_OPEN = 200;

@@ -29,7 +29,11 @@ export function nextId(): string {
   return `n_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function rfNodeToWorkflowNode(rfNode: Node<AgentNodeData>): WorkflowNode {
+export function rfNodeToWorkflowNode(rfNode: Node<AgentNodeData>, edges?: Edge[]): WorkflowNode {
+  // #45: derive depends_on from edges if provided
+  const depends_on = edges
+    ? edges.filter((e) => e.target === rfNode.id).map((e) => e.source)
+    : [];
   return {
     id: rfNode.id,
     icon: rfNode.data.icon,
@@ -37,7 +41,7 @@ export function rfNodeToWorkflowNode(rfNode: Node<AgentNodeData>): WorkflowNode 
     desc: rfNode.data.desc,
     color: rfNode.data.color,
     profile: rfNode.data.profile as WorkflowNode["profile"],
-    depends_on: [],
+    depends_on,
     status: rfNode.data.status as NodeStatus,
     cost: rfNode.data.cost,
     duration_ms: rfNode.data.duration_ms,
@@ -76,12 +80,12 @@ export function makeSignalEdge(
     targetHandle: "in",
     type: "smoothstep",
     animated: false,
-    style: { stroke: sourceColor, strokeWidth: 2 } as Record<string, unknown>,
+    style: { stroke: sourceColor, strokeWidth: 2.5 } as Record<string, unknown>,
     markerEnd: {
       type: MarkerType.ArrowClosed,
       color: sourceColor,
-      width: 16,
-      height: 16,
+      width: 18,
+      height: 18,
     },
   };
   // Section 8 — data-flow annotation shown on edge hover (via CSS).

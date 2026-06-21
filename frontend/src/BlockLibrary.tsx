@@ -134,14 +134,15 @@ export default function BlockLibrary({ onAddNode }: BlockLibraryProps) {
               style={{
                 width: "100%",
                 boxSizing: "border-box",
-                padding: `${spacing[4]}px ${spacing[8]}px`,
+                padding: `${spacing[6] || 6}px ${spacing[8]}px`,  // #5: was 4px → 6px vertical padding for taller input
                 background: colors.bg[1],
                 border: `1px solid ${colors.border.default}`,
                 borderRadius: radius.md,
                 color: colors.text.primary,
-                fontSize: 11,
+                fontSize: 12,
                 fontFamily: "inherit",
                 outline: "none",
+                minHeight: 28,  // #5: ensure at least 28px height
               }}
             />
           </div>
@@ -154,7 +155,7 @@ export default function BlockLibrary({ onAddNode }: BlockLibraryProps) {
               padding: `${spacing[8]}px`,
               display: "flex",
               flexDirection: "column",
-              gap: spacing[8],
+              gap: spacing[12],  // #4: was spacing[8](8px) → 12px for breathing room
             }}
           >
             {filtered.length === 0 && (
@@ -177,8 +178,8 @@ export default function BlockLibrary({ onAddNode }: BlockLibraryProps) {
             style={{
               padding: `${spacing[8]}px`,
               borderTop: `1px solid ${colors.border.subtle}`,
-              fontSize: 10,
-              color: colors.text.tertiary,
+              fontSize: 11,
+              color: colors.text.secondary,  // R2-#10: was tertiary — improve contrast
               textAlign: "center",
               lineHeight: 1.5,
             }}
@@ -214,12 +215,13 @@ function BlockCard({
         alignItems: "center",
         gap: spacing[8],
         padding: `${spacing[8]}px ${spacing[8]}px ${spacing[8]}px ${spacing[12]}px`,
-        background: colors.bg[3],
+        background: colors.bg[4],  // #14: was bg[3](brightness=34) same as aside — use bg[4](brightness=46) for card elevation
         border: `1px solid ${colors.border.default}`,
         borderRadius: radius.md,
         cursor: "grab",
         overflow: "hidden",
         boxShadow: shadow.sm,
+        willChange: "transform",  // #50: prevent paint jitter on hover
         transition: `border-color ${transition.fast}, transform ${transition.fast}, box-shadow ${transition.fast}`,
       }}
       onMouseEnter={(e) => {
@@ -249,17 +251,17 @@ function BlockCard({
           left: 0,
           top: 0,
           bottom: 0,
-          width: 3,
+          width: 4,  // #6: was 3 — too thin to be noticeable
           background: block.color,
         }}
       />
-      <span style={{ fontSize: 18, lineHeight: 1 }}>{block.icon}</span>
+      <span style={{ fontSize: 16, lineHeight: 1 }}>{block.icon}</span>  {/* #19: was 18 — too large for 51px card */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: colors.text.primary }}>{block.label}</div>
         <div
           style={{
-            fontSize: 10,
-            color: colors.text.tertiary,
+            fontSize: 11,  // #16: was 10 — too small
+            color: colors.text.secondary,  // #16: was tertiary(154) — too low contrast, bump to secondary(182)
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",

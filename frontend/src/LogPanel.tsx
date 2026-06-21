@@ -40,9 +40,12 @@ const COLLAPSE_KEY = "agentflow:logCollapsed";
 export default function LogPanel({ logs, onClear }: LogPanelProps) {
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
-      return localStorage.getItem(COLLAPSE_KEY) === "1";
+      const stored = localStorage.getItem(COLLAPSE_KEY);
+      // Default to collapsed if no stored preference
+      if (stored === null) return true;
+      return stored === "1";
     } catch {
-      return false;
+      return true;
     }
   });
   const [query, setQuery] = useState("");
@@ -96,7 +99,7 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
         flexShrink: 0,
         background: colors.bg[1],
         borderTop: `1px solid ${colors.border.subtle}`,
-        height: collapsed ? 36 : 200,
+        height: collapsed ? 32 : 120,  // #6: was 36, actual DOM was 28 — now 32 matches header padding
         display: "flex",
         flexDirection: "column",
         transition: `height ${transition.base}`,
@@ -119,13 +122,13 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
           display: "flex",
           alignItems: "center",
           gap: spacing[8],
-          padding: `6px ${spacing[12]}px`,
+          padding: `8px ${spacing[12]}px`,  // #23: was 6px — increase to fill 32px height properly
           cursor: "pointer",
           userSelect: "none",
           borderBottom: collapsed ? "none" : `1px solid ${colors.border.subtle}`,
         }}
       >
-        <span style={{ fontSize: 10, color: colors.text.tertiary }}>▾</span>
+        <span style={{ fontSize: 11, color: colors.text.tertiary }}>▾</span>  {/* #12: was 10 — too small */}
         <span style={{ fontSize: 11, fontWeight: 600, color: colors.text.secondary }}>
           📜 日志
         </span>
@@ -156,7 +159,7 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
             🗑
           </button>
         )}
-        <span style={{ fontSize: 11, color: colors.text.tertiary }}>
+        <span style={{ fontSize: 11, color: colors.text.secondary }}>  {/* R2-#10: was tertiary */}
           {collapsed ? "▸ 展开" : "▾ 折叠"}
         </span>
       </div>
@@ -225,12 +228,11 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
             </div>
           </div>
 
-          {/* H2 — accessible live region */}
+          {/* #33 — aria-live scoped to summary, not entire list */}
           <div
             ref={scrollRef}
             onScroll={handleScroll}
-            role="status"
-            aria-live="polite"
+            role="log"
             aria-label="运行日志"
             style={{
               flex: 1,
@@ -240,8 +242,10 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
           >
             <div style={{ fontSize: 11, lineHeight: 1.55, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
               {visibleLogs.length === 0 ? (
-                <div style={{ color: colors.text.tertiary, padding: "8px 0" }}>
-                  {logs.length === 0 ? "暂无日志" : "没有匹配的日志"}
+                <div style={{ color: colors.text.tertiary, padding: "8px 0", textAlign: "center" }}>
+                  {logs.length === 0
+                    ? "📝 执行工作流后将在此显示运行日志"
+                    : "没有匹配的日志"}
                 </div>
               ) : (
                 visibleLogs.map((line, i) => {

@@ -24,7 +24,7 @@ const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
   running: { bg: "rgba(96,165,250,0.15)", color: colors.status.running },
   completed: { bg: "rgba(52,211,153,0.15)", color: colors.status.completed },
   failed: { bg: "rgba(248,113,113,0.15)", color: colors.status.failed },
-  skipped: { bg: "rgba(136,136,136,0.15)", color: "#a0a0a0" },
+  skipped: { bg: "rgba(136,136,136,0.15)", color: colors.status.skipped },  // #11: was hardcoded #a0a0a0
   timed_out: { bg: "rgba(251,191,36,0.15)", color: colors.status.timed_out },
   cancelled: { bg: "rgba(148,163,184,0.15)", color: colors.text.secondary },
 };
@@ -96,12 +96,45 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
     return (
       <div style={panelStyle}>
         <div style={headerStyle}>📋 检查器</div>
-        <div style={{ fontSize: 12, color: colors.text.tertiary, textAlign: "center", marginTop: 48 }}>
-          选择节点查看详情
+        {/* #5/#29/#30 — Rich empty state with guidance */}
+        <div style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 12,
+          marginTop: 40,
+          color: colors.text.tertiary,
+          textAlign: "center",
+        }}>
+          <div style={{ fontSize: 32, opacity: 0.4 }}>👆</div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: colors.text.secondary }}>
+            点击节点查看属性
+          </div>
+          <div style={{ fontSize: 11, lineHeight: 1.7, maxWidth: 200, color: colors.text.secondary }}>
+            在画布中选中任意节点后，<br />这里将显示详细信息和编辑面板
+          </div>
         </div>
+        {/* #30 — workflow summary in footer */}
         <div style={{ ...footerStatStyle, marginTop: "auto" }}>
-          <div>节点: {graphInfo.nodes}</div>
-          <div>连线: {graphInfo.edges}</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>🧩 节点</span>
+            <strong style={{ color: colors.text.secondary }}>{graphInfo.nodes}</strong>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>🔗 连线</span>
+            <strong style={{ color: colors.text.secondary }}>{graphInfo.edges}</strong>
+          </div>
+          {graphInfo.nodes > 0 && (
+            <div style={{
+              marginTop: 8,
+              paddingTop: 8,
+              borderTop: `1px solid ${colors.border.subtle}`,
+              fontSize: 11,  // R2-#10: was 10 — improve readability
+              color: graphInfo.edges >= graphInfo.nodes - 1 ? colors.status.completed : colors.status.timed_out,
+            }}>
+              {graphInfo.edges >= graphInfo.nodes - 1 ? "✓ 工作流连通" : "⚠ 部分节点未连接"}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -127,6 +160,9 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
       <div ref={scrollRef} style={{ height: "100%", overflowY: "auto", paddingRight: 2 }}>
         <div style={headerStyle}>
           <span>{node.icon || "🤖"}</span> {node.label || "未命名"}
+          <span style={{ fontSize: 10, color: colors.text.tertiary, fontWeight: 400, marginLeft: 4 }}>
+            #{node.id.slice(-6)}
+          </span>
         </div>
 
         {/* D7 — 基本信息 */}
@@ -147,7 +183,7 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
           <label style={labelStyle} htmlFor="insp-desc">描述</label>
           <textarea
             id="insp-desc"
-            style={{ ...inputStyle, resize: "vertical", minHeight: 56, lineHeight: 1.5 }}
+            style={{ ...inputStyle, resize: "vertical", minHeight: 44, lineHeight: 1.5 }}
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
             onBlur={commitDesc}
@@ -263,7 +299,7 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
           onClick={handleDeleteClick}
           aria-label={confirming ? "确认删除节点" : "删除节点"}
           style={{
-            marginTop: 16,
+            marginTop: 12,  // R2-#12: was 16 — tighter
             width: "100%",
             padding: "7px 10px",
             background: confirming ? "rgba(248,113,113,0.25)" : "rgba(248,113,113,0.1)",
@@ -308,12 +344,12 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
         display: "flex",
         alignItems: "center",
         gap: 8,
-        margin: "18px 0 10px",
-        fontSize: 10,
+        margin: "12px 0 6px",  // R2-#12: was 18px 0 10px — fit content without scroll
+        fontSize: 12,  // R2-#9: was 11 — low contrast on dark bg
         fontWeight: 700,
-        letterSpacing: "0.08em",
+        letterSpacing: "0.06em",
         textTransform: "uppercase",
-        color: colors.text.tertiary,
+        color: colors.text.secondary,  // R2-#9: was tertiary — improve contrast
       }}
     >
       <span>{children}</span>
@@ -325,7 +361,7 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 const panelStyle: React.CSSProperties = {
   background: colors.bg[3],
   borderLeft: `1px solid ${colors.border.subtle}`,
-  padding: spacing[16],
+  padding: "14px 14px",  // #7: was 16px — slightly tighter to widen content area
   width: 280,
   height: "100%",
   boxSizing: "border-box",
@@ -345,13 +381,13 @@ const headerStyle: React.CSSProperties = {
 };
 
 const fieldStyle: React.CSSProperties = {
-  marginBottom: 12,
+  marginBottom: 8,  // R2-#12: was 12→10→8 — fit content without scroll
 };
 
 const labelStyle: React.CSSProperties = {
   display: "block",
   fontSize: 11,
-  color: colors.text.tertiary,
+  color: colors.text.secondary,  // R2-#10: was tertiary (fgB=154) — below WCAG AA
   marginBottom: 4,
 };
 

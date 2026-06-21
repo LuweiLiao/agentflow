@@ -9,7 +9,7 @@
   --color-bg-4: #232838;
   --color-text-primary: #e8edf5;
   --color-text-secondary: #a8b3c8;
-  --color-text-tertiary: #7c869c;
+  --color-text-tertiary: #8b96ac;
   --color-text-disabled: #4a5168;
   --color-border-subtle: #2a2f42;
   --color-border-default: #374151;
@@ -236,6 +236,7 @@ html {
 
 /* ── Toolbar buttons (B4/B5) ──────────────────────────────────── */
 .af-btn {
+  cursor: pointer;  /* R2-#10: moved from inline style to CSS for proper :disabled override */
   transition: transform var(--transition-fast), box-shadow var(--transition-fast),
     background var(--transition-fast), opacity var(--transition-fast);
 }
@@ -252,11 +253,13 @@ html {
 }
 
 .af-btn:disabled {
-  opacity: 0.45;
+  opacity: 0.55;  /* #9: was 0.45 — too low on dark bg */
   cursor: not-allowed;
+  color: var(--color-text-disabled);
 }
 
 .af-btn-mini {
+  cursor: pointer;  /* R2-#10: moved from inline style to CSS */
   transition: background var(--transition-fast), border-color var(--transition-fast),
     color var(--transition-fast);
 }
@@ -268,8 +271,9 @@ html {
 }
 
 .af-btn-mini:disabled {
-  opacity: 0.4;
+  opacity: 0.5;  /* #9: was 0.4 — too low on dark bg */
   cursor: not-allowed;
+  color: var(--color-text-disabled);
 }
 
 /* ── Requirement input auto-grow + focus ring (B3) ────────────── */
@@ -277,6 +281,27 @@ html {
   outline: none;
   border-color: var(--color-accent-blue);
   box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.22);
+}
+
+/* ── Spinner animation (#21) ──────────────────────────────────── */
+@keyframes af-spin {
+  to { transform: rotate(360deg); }
+}
+.af-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(96, 165, 250, 0.3);
+  border-top-color: var(--color-accent-blue);
+  border-radius: 50%;
+  animation: af-spin 0.6s linear infinite;
+  vertical-align: middle;
+}
+
+/* ── Drag-over drop-zone highlight (#22) ──────────────────────── */
+.af-canvas--dragover {
+  background: rgba(96, 165, 250, 0.04) !important;
+  box-shadow: inset 0 0 0 2px rgba(96, 165, 250, 0.4);
 }
 
 /* ── Progress bar segments (B8) ───────────────────────────────── */
@@ -310,20 +335,39 @@ html {
 }
 
 /* ── React Flow Controls / MiniMap dark theme (B8) ─────────────── */
+/* CRITICAL: !important needed — React Flow's default CSS sets white bg
+   with high specificity. Without this, controls render as #fefefe boxes. */
 .react-flow__controls-button {
-  background: var(--color-bg-3);
-  border-bottom: 1px solid var(--color-border-subtle);
-  color: var(--color-text-primary);
-  fill: var(--color-text-primary);
+  background: var(--color-bg-3) !important;
+  border-bottom: 1px solid var(--color-border-subtle) !important;
+  color: var(--color-text-primary) !important;
+  fill: var(--color-text-primary) !important;
 }
 .react-flow__controls-button:hover {
-  background: var(--color-bg-4);
+  background: var(--color-bg-4) !important;
 }
 .react-flow__controls-button svg {
-  fill: var(--color-text-primary);
+  fill: var(--color-text-primary) !important;
 }
+.react-flow__controls {
+  background: var(--color-bg-3) !important;
+  border-radius: var(--radius-md) !important;
+  border: 1px solid var(--color-border-default) !important;
+  overflow: hidden;
+}
+
+/* React Flow attribution — also white by default, darken it */
+.react-flow__attribution {
+  background: rgba(11, 13, 18, 0.6) !important;
+  color: var(--color-text-tertiary) !important;
+  font-size: 9px !important;
+}
+.react-flow__attribution a {
+  color: var(--color-text-tertiary) !important;
+}
+
 .react-flow__minimap {
-  background: var(--color-bg-2);
+  background: var(--color-bg-2) !important;
 }
 .react-flow__edge-path {
   stroke: var(--color-border-bright);

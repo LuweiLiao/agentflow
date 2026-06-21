@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { Handle, Position, NodeProps, Node } from "@xyflow/react";
-import { colors, shadow, formatCost, formatDuration } from "./theme";
+import { colors, shadow, radius, formatCost, formatDuration } from "./theme";  // #36: added radius
 
 export type AgentNodeData = {
   icon: string;
@@ -56,7 +56,7 @@ const STATUS_CONFIG: Record<string, StatusConfig> = {
   },
   skipped: {
     bg: "rgba(136,136,136,0.16)",
-    color: "#a0a0a0",
+    color: colors.status.skipped,  // #11: was hardcoded #a0a0a0
     dot: colors.status.skipped,
     label: "跳过",
   },
@@ -108,8 +108,8 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
     .filter(Boolean)
     .join(" ");
 
-  // Title-bar background: profile color at 15% opacity; pulses when running.
-  const titleBg = isRunning ? hexToRgba(accent, 0.28) : hexToRgba(accent, 0.15);
+  // Title-bar background: profile color at 22% opacity; pulses when running.
+  const titleBg = isRunning ? hexToRgba(accent, 0.35) : hexToRgba(accent, 0.22);
 
   return (
     <div
@@ -117,53 +117,20 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
       style={{
         position: "relative",
         background: colors.bg[3],
-        border: `2px solid ${selected ? colors.accent.blue : accent}`,
-        borderRadius: 4, // Simulink blocks are rectangular
+        border: `2px solid ${accent}`,  // #14: keep profile color even when selected
+        borderRadius: radius.md,  // #36: was hardcoded 4 — now uses token
         padding: 0,
         width: NODE_WIDTH,
         maxWidth: NODE_MAX_WIDTH,
         boxShadow: selected
-          ? `0 0 0 2px rgba(96,165,250,0.3), ${shadow.lg}`
-          : shadow.md,
+          ? `0 0 0 2px ${hexToRgba(accent, 0.4)}, 0 0 16px ${hexToRgba(accent, 0.25)}, ${shadow.lg}`
+          : `${shadow.md}`,
         cursor: "pointer",
         overflow: "hidden",
+        transition: `box-shadow 0.18s ease, border-color 0.12s ease`,
       }}
     >
-      {/* ── Port label: "▶" (left side, near input handle) ── */}
-      <span
-        aria-hidden
-        style={{
-          position: "absolute",
-          top: "50%",
-          left: -14,
-          transform: "translateY(-50%)",
-          fontSize: 9,
-          color: colors.text.tertiary,
-          whiteSpace: "nowrap",
-          pointerEvents: "none",
-          userSelect: "none",
-        }}
-      >
-        ▶
-      </span>
-
-      {/* ── Port label: "▶" (right side, near output handle) ── */}
-      <span
-        aria-hidden
-        style={{
-          position: "absolute",
-          top: "50%",
-          right: -14,
-          transform: "translateY(-50%)",
-          fontSize: 9,
-          color: colors.text.tertiary,
-          whiteSpace: "nowrap",
-          pointerEvents: "none",
-          userSelect: "none",
-        }}
-      >
-        ▶
-      </span>
+      {/* R2-#4: Removed clipped port labels — redundant with Handle components */}
 
       {/* ── Title bar (full-width colored header) ── */}
       <div
@@ -198,12 +165,12 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
             <span
               aria-hidden
               style={{
-                width: 16,
-                height: 16,
+                width: 18,
+                height: 18,
                 borderRadius: 4,
                 background: accent,
                 color: colors.text.inverse,
-                fontSize: 10,
+                fontSize: 11,  // R2-#6: was 10/16px — too small
                 fontWeight: 700,
                 display: "inline-flex",
                 alignItems: "center",
@@ -214,7 +181,7 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
               {data.index}
             </span>
           )}
-          <span style={{ fontSize: 14, lineHeight: 1, flexShrink: 0 }}>{data.icon || "🤖"}</span>
+          <span style={{ fontSize: 13, lineHeight: 1, flexShrink: 0 }}>{data.icon || "🤖"}</span>
           <span
             style={{
               fontSize: 12,
@@ -230,8 +197,8 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
           </span>
           <span
             style={{
-              fontSize: 9,
-              color: colors.text.tertiary,
+              fontSize: 11,  // R2-#5: was 9 — nearly unreadable
+              color: colors.text.secondary,  // R2-#10: was tertiary (fgB=154) — improve contrast
               whiteSpace: "nowrap",
               flexShrink: 0,
             }}
@@ -246,9 +213,9 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
             display: "inline-flex",
             alignItems: "center",
             gap: 4,
-            fontSize: 10,
+            fontSize: 11,  // R2-#7: was 10
             fontWeight: 500,
-            padding: "1px 6px",
+            padding: "2px 7px",  // R2-#7: slightly taller
             borderRadius: 999,
             background: sc.bg,
             color: sc.color,
@@ -258,13 +225,14 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
         >
           <span
             style={{
-              width: 6,
-              height: 6,
+              width: 7,  // R2-#8: was 6
+              height: 7,
               borderRadius: "50%",
               background: sc.dot,
               flexShrink: 0,
             }}
           />
+          {/* #35 — status text label provides colorblind accessibility */}
           {sc.label}
         </span>
       </div>
@@ -316,9 +284,10 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
           </div>
         )}
 
-        {/* C7 — description, 2-line clamp */}
+        {/* C7 — description, 3-line clamp with tooltip */}
         {data.desc && (
           <div
+            title={data.desc}
             style={{
               fontSize: 11,
               color: colors.text.secondary,
@@ -326,7 +295,7 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
               overflow: "hidden",
               textOverflow: "ellipsis",
               display: "-webkit-box",
-              WebkitLineClamp: 2,
+              WebkitLineClamp: 3,
               WebkitBoxOrient: "vertical",
             }}
           >

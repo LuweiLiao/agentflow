@@ -91,6 +91,15 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // #26 — Escape key to close panel
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   // Report state (G4 — typed, no `any`)
   const [report, setReport] = useState<EvolutionReport["report"]>(null);
 
@@ -176,7 +185,7 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
       <div className="agentflow-slide-in" style={panelStyle} role="dialog" aria-label="自我进化面板">
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>🧬 Self-Evolution</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>🧬 自我进化</h3>  {/* #39: was "Self-Evolution" */}
           <button
             onClick={onClose}
             aria-label="关闭自我进化面板"

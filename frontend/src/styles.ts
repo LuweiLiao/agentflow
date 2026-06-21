@@ -86,7 +86,7 @@ export const toolbarDividerStyle: CSSProperties = {
 };
 
 export const logoStyle: CSSProperties = {
-  fontSize: 15,
+  fontSize: 17,  // #19: was 15 — bumped for brand prominence
   fontWeight: 700,
   color: colors.text.primary,
   whiteSpace: "nowrap",
@@ -97,7 +97,7 @@ export const logoStyle: CSSProperties = {
 
 export const reqInputStyle: CSSProperties = {
   flex: 1,
-  minWidth: 220,
+  minWidth: 300,  // #2: was 220 — ensure usable width
   maxWidth: 520,
   padding: `${spacing[8]}px ${spacing[12]}px`,
   background: colors.bg[1],
@@ -122,7 +122,7 @@ export const btnStyle: CSSProperties = {
   color: colors.accent.blue,
   fontSize: 13,
   fontWeight: 600,
-  cursor: "pointer",
+  // R2-#10: cursor handled by CSS — inline cursor was overriding :disabled state
   whiteSpace: "nowrap",
   transition: `transform ${transition.fast}, box-shadow ${transition.fast}, background ${transition.fast}, opacity ${transition.fast}`,
 };
@@ -141,7 +141,7 @@ export const btnMiniStyle: CSSProperties = {
   borderRadius: radius.md,
   color: colors.text.secondary,
   fontSize: 14,
-  cursor: "pointer",
+  // R2-#10: cursor handled by CSS — inline cursor was overriding :disabled state
   lineHeight: 1,
   transition: `background ${transition.fast}, border-color ${transition.fast}, color ${transition.fast}`,
 };
@@ -153,6 +153,7 @@ export const selectMiniStyle: CSSProperties = {
   borderRadius: radius.md,
   color: colors.text.secondary,
   fontSize: 12,
+  maxWidth: 180,  // #3: cap width — was unbounded at 387px
   cursor: "pointer",
 };
 
@@ -165,8 +166,8 @@ export const toolbarStatusBarStyle: CSSProperties = {
   padding: `${spacing[4]}px ${spacing[12]}px`,
   borderTop: `1px solid ${colors.border.subtle}`,
   background: colors.bg[1],
-  fontSize: 11,
-  color: colors.text.tertiary,
+  fontSize: 12,  // R2-#10: was 11 — improve readability
+  color: colors.text.secondary,  // R2-#10: was tertiary (fgB=154) — below WCAG AA at 11px
 };
 
 /* ── Progress bar (below toolbar) ──────────────────────────────── */
@@ -212,6 +213,7 @@ export const runGroupBtnBase: CSSProperties = {
   padding: `${spacing[8]}px ${spacing[12]}px`,
   border: "none",
   borderRight: `1px solid ${colors.border.subtle}`,
+  borderRadius: radius.md,  // #1/#2: was missing — inner buttons had 0 while container had 6
   background: "transparent",
   color: colors.text.secondary,
   fontSize: 13,
@@ -223,7 +225,7 @@ export const runGroupBtnBase: CSSProperties = {
 
 export const runGroupRunBtn: CSSProperties = {
   ...runGroupBtnBase,
-  background: "rgba(16,185,129,0.16)",
+  background: "rgba(52,211,153,0.18)",  // #15: was 0.16 — match AI编排 brightness level
   color: colors.accent.green,
 };
 
