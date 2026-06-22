@@ -1,0 +1,104 @@
+name: ✨ Feature Request
+description: Suggest a new feature or an improvement to existing behavior
+title: "[feature]: "
+labels: ["enhancement"]
+projects: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > 🌏 **中文说明**：你可以用中文填写此表单，但请尽量用英文以便更多开发者参与讨论。
+        >
+        > Thanks for suggesting a feature! Please describe the problem you're trying to
+        > solve before proposing a solution — this helps us evaluate it fairly.
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      description: Please confirm the following before submitting.
+      options:
+        - label: I have searched the [existing issues](https://github.com/LuweiLiao/agentflow/issues?q=is%3Aissue+label%3Aenhancement) for a similar request.
+          required: true
+        - label: I have read the [Contributing Guidelines](https://github.com/LuweiLiao/agentflow/blob/main/CONTRIBUTING.md).
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What problem does this feature solve? What are you trying to do that AgentFlow currently can't?
+      placeholder: "I'm frustrated when ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe what you'd like to happen. Sketches, pseudocode, or a UI mockup are welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or alternative designs have you tried or considered? Why aren't they enough?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      multiple: true
+      options:
+        - Backend / orchestrator
+        - Agent runtime
+        - Prompt compiler
+        - Frontend / canvas UI
+        - SSE streaming
+        - CLI / config
+        - Docker / deployment
+        - Ecosystem / integrations
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Estimated scope
+      description: Your best guess at the size of this change. This is only to help us triage.
+      options:
+        - Small (< 1 file, ~1 hour)
+        - Medium (a few files, ~1 day)
+        - Large (cross-cutting, multiple days)
+        - Not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Willingness to contribute
+      options:
+        - label: I'm willing to open a PR for this feature.
+        - label: I'm willing to help test a PR that implements this feature.
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, links to similar features in other tools (n8n, LangGraph, Dify, etc.), or additional context.
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: By submitting, you agree to follow our [Code of Conduct](https://github.com/LuweiLiao/agentflow/blob/main/CODE_OF_CONDUCT.md).
+      options:
+        - label: I agree to follow AgentFlow's Code of Conduct.
+          required: true

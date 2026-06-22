@@ -1,0 +1,18 @@
+# Configuration for GitHub's issue chooser.
+# Disables blank issues so every report goes through a structured template.
+
+blank_issues_enabled: false
+
+contact_links:
+  - name: 💬 GitHub Discussions
+    url: https://github.com/LuweiLiao/agentflow/discussions
+    about: Ask questions, share workflows, and discuss ideas with the community.
+  - name: 📖 Documentation
+    url: https://github.com/LuweiLiao/agentflow#readme
+    about: Read the README and project docs before opening an issue.
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/LuweiLiao/agentflow/security/policy
+    about: Please do NOT open a public issue for security problems — follow our SECURITY.md policy.
+  - name: 🐛 Existing bug reports
+    url: https://github.com/LuweiLiao/agentflow/issues?q=is%3Aissue+label%3Abug
+    about: Check existing bug reports to avoid duplicates.
