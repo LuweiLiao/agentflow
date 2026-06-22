@@ -1,6 +1,6 @@
 /* AgentFlow — Simulink-style block library sidebar (draggable module palette) */
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import type { CSSProperties } from "react";
 import {
   colors,
@@ -11,6 +11,7 @@ import {
   BLOCK_LIBRARY_WIDTH_OPEN,
   BLOCK_LIBRARY_WIDTH_COLLAPSED,
 } from "./theme";
+import { PROFILE_CONFIG } from "./utils";  // #4: single source of profile metadata
 
 /** Profile types a user can drag onto the canvas. */
 export interface BlockDef {
@@ -21,14 +22,20 @@ export interface BlockDef {
   desc: string;
 }
 
-export const BLOCK_LIBRARY: BlockDef[] = [
-  { profile: "analysis", icon: "📊", label: "分析", color: colors.profile.analysis, desc: "需求分析与方案调研" },
-  { profile: "design", icon: "🏗️", label: "设计", color: colors.profile.design, desc: "架构设计与接口定义" },
-  { profile: "dev", icon: "💻", label: "开发", color: colors.profile.dev, desc: "编码实现核心逻辑" },
-  { profile: "test", icon: "🧪", label: "测试", color: colors.profile.test, desc: "单元测试与质量验证" },
-  { profile: "doc", icon: "📝", label: "文档", color: colors.profile.doc, desc: "文档编写与说明" },
-  { profile: "deploy", icon: "🚀", label: "部署", color: colors.profile.deploy, desc: "部署与上线发布" },
-];
+/**
+ * `BLOCK_LIBRARY` is derived from the unified `PROFILE_CONFIG` (#4) so the
+ * sidebar palette, inspector picker, and node renderer all share one source
+ * of truth for icon/label/color/desc per profile.
+ */
+export const BLOCK_LIBRARY: BlockDef[] = (
+  Object.keys(PROFILE_CONFIG) as string[]
+).map((profile) => ({
+  profile,
+  icon: PROFILE_CONFIG[profile].icon,
+  label: PROFILE_CONFIG[profile].label,
+  color: PROFILE_CONFIG[profile].color,
+  desc: PROFILE_CONFIG[profile].desc,
+}));
 
 export const DRAG_MIME = "application/agentflow-profile";
 
@@ -74,11 +81,6 @@ export default function BlockLibrary({ onAddNode }: BlockLibraryProps) {
   }, [query]);
 
   const width = collapsed ? BLOCK_LIBRARY_WIDTH_COLLAPSED : BLOCK_LIBRARY_WIDTH_OPEN;
-
-  const handleDragStart = (e: React.DragEvent, profile: string) => {
-    e.dataTransfer.setData(DRAG_MIME, profile);
-    e.dataTransfer.effectAllowed = "copy";
-  };
 
   return (
     <aside
@@ -127,6 +129,7 @@ export default function BlockLibrary({ onAddNode }: BlockLibraryProps) {
           <div style={{ padding: `${spacing[8]}px ${spacing[8]}px`, borderBottom: `1px solid ${colors.border.subtle}` }}>
             <input
               type="text"
+              className="af-search-input"
               aria-label="搜索模块"
               placeholder="🔍 搜索..."
               value={query}
@@ -134,14 +137,13 @@ export default function BlockLibrary({ onAddNode }: BlockLibraryProps) {
               style={{
                 width: "100%",
                 boxSizing: "border-box",
-                padding: `${spacing[6] || 6}px ${spacing[8]}px`,  // #5: was 4px → 6px vertical padding for taller input
+                padding: `6px ${spacing[8]}px`,  // #5: was 4px → 6px vertical padding for taller input
                 background: colors.bg[1],
                 border: `1px solid ${colors.border.default}`,
                 borderRadius: radius.md,
                 color: colors.text.primary,
                 fontSize: 12,
                 fontFamily: "inherit",
-                outline: "none",
                 minHeight: 28,  // #5: ensure at least 28px height
               }}
             />
@@ -159,7 +161,7 @@ export default function BlockLibrary({ onAddNode }: BlockLibraryProps) {
             }}
           >
             {filtered.length === 0 && (
-              <div style={{ fontSize: 11, color: colors.text.tertiary, textAlign: "center", marginTop: 16 }}>
+              <div style={{ fontSize: 11, color: colors.text.tertiary, textAlign: "center", marginTop: 16 }} aria-live="polite">
                 无匹配模块
               </div>
             )}
@@ -167,8 +169,6 @@ export default function BlockLibrary({ onAddNode }: BlockLibraryProps) {
               <BlockCard
                 key={block.profile}
                 block={block}
-                onDragStart={(e) => handleDragStart(e, block.profile)}
-                onAdd={() => onAddNode?.(block.profile)}
               />
             ))}
           </div>
@@ -192,21 +192,21 @@ export default function BlockLibrary({ onAddNode }: BlockLibraryProps) {
   );
 }
 
-function BlockCard({
-  block,
-  onDragStart,
-  onAdd,
-}: {
-  block: BlockDef;
-  onDragStart: (e: React.DragEvent) => void;
-  onAdd: () => void;
-}) {
+function BlockCard({ block }: { block: BlockDef }) {
+  const handleDragStart = useCallback((e: React.DragEvent) => {
+    const profile = (e.currentTarget as HTMLElement).dataset.profile;
+    if (profile) {
+      e.dataTransfer.setData(DRAG_MIME, profile);
+      e.dataTransfer.effectAllowed = "copy";
+    }
+  }, []);
+
   return (
     <div
+      className="af-block-card"
+      data-profile={block.profile}
       draggable
-      onClick={onAdd}
-      onDragStart={onDragStart}
-      onDoubleClick={onAdd}
+      onDragStart={handleDragStart}
       role="button"
       tabIndex={0}
       title={`点击或拖拽到画布添加「${block.label}」节点`}
@@ -216,31 +216,19 @@ function BlockCard({
         alignItems: "center",
         gap: spacing[8],
         padding: `${spacing[8]}px ${spacing[8]}px ${spacing[8]}px ${spacing[12]}px`,
-        background: colors.bg[4],  // #14: was bg[3](brightness=34) same as aside — use bg[4](brightness=46) for card elevation
+        background: colors.bg[4],
         border: `1px solid ${colors.border.default}`,
         borderRadius: radius.md,
         cursor: "grab",
         overflow: "hidden",
         boxShadow: shadow.sm,
-        willChange: "transform",  // #50: prevent paint jitter on hover
-        transition: `border-color ${transition.fast}, transform ${transition.fast}, box-shadow ${transition.fast}`,
-      }}
-      onMouseEnter={(e) => {
-        const el = e.currentTarget;
-        el.style.borderColor = block.color;
-        el.style.transform = "translateY(-1px)";
-        el.style.boxShadow = shadow.hoverLift;
-      }}
-      onMouseLeave={(e) => {
-        const el = e.currentTarget;
-        el.style.borderColor = colors.border.default;
-        el.style.transform = "";
-        el.style.boxShadow = shadow.sm;
-      }}
+        willChange: "transform",
+        transition: `border-color ${transition.base}, transform ${transition.base}, box-shadow ${transition.base}`,
+        "--card-color": block.color,
+      } as React.CSSProperties}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          onAdd();
         }
       }}
     >
@@ -252,17 +240,17 @@ function BlockCard({
           left: 0,
           top: 0,
           bottom: 0,
-          width: 4,  // #6: was 3 — too thin to be noticeable
+          width: 4,
           background: block.color,
         }}
       />
-      <span style={{ fontSize: 16, lineHeight: 1 }}>{block.icon}</span>  {/* #19: was 18 — too large for 51px card */}
+      <span style={{ fontSize: 16, lineHeight: 1 }}>{block.icon}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: colors.text.primary }}>{block.label}</div>
+        <h3 style={{ fontSize: 12, fontWeight: 600, color: colors.text.primary, margin: 0 }}>{block.label}</h3>
         <div
           style={{
-            fontSize: 11,  // #16: was 10 — too small
-            color: colors.text.secondary,  // #16: was tertiary(154) — too low contrast, bump to secondary(182)
+            fontSize: 11,
+            color: colors.text.secondary,
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",

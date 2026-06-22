@@ -1,6 +1,8 @@
 import { memo } from "react";
 import { Handle, Position, NodeProps, Node } from "@xyflow/react";
-import { colors, shadow, radius, formatCost, formatDuration } from "./theme";  // #36: added radius
+import { colors, fontSize, shadow, radius, spacing, transition, formatCost, formatDuration } from "./theme";  // #36: added radius
+import { statusMeta, profileMeta } from "./utils";  // #3/#4: unified maps
+import type { NodeParams } from "./types";
 
 export type AgentNodeData = {
   icon: string;
@@ -16,62 +18,8 @@ export type AgentNodeData = {
   index?: number;
   /** 嵌套子工作流指示（true=可展开，null/undefined=无） */
   hasSubWorkflow?: boolean;
-};
-
-const PROFILE_LABELS: Record<string, string> = {
-  analysis: "分析",
-  design: "设计",
-  dev: "开发",
-  test: "测试",
-  doc: "文档",
-  deploy: "部署",
-};
-
-type StatusConfig = { bg: string; color: string; label: string; dot: string };
-
-const STATUS_CONFIG: Record<string, StatusConfig> = {
-  pending: {
-    bg: "rgba(100,116,139,0.16)",
-    color: colors.text.secondary,
-    dot: colors.status.pending,
-    label: "等待",
-  },
-  running: {
-    bg: "rgba(96,165,250,0.16)",
-    color: colors.status.running,
-    dot: colors.status.running,
-    label: "运行中",
-  },
-  completed: {
-    bg: "rgba(52,211,153,0.16)",
-    color: colors.status.completed,
-    dot: colors.status.completed,
-    label: "完成",
-  },
-  failed: {
-    bg: "rgba(248,113,113,0.16)",
-    color: colors.status.failed,
-    dot: colors.status.failed,
-    label: "失败",
-  },
-  skipped: {
-    bg: "rgba(136,136,136,0.16)",
-    color: colors.status.skipped,  // #11: was hardcoded #a0a0a0
-    dot: colors.status.skipped,
-    label: "跳过",
-  },
-  timed_out: {
-    bg: "rgba(251,191,36,0.16)",
-    color: colors.status.timed_out,
-    dot: colors.status.timed_out,
-    label: "超时",
-  },
-  cancelled: {
-    bg: "rgba(148,163,184,0.16)",
-    color: colors.text.secondary,
-    dot: colors.status.cancelled,
-    label: "已取消",
-  },
+  /** 高级参数 (params_json) */
+  params?: NodeParams;
 };
 
 const NODE_WIDTH = 220;
@@ -95,11 +43,10 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
-  const statusKey = data.status || "pending";
-  const sc = STATUS_CONFIG[statusKey] || STATUS_CONFIG.pending;
-  const profileLabel = PROFILE_LABELS[data.profile] || data.profile;
+  const sc = statusMeta(data.status);  // #3: unified status lookup (was STATUS_CONFIG[...])
+  const profileLabel = profileMeta(data.profile).label;  // #4: unified profile lookup
   const accent = data.color || colors.accent.purple;
-  const isRunning = statusKey === "running";
+  const isRunning = (data.status || "pending") === "running";
 
   const cardClass = [
     "agentflow-node-card",
@@ -127,7 +74,7 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
           : `${shadow.md}`,
         cursor: "pointer",
         overflow: "hidden",
-        transition: `box-shadow 0.18s ease, border-color 0.12s ease`,
+        transition: `box-shadow ${transition.base}, border-color ${transition.fast}`,
       }}
     >
       {/* R2-#4: Removed clipped port labels — redundant with Handle components */}
@@ -139,7 +86,7 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
           position: "relative",
           display: "flex",
           alignItems: "center",
-          gap: 6,
+          gap: spacing[6],
           height: 28,
           padding: "0 8px 0 18px", // left padding clears the accent bar
           background: titleBg,
@@ -167,7 +114,7 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
               style={{
                 width: 18,
                 height: 18,
-                borderRadius: 4,
+                borderRadius: radius.sm,  // #2: was hardcoded 4 — now uses token
                 background: accent,
                 color: colors.text.inverse,
                 fontSize: 11,  // R2-#6: was 10/16px — too small
@@ -181,10 +128,10 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
               {data.index}
             </span>
           )}
-          <span style={{ fontSize: 13, lineHeight: 1, flexShrink: 0 }}>{data.icon || "🤖"}</span>
+          <span style={{ fontSize: fontSize.base, lineHeight: 1, flexShrink: 0 }}>{data.icon || "🤖"}</span>
           <span
             style={{
-              fontSize: 12,
+              fontSize: fontSize.sm,
               fontWeight: 600,
               color: colors.text.primary,
               whiteSpace: "nowrap",
@@ -216,7 +163,7 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
             fontSize: 11,  // R2-#7: was 10
             fontWeight: 500,
             padding: "2px 7px",  // R2-#7: slightly taller
-            borderRadius: 999,
+            borderRadius: radius.full,  // #2: was hardcoded 999 — now uses token
             background: sc.bg,
             color: sc.color,
             whiteSpace: "nowrap",
@@ -271,7 +218,7 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
         {data.hasSubWorkflow && (
           <div
             style={{
-              marginBottom: 4,
+              marginBottom: spacing[4],
               fontSize: 10,
               color: colors.accent.purple,
               display: "flex",
@@ -307,11 +254,11 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
         {(data.model || data.cost !== undefined || data.duration_ms !== undefined) && (
           <div
             style={{
-              marginTop: 6,
-              paddingTop: 6,
+              marginTop: spacing[6],
+              paddingTop: spacing[6],
               borderTop: `1px solid ${colors.border.subtle}`,
               display: "flex",
-              gap: 8,
+              gap: spacing[8],
               flexWrap: "wrap",
               fontSize: 10,
               color: colors.text.tertiary,
@@ -329,4 +276,20 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
   );
 }
 
-export default memo(AgentNode);
+/**
+ * R3-P2: custom memo comparator — only re-render when one of the actually
+ * visible fields changes (id, status, label). The default shallow compare
+ * re-renders whenever `data` (always a new object after reducer updates)
+ * changes, even if no visible field did. This skips re-renders for cost /
+ * duration / model / index updates when those props are not currently shown
+ * (e.g. SSE cost update on a node whose body is collapsed) — but to be safe
+ * we also include `selected` so the focus ring is always correct.
+ */
+export default memo(AgentNode, (prev, next) => {
+  return (
+    prev.id === next.id &&
+    prev.selected === next.selected &&
+    prev.data.status === next.data.status &&
+    prev.data.label === next.data.label
+  );
+});

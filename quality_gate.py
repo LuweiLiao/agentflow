@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass, field
 
@@ -87,8 +88,20 @@ class QualityGate:
         if expected_files and node_dir:
             all_exist = True
             missing: list[str] = []
+            node_dir_norm = os.path.normpath(node_dir)
             for fname in expected_files:
-                filepath = os.path.join(node_dir, fname)
+                # P1 FIX: 防止路径遍历 — expected_files 必须是 node_dir 的相对子路径。
+                # 拒绝绝对路径和包含 ".." 的路径，规范化后再次校验未越出 node_dir。
+                norm_parts = fname.replace("\\", "/").split("/")
+                if os.path.isabs(fname) or ".." in norm_parts:
+                    all_exist = False
+                    missing.append(f"{fname} (illegal path)")
+                    continue
+                filepath = os.path.normpath(os.path.join(node_dir, fname))
+                if filepath != node_dir_norm and not filepath.startswith(node_dir_norm + os.sep):
+                    all_exist = False
+                    missing.append(f"{fname} (out of bounds)")
+                    continue
                 if not os.path.isfile(filepath):
                     all_exist = False
                     missing.append(fname)
@@ -115,10 +128,15 @@ class QualityGate:
                     failed_msgs.append(f"{cmd}: blocked by safety policy")
                     continue
                 try:
+                    # P1 FIX: shell=False + shlex.split() 杜绝 shell 注入。
+                    # 原先 shell=True 会把 cmd 交给 /bin/sh -c 执行，恶意
+                    # validation_commands（如 "ls; rm -rf /"）会被直接解释。
+                    # 现在命令被拆分为 argv，第一个元素是可执行文件，其余为参数，
+                    # 不再经过 shell，元字符（; | & $ `）失去特殊含义。
                     r = subprocess.run(
-                        cmd,
+                        shlex.split(cmd),
                         cwd=node_dir,
-                        shell=True,
+                        shell=False,
                         capture_output=True,
                         text=True,
                         timeout=60,

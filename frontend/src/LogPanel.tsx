@@ -54,6 +54,11 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
+  // P1-fix: virtualization state — track scroll position & viewport height so
+  // we only render the visible window instead of all ~200 log lines as DOM nodes.
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportH, setViewportH] = useState(60);
+
   // E5 — persist collapse state
   useEffect(() => {
     try {
@@ -63,10 +68,12 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
     }
   }, [collapsed]);
 
-  // E2 — track whether the user is pinned to the bottom.
+  // E2 — track whether the user is pinned to the bottom; also capture the
+  // current scroll offset for virtualized rendering.
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    setScrollTop(el.scrollTop);
     stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
   }, []);
 
@@ -93,6 +100,29 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
     return c;
   }, [logs]);
 
+  // P1-fix: measure the scroll viewport height via ResizeObserver so the
+  // virtualization window adapts when the panel collapses/expands.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => setViewportH(el.clientHeight);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [collapsed]);
+
+  // P1-fix: virtualization — compute the visible window [start, end) so only
+  // a handful of <div>s are rendered instead of the full log array.
+  const ITEM_HEIGHT = 17; // fontSize 11 × lineHeight 1.55 ≈ 17px
+  const RENDER_BUFFER = 6;
+  const totalItems = visibleLogs.length;
+  const startIndex = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - RENDER_BUFFER);
+  const visibleCount = Math.ceil(viewportH / ITEM_HEIGHT) + RENDER_BUFFER * 2;
+  const endIndex = Math.min(totalItems, startIndex + visibleCount);
+  const renderSlice = visibleLogs.slice(startIndex, endIndex);
+  const totalHeight = totalItems * ITEM_HEIGHT;
+
   return (
     <div
       style={{
@@ -110,6 +140,7 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
         role="button"
         tabIndex={0}
         aria-expanded={!collapsed}
+        aria-controls="log-panel-content"
         aria-label={collapsed ? "展开日志面板" : "折叠日志面板"}
         onClick={() => setCollapsed((v) => !v)}
         onKeyDown={(e) => {
@@ -129,9 +160,9 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
         }}
       >
         <span style={{ fontSize: 11, color: colors.text.tertiary }}>▾</span>  {/* #12: was 10 — too small */}
-        <span style={{ fontSize: 11, fontWeight: 600, color: colors.text.secondary }}>
+        <h2 style={{ fontSize: 11, fontWeight: 600, color: colors.text.secondary, margin: 0 }}>
           📜 日志
-        </span>
+        </h2>
         <span style={{ fontSize: 10, color: colors.text.tertiary }}>
           ({visibleLogs.length}/{logs.length})
         </span>
@@ -155,6 +186,7 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
               padding: "2px 6px",
               borderRadius: radius.sm,
             }}
+            className="af-log-clear-btn"
           >
             🗑
           </button>
@@ -165,7 +197,7 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
       </div>
 
       {!collapsed && (
-        <>
+        <div id="log-panel-content">
           {/* Filter row */}
           <div
             style={{
@@ -195,15 +227,18 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
                 fontFamily: "inherit",
               }}
             />
-            {/* E4 — level filter buttons */}
-            <div style={{ display: "flex", gap: 2 }}>
+            {/* E4 — level filter buttons as radio group */}
+            <div style={{ display: "flex", gap: 2 }} role="radiogroup" aria-label="日志级别过滤">
               {LEVEL_BUTTONS.map((b) => {
                 const active = level === b.key;
                 return (
                   <button
                     key={b.key}
                     type="button"
+                    className="af-log-level-btn"
+                    role="radio"
                     aria-pressed={active}
+                    aria-checked={active}
                     onClick={() => setLevel(b.key)}
                     style={{
                       padding: "2px 8px",
@@ -228,12 +263,17 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
             </div>
           </div>
 
-          {/* #33 — aria-live scoped to summary, not entire list */}
+          {/* #33 — aria-live scoped to summary, not entire list.
+              aria-relevant="additions" ensures screen readers only announce
+              newly appended log lines instead of re-announcing the whole list
+              whenever React reconciles the virtualized slice. */}
           <div
             ref={scrollRef}
             onScroll={handleScroll}
             role="log"
             aria-label="运行日志"
+            aria-live="polite"
+            aria-relevant="additions text"
             style={{
               flex: 1,
               overflowY: "auto",
@@ -248,18 +288,25 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
                     : "没有匹配的日志"}
                 </div>
               ) : (
-                visibleLogs.map((line, i) => {
-                  const lv = levelOf(line);
-                  return (
-                    <div key={i} style={{ color: colorForLevel(lv) }}>
-                      {line}
-                    </div>
-                  );
-                })
+                /* P1-fix: virtualized list — render only the visible window.
+                   A spacer div preserves total scroll height; a translateY
+                   offsets the slice to the correct position. */
+                <div style={{ height: totalHeight, position: "relative" }}>
+                  <div style={{ transform: `translateY(${startIndex * ITEM_HEIGHT}px)` }}>
+                    {renderSlice.map((line, i) => {
+                      const lv = levelOf(line);
+                      return (
+                        <div key={line.slice(0, 32)} style={{ color: colorForLevel(lv), height: ITEM_HEIGHT, overflow: "hidden", whiteSpace: "pre" }}>
+                          {line}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

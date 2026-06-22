@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { api } from "./api";
 import type { EvolutionStatsResponse, UpgradeResponse } from "./api";
 import type {
@@ -11,7 +11,7 @@ import type {
   RecurringPattern,
   EvolutionReport,
 } from "./types";
-import { colors, radius, shadow, spacing, transition, TOOLBAR_HEIGHT } from "./theme";
+import { colors, fontSize, radius, shadow, spacing, transition, zIndex, TOOLBAR_HEIGHT } from "./theme";
 
 /* ── Styles ───────────────────────────────────────────────────── */
 
@@ -25,9 +25,9 @@ const panelStyle: React.CSSProperties = {
   background: "rgba(15, 17, 23, 0.97)",
   borderLeft: `1px solid ${colors.border.subtle}`,
   padding: spacing[16],
-  zIndex: 100,
+  zIndex: zIndex.overlay,
   color: colors.text.primary,
-  fontSize: 13,
+  fontSize: fontSize.base,
   backdropFilter: "blur(10px)",
   boxShadow: shadow.lg,
 };
@@ -39,13 +39,13 @@ const backdropStyle: React.CSSProperties = {
   right: 0,
   bottom: 0,
   background: "rgba(0,0,0,0.35)",
-  zIndex: 99,
+  zIndex: zIndex.backdrop,
 };
 
 const sectionStyle: React.CSSProperties = {
   marginBottom: 16,
   padding: 12,
-  background: "rgba(255,255,255,0.04)",
+  background: "rgba(255,255,255,0.07)",
   borderRadius: radius.lg,
 };
 
@@ -62,10 +62,10 @@ const btnStyle: React.CSSProperties = {
 };
 
 const actionColors: Record<string, string> = {
-  auto_accept: "#22c55e",
-  conditional: "#eab308",
-  pending_human_review: "#f97316",
-  rejected: "#ef4444",
+  auto_accept: colors.status.completed,
+  conditional: colors.status.timed_out,
+  pending_human_review: colors.accent.orange,
+  rejected: colors.status.failed,
 };
 
 const classColors: Record<string, string> = {
@@ -91,14 +91,47 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // #26 — Escape key to close panel
+  // #26 — Escape key to close panel (handled inside focus trap for reliable focus restore)
+  // Focus trap — confine Tab/Shift+Tab within the panel, focus the
+  // panel on open, and restore focus to the trigger on close.
+  const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    const items = () => Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE));
+    // Move focus into the panel on open
+    const first = items()[0];
+    if (first) first.focus();
+    else panel.focus();
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const els = items();
+      if (els.length === 0) return;
+      const firstEl = els[0];
+      const lastEl = els[els.length - 1];
+      if (e.shiftKey && document.activeElement === firstEl) {
+        e.preventDefault();
+        lastEl.focus();
+      } else if (!e.shiftKey && document.activeElement === lastEl) {
+        e.preventDefault();
+        firstEl.focus();
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    panel.addEventListener("keydown", onKey);
+    return () => {
+      panel.removeEventListener("keydown", onKey);
+      previouslyFocused?.focus();
+    };
+  }, [onClose]); // include onClose so Escape handler has latest callback
 
   // Report state (G4 — typed, no `any`)
   const [report, setReport] = useState<EvolutionReport["report"]>(null);
@@ -182,22 +215,31 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
       {/* F3 — semi-transparent backdrop */}
       <div style={backdropStyle} onClick={onClose} aria-hidden />
 
-      <div className="agentflow-slide-in" style={panelStyle} role="dialog" aria-label="自我进化面板">
+      <div
+        ref={panelRef}
+        className="agentflow-slide-in"
+        style={panelStyle}
+        role="dialog"
+        aria-modal="true"
+        aria-label="自我进化面板"
+        tabIndex={-1}
+      >
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>🧬 自我进化</h3>  {/* #39: was "Self-Evolution" */}
+          <h2 style={{ margin: 0, fontSize: fontSize.lg, fontWeight: 700 }}>🧬 自我进化</h2>  {/* #39: was "Self-Evolution" */}
           <button
             onClick={onClose}
             aria-label="关闭自我进化面板"
             title="关闭"
-            style={{ background: "none", border: "none", color: colors.text.tertiary, cursor: "pointer", fontSize: 20, lineHeight: 1 }}
+            style={{ background: "none", border: "none", color: colors.text.tertiary, cursor: "pointer", fontSize: fontSize.xl, lineHeight: 1 }}
+            className="af-panel-close-btn"
           >
             ×
           </button>
         </div>
 
         {/* Tabs */}
-        <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
+        <div role="tablist" style={{ display: "flex", gap: 4, marginBottom: 12 }}>
           {([
             ["report", "📋 报告"],
             ["upgrade", "⚡ 升级"],
@@ -205,11 +247,14 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
           ] as const).map(([key, label]) => (
             <button
               key={key}
+              role="tab"
+              className="af-evo-tab-btn"
+              aria-selected={tab === key}
               onClick={() => setTab(key)}
               style={{
                 ...btnStyle,
                 background: tab === key ? colors.accent.blue : "rgba(255,255,255,0.08)",
-                color: tab === key ? "#fff" : colors.text.secondary,
+                color: tab === key ? "#0b0d12" : colors.text.secondary,
               }}
             >
               {label}
@@ -230,7 +275,7 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
                 icon="🧬"
                 title="暂无进化报告"
                 hint="对此运行执行进化分析以发现失败归因与改进建议"
-                action={<button onClick={runEvolve} style={{ ...btnStyle, background: colors.accent.purple, color: "#fff" }}>🔍 执行进化分析</button>}
+                action={<button onClick={runEvolve} className="af-evo-btn" style={{ ...btnStyle, background: colors.accent.purple, color: "#fff" }}>🔍 执行进化分析</button>}
               />
             ) : (
               <div>
@@ -239,9 +284,9 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
                   <h4 style={{ margin: "0 0 8px", fontSize: 13, color: colors.text.secondary }}>
                     失败归因 ({report.attributions?.length || 0})
                   </h4>
-                  {(report.attributions || []).map((attr: FailureAttribution, i: number) => (
+                  {(report.attributions || []).map((attr: FailureAttribution) => (
                     <div
-                      key={i}
+                      key={`attr-${attr.failure_class}-${attr.root_cause}`}
                       style={{
                         marginBottom: 8,
                         padding: 8,
@@ -280,9 +325,9 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
                   <h4 style={{ margin: "0 0 8px", fontSize: 13, color: colors.text.secondary }}>
                     改进建议 ({report.proposals?.length || 0})
                   </h4>
-                  {(report.proposals || []).map((prop: EvolutionProposal, i: number) => (
+                  {(report.proposals || []).map((prop: EvolutionProposal) => (
                     <div
-                      key={i}
+                      key={prop.proposal_id}
                       style={{ marginBottom: 6, padding: "6px 8px", background: "rgba(255,255,255,0.03)", borderRadius: radius.sm }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -292,8 +337,8 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
                             fontSize: 10,
                             padding: "1px 6px",
                             borderRadius: radius.sm,
-                            background: prop.risk === "low" ? "rgba(34,197,94,0.2)" : prop.risk === "medium" ? "rgba(234,179,8,0.2)" : "rgba(239,68,68,0.2)",
-                            color: prop.risk === "low" ? "#22c55e" : prop.risk === "medium" ? "#eab308" : colors.status.failed,
+                            background: prop.risk === "low" ? "rgba(52,211,153,0.2)" : prop.risk === "medium" ? "rgba(251,191,36,0.2)" : "rgba(248,113,113,0.2)",
+                            color: prop.risk === "low" ? colors.accent.green : prop.risk === "medium" ? colors.accent.yellow : colors.accent.red,
                           }}
                         >
                           {prop.risk}
@@ -306,6 +351,7 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
 
                 <button
                   onClick={runUpgrade}
+                  className="af-evo-btn"
                   style={{ ...btnStyle, background: colors.status.timed_out, color: "#000", width: "100%" }}
                 >
                   ⚡ 执行完整升级管线
@@ -331,7 +377,7 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
             )}
 
             {decisions.map((d, i) => (
-              <div key={i} style={{ ...sectionStyle, borderLeft: `3px solid ${actionColors[d.action] || colors.text.tertiary}` }}>
+              <div key={d.proposal?.proposal_id ?? `dec-${i}-${d.action}`} style={{ ...sectionStyle, borderLeft: `3px solid ${actionColors[d.action] || colors.text.tertiary}` }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                   <span
                     style={{
@@ -363,8 +409,8 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
             {promotions.length > 0 && (
               <div style={sectionStyle}>
                 <h4 style={{ margin: "0 0 8px", fontSize: 13, color: colors.text.secondary }}>晋升 ({promotions.length})</h4>
-                {promotions.map((p, i) => (
-                  <div key={i} style={{ fontSize: 12, marginBottom: 4 }}>
+                {promotions.map((p) => (
+                  <div key={p.promotion_id} style={{ fontSize: 12, marginBottom: 4 }}>
                     <span style={{ color: p.rolled_back ? colors.status.failed : colors.status.completed }}>
                       {p.rolled_back ? "↩️" : "✅"}
                     </span>{" "}
@@ -381,7 +427,7 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
                 icon="⚡"
                 title="暂无升级决策"
                 hint="执行升级管线以查看自动化改进决策"
-                action={runId ? <button onClick={runUpgrade} style={{ ...btnStyle, background: colors.status.timed_out, color: "#000" }}>⚡ 执行升级管线</button> : undefined}
+                action={runId ? <button onClick={runUpgrade} className="af-evo-btn" style={{ ...btnStyle, background: colors.status.timed_out, color: "#000" }}>⚡ 执行升级管线</button> : undefined}
               />
             )}
           </div>
@@ -430,9 +476,9 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
                 {stats.recurring_patterns.length > 0 && (
                   <div style={sectionStyle}>
                     <h4 style={{ margin: "0 0 8px", fontSize: 13, color: colors.text.secondary }}>高频复发模式</h4>
-                    {stats.recurring_patterns.slice(0, 5).map((p: RecurringPattern, i: number) => (
+                    {stats.recurring_patterns.slice(0, 5).map((p: RecurringPattern) => (
                       <div
-                        key={i}
+                        key={`pat-${p.failure_class}-${p.root_cause_fragment}`}
                         style={{
                           marginBottom: 6,
                           padding: 6,
@@ -490,9 +536,9 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
 function LoadingSkeleton() {
   return (
     <div>
-      {[90, 60, 75, 50, 80].map((w, i) => (
+      {[90, 60, 75, 50, 80].map((w) => (
         <div
-          key={i}
+          key={`skel-${w}`}
           className="agentflow-skeleton"
           style={{ height: 16, width: `${w}%`, margin: "10px 0", borderRadius: radius.md }}
         />

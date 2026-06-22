@@ -24,6 +24,25 @@ DB_PATH = os.path.join(RUNS_DIR, "runs.db")
 _HEARTBEAT_TTL = int(os.environ.get("AGENTFLOW_HEARTBEAT_TTL", "300"))  # 5 min stale
 _COMPILER_VERSION = "2.0.0"
 
+# ── 数据库迁移定义 ──────────────────────────────────
+# P3 FIX: 结构化迁移框架，替代 ad-hoc ALTER TABLE try/except。
+# 每个迁移是一个 (id, description, sql) 元组。
+# 迁移 runner 会检查 _migrations 表，只执行未应用的迁移。
+_MIGRATIONS = [
+    ("001_runs_workflow_id",
+     "Add workflow_id column to runs",
+     "ALTER TABLE runs ADD COLUMN workflow_id TEXT DEFAULT ''"),
+    ("002_runs_workspace_path",
+     "Add workspace_path column to runs",
+     "ALTER TABLE runs ADD COLUMN workspace_path TEXT DEFAULT ''"),
+    ("003_nodes_params_json",
+     "Add params_json column to nodes",
+     "ALTER TABLE nodes ADD COLUMN params_json TEXT DEFAULT '{}'"),
+    ("004_runs_dag_version",
+     "Add dag_version column to runs",
+     "ALTER TABLE runs ADD COLUMN dag_version INTEGER DEFAULT 0"),
+]
+
 # ── 锁 —— 所有写操作受此保护 ──────────────────────────
 _write_lock = threading.Lock()
 
@@ -51,11 +70,50 @@ ALLOWED_WORKFLOW_FIELDS = frozenset({
 
 def _get_conn() -> sqlite3.Connection:
     """每次调用创建独立连接。读操作无需锁，写操作在调用方加 _write_lock。"""
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=5)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    # P1 FIX: busy_timeout=5000ms — 并发写时等待而非立即抛 SQLITE_BUSY，
+    # 配合 _write_lock 显著降低 "database is locked" 错误。
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
+
+
+def _run_migrations(conn):
+    """P3 FIX: 简单的迁移 runner。替代 ad-hoc ALTER TABLE try/except。
+
+    维护 _migrations 表记录已应用的迁移。对于旧数据库（列已存在但_migrations
+    表中没有记录），"duplicate column name" 错误被视为已应用。
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS _migrations (
+            id          TEXT PRIMARY KEY,
+            description TEXT DEFAULT '',
+            applied_at  REAL NOT NULL
+        )
+    """)
+    applied = {row[0] for row in conn.execute("SELECT id FROM _migrations")}
+    now = time.time()
+    for mig_id, desc, sql in _MIGRATIONS:
+        if mig_id in applied:
+            continue
+        try:
+            conn.execute(sql)
+            conn.execute(
+                "INSERT INTO _migrations (id, description, applied_at) VALUES (?,?,?)",
+                (mig_id, desc, now),
+            )
+        except sqlite3.OperationalError as e:
+            # "duplicate column name" — 旧数据库已通过 ad-hoc 代码路径添加了该列，
+            # 标记为已应用即可。
+            if "duplicate column" in str(e).lower():
+                conn.execute(
+                    "INSERT OR IGNORE INTO _migrations (id, description, applied_at) VALUES (?,?,?)",
+                    (mig_id, desc, now),
+                )
+            else:
+                raise
 
 
 def _init():
@@ -166,24 +224,21 @@ def _init():
         );
 
         CREATE INDEX IF NOT EXISTS idx_evolution_run ON evolution_reports(run_id);
+
+        -- P3 FIX: 工作流版本快照表（每次保存创建不可变版本）
+        CREATE TABLE IF NOT EXISTS workflow_versions (
+            workflow_id   TEXT NOT NULL,
+            version       INTEGER NOT NULL,
+            snapshot_json TEXT NOT NULL,
+            created_at    REAL NOT NULL,
+            PRIMARY KEY (workflow_id, version),
+            FOREIGN KEY (workflow_id) REFERENCES workflows(workflow_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_workflow_versions_wf ON workflow_versions(workflow_id);
     """)
-    # 迁移：runs 表增加 workflow_id / workspace_path / node params
-    try:
-        conn.execute("ALTER TABLE runs ADD COLUMN workflow_id TEXT DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE runs ADD COLUMN workspace_path TEXT DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE nodes ADD COLUMN params_json TEXT DEFAULT '{}'")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute("ALTER TABLE runs ADD COLUMN dag_version INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
+    # P3 FIX: 使用结构化迁移 runner 替代 ad-hoc ALTER TABLE try/except
+    _run_migrations(conn)
     conn.commit()
     conn.close()
 
@@ -198,10 +253,12 @@ class RunStore:
 
     def _get_conn(self) -> sqlite3.Connection:
         os.makedirs(self.runs_dir, exist_ok=True)
-        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=5)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
+        # P1 FIX: busy_timeout=5000ms — 并发写时等待而非立即抛 SQLITE_BUSY。
+        conn.execute("PRAGMA busy_timeout=5000")
         return conn
 
     def _init_db(self):
@@ -491,33 +548,30 @@ class RunStore:
         )
 
     def get_pending_nodes(self, run_id: str) -> list:
-        """获取所有依赖已就绪的 pending 节点（使用 workflow_edges 表）。"""
-        all_nodes = self._read(
-            "SELECT * FROM nodes WHERE run_id=? AND status='pending'",
+        """获取所有依赖已就绪的 pending 节点。
+
+        P1 FIX: 使用单个 NOT EXISTS 子查询替代 N+1 循环查询。
+        原 50 节点场景需要 101 次 DB 查询（1 次选 pending + 每节点 2 次），
+        现在仅需 1 次。语义不变：节点 ready 当且仅当它没有「未完成」的上游
+        （即所有 workflow_edges 来源均为 completed，或根本没有入边）。
+        """
+        rows = self._read(
+            """
+            SELECT n.* FROM nodes n
+            WHERE n.run_id = ? AND n.status = 'pending'
+              AND NOT EXISTS (
+                SELECT 1 FROM workflow_edges e
+                JOIN nodes up
+                  ON up.run_id = e.run_id
+                 AND up.node_id = e.source_node_id
+                WHERE e.run_id = n.run_id
+                  AND e.target_node_id = n.node_id
+                  AND up.status <> 'completed'
+              )
+            """,
             [run_id],
         )
-        ready = []
-        for n in all_nodes:
-            # 查 workflow_edges 表找本节点的上游
-            upstream_rows = self._read(
-                "SELECT source_node_id FROM workflow_edges"
-                " WHERE run_id=? AND target_node_id=?",
-                [run_id, n["node_id"]],
-            )
-            if not upstream_rows:
-                ready.append(dict(n))
-                continue
-            # 检查所有上游是否 completed
-            upstream_ids = [r["source_node_id"] for r in upstream_rows]
-            placeholders = ",".join("?" for _ in upstream_ids)
-            dep_rows = self._read(
-                f"SELECT status FROM nodes WHERE run_id=? AND node_id IN ({placeholders})"
-                f" AND status='completed'",
-                [run_id] + upstream_ids,
-            )
-            if len(dep_rows) == len(upstream_ids):
-                ready.append(dict(n))
-        return ready
+        return [dict(r) for r in rows]
 
     def all_nodes_done(self, run_id: str) -> bool:
         # Bug #15 FIX: add 'cancelled' to terminal states
@@ -967,6 +1021,13 @@ class RunStore:
                 now,
             ),
         )
+        # P3 FIX: 创建初始版本快照
+        self._save_workflow_version(workflow_id, snapshot_data={
+            "name": name[:200] or "未命名工作流",
+            "requirement": requirement[:500],
+            "nodes": nodes,
+            "edges": edges or [],
+        })
         return self.get_workflow(workflow_id)
 
     def get_workflow(self, workflow_id: str) -> dict | None:
@@ -1022,9 +1083,86 @@ class RunStore:
         cur = self._write(f"UPDATE workflows SET {sets} WHERE workflow_id=?", vals)
         if cur.rowcount == 0:
             return None
+        # P3 FIX: 每次保存创建新版本快照而非覆盖历史
+        self._save_workflow_version(workflow_id)
         return self.get_workflow(workflow_id)
 
+    def _save_workflow_version(self, workflow_id: str,
+                                snapshot_data: dict | None = None) -> int:
+        """保存工作流版本快照，返回新版本号。
+
+        如果 snapshot_data 为 None，则从 workflows 表读取当前状态。
+        """
+        with _write_lock:
+            conn = self._get_conn()
+            try:
+                if snapshot_data is None:
+                    row = conn.execute(
+                        "SELECT name, requirement, nodes_json, edges_json"
+                        " FROM workflows WHERE workflow_id=?",
+                        [workflow_id],
+                    ).fetchone()
+                    if not row:
+                        return 0
+                    snapshot_data = {
+                        "name": row["name"],
+                        "requirement": row["requirement"],
+                        "nodes": json.loads(row["nodes_json"] or "[]"),
+                        "edges": json.loads(row["edges_json"] or "[]"),
+                    }
+                v_row = conn.execute(
+                    "SELECT MAX(version) AS v FROM workflow_versions WHERE workflow_id=?",
+                    [workflow_id],
+                ).fetchone()
+                next_version = (v_row["v"] + 1) if v_row and v_row["v"] is not None else 1
+                snapshot_json = json.dumps({
+                    "workflow_id": workflow_id,
+                    **snapshot_data,
+                }, ensure_ascii=False)
+                conn.execute(
+                    "INSERT INTO workflow_versions (workflow_id, version, snapshot_json, created_at)"
+                    " VALUES (?,?,?,?)",
+                    (workflow_id, next_version, snapshot_json, time.time()),
+                )
+                conn.commit()
+                return next_version
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+    def list_workflow_versions(self, workflow_id: str) -> list[dict]:
+        """列出工作流的所有版本（最新在前）。"""
+        rows = self._read(
+            "SELECT workflow_id, version, created_at"
+            " FROM workflow_versions WHERE workflow_id=?"
+            " ORDER BY version DESC",
+            [workflow_id],
+        )
+        return [dict(r) for r in rows]
+
+    def get_workflow_version(self, workflow_id: str, version: int) -> dict | None:
+        """获取特定版本的工作流快照。"""
+        rows = self._read(
+            "SELECT workflow_id, version, snapshot_json, created_at"
+            " FROM workflow_versions WHERE workflow_id=? AND version=?",
+            [workflow_id, version],
+        )
+        if not rows:
+            return None
+        r = dict(rows[0])
+        try:
+            r["snapshot"] = json.loads(r.pop("snapshot_json"))
+        except (json.JSONDecodeError, TypeError):
+            r["snapshot"] = {}
+        return r
+
     def delete_workflow(self, workflow_id: str) -> bool:
+        # P3 FIX: 先删除关联的版本快照（FK 约束）
+        self._write(
+            "DELETE FROM workflow_versions WHERE workflow_id=?", [workflow_id]
+        )
         cur = self._write(
             "DELETE FROM workflows WHERE workflow_id=?", [workflow_id]
         )
@@ -1155,14 +1293,43 @@ def get_store() -> RunStore:
 
 
 # ── 启动扫描 ──────────────────────────────────────────
+# P3 FIX: 僵尸 run 清理阈值。pending 状态的 run 超过此时间（秒）视为僵尸，
+# 启动时标记为 failed 而非恢复执行。默认 1 小时。
+_ZOMBIE_RUN_TTL = int(os.environ.get("AGENTFLOW_ZOMBIE_RUN_TTL", "3600"))
+
+
 def startup_scan(store: RunStore | None = None) -> dict:
-    """启动时扫描残留状态并恢复。返回操作摘要。"""
+    """启动时扫描残留状态并恢复。返回操作摘要。
+
+    P3 FIX: 僵尸 run 清理 — pending 状态的 run 如果创建时间超过
+    AGENTFLOW_ZOMBIE_RUN_TTL（默认 3600s = 1 小时），视为僵尸 run，
+    标记为 failed 而非恢复。这防止了进程崩溃后遗留的永不完成的 run。
+    """
     s = store or get_store()
     action_log = {"pending_resumed": [], "stale_marked": [], "errors": []}
 
-    # 1. 恢复 pending 的 run（它们会在 executor_queue 中重新入队）
-    pending_ids = s.list_pending_runs()
-    action_log["pending_resumed"] = pending_ids
+    now = time.time()
+    cutoff = now - _ZOMBIE_RUN_TTL
+
+    # 1. 区分新鲜 pending run（恢复）和僵尸 pending run（标记 failed）
+    pending_rows = s._read(
+        "SELECT run_id, created_at FROM runs WHERE status='pending' ORDER BY created_at"
+    )
+    for row in pending_rows:
+        rid = row["run_id"]
+        created_at = row["created_at"]
+        if created_at < cutoff:
+            # 僵尸 run：pending 超过阈值，标记为 failed
+            try:
+                s.update_run_status(
+                    rid, "failed",
+                    f"zombie_run_cleanup: pending > {_ZOMBIE_RUN_TTL}s (created {int(now - created_at)}s ago)"
+                )
+                action_log["stale_marked"].append(rid)
+            except Exception as e:
+                action_log["errors"].append(f"{rid}: {e}")
+        else:
+            action_log["pending_resumed"].append(rid)
 
     # 2. 标记无 heartbeat 的 running run 为 failed
     stale_ids = s.list_stale_runs()

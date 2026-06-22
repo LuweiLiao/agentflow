@@ -19,6 +19,16 @@ export const STATUS_LABELS: Record<NodeStatus, string> = {
   cancelled: "已取消",
 };
 
+/** 节点高级参数 (对应后端 params_json) */
+export interface NodeParams {
+  expected_files?: string[];
+  validation_commands?: string;
+  max_budget?: number;
+  agent_type?: "standard" | "claude-code";
+  loop_to?: string;
+  scope?: string;
+}
+
 /** 工作流节点 */
 export interface WorkflowNode {
   id: string;
@@ -38,6 +48,8 @@ export interface WorkflowNode {
   provider?: string;
   /** 嵌套子工作流（展开/折叠） */
   sub_workflow?: GraphData | null;
+  /** 高级参数 (后端 params_json) */
+  params?: NodeParams;
 }
 
 /** 工作流边 */

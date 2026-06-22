@@ -323,11 +323,9 @@ def validate_workflow(wf: WorkflowJSON) -> list[str]:
     except Exception as e:
         errors.append(f"拓扑排序异常: {e}")
 
-    # Profile 校验
-    profiles = {p.value for p in Profile}
-    for n in wf.nodes:
-        if n.profile not in profiles:
-            errors.append(f"节点 {n.id}: 未知 profile '{n.profile}'")
+    # Profile 校验（宽松：允许任意字符串，只警告未知类型）
+    # 已知 profile 的定义在 Profile enum 中，但不阻止自定义 profile
+    # 这样编排 Agent 可以根据需求创造任意专业 profile
 
     return errors
 

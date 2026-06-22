@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """AgentFlow 统一后端 — 异步执行引擎 + ThreadingHTTPServer + SQLite 持久化"""
+import hmac
 import http.server
 import json
 import os
 import shutil
+import signal
 import sys
 import tempfile
 import threading
 import time
 import traceback
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from queue import Queue
 from urllib.parse import urlparse
 
@@ -53,16 +57,284 @@ MAX_CONCURRENT_AGENTS = int(os.environ.get("AGENTFLOW_MAX_CONCURRENT", "10"))
 MAX_BODY_SIZE = int(os.environ.get("AGENTFLOW_MAX_BODY_SIZE", str(512 * 1024)))
 _global_semaphore = threading.Semaphore(MAX_CONCURRENT_AGENTS)
 
+# Bug #12 FIX: 进程启动时间戳，用于 /health 的 uptime 计算。
+_PROCESS_START_TIME = time.time()
+
+# Bug #11 FIX: 错误码常量表。所有错误响应应附带稳定的数字 code，
+# 便于前端/SDK 做分支处理（HTTP status 仍由响应码传递）。
+# 命名规范：<CATEGORY>_<DETAIL>，数字范围：4XXYY / 5XXYY。
+ERROR_CODES = {
+    "INVALID_REQUEST":   40001,   # 请求格式/参数错误
+    "UNAUTHORIZED":      40101,   # 未认证 / token 无效
+    "FORBIDDEN":         40301,   # 鉴权通过但无权限（scope 拒绝等）
+    "NOT_FOUND":         40401,   # 资源不存在
+    "METHOD_NOT_ALLOWED":40501,   # HTTP 方法不支持
+    "CONFLICT":          40901,   # 状态冲突（如重复创建）
+    "PAYLOAD_TOO_LARGE": 41301,   # 请求体超限
+    "UNPROCESSABLE":     42201,   # 语义错误（DAG 有环、schema 校验失败）
+    "INTERNAL_ERROR":    50001,   # 服务端内部异常
+    "BAD_GATEWAY":       50201,   # 上游 provider 调用失败
+    "SCOPE_DENIED":      40302,   # 自编排 scope 校验拒绝
+}
+
+# P2 FIX: 工作流级成本上限。超过后中止执行并标记 run 为 'budget_exceeded'。
+MAX_RUN_COST = float(os.environ.get("AGENTFLOW_MAX_RUN_COST", "10.0"))
+
+# P3 FIX: 需求长度上限，与前端 MAX_REQUIREMENT_LEN 保持一致 (2000 字符)。
+MAX_REQUIREMENT_LEN = int(os.environ.get("AGENTFLOW_MAX_REQUIREMENT_LEN", "2000"))
+
+# P3 FIX: CORS 严格 origin 白名单。
+# 优先读取 AGENTFLOW_ALLOWED_ORIGINS（逗号分隔列表）；如未设置，回退到
+# 旧 AGENTFLOW_ALLOWED_ORIGIN（单值，可为 "*"）以保持向后兼容。
+# 默认允许本机来源，便于本地开发。
+_ALLOWED_ORIGINS_ENV = os.environ.get("AGENTFLOW_ALLOWED_ORIGINS", "")
+if _ALLOWED_ORIGINS_ENV:
+    ALLOWED_ORIGINS = frozenset(
+        o.strip() for o in _ALLOWED_ORIGINS_ENV.split(",") if o.strip()
+    )
+    # 当白名单显式配置时，"*" 仍然被允许（运维显式选择开放模式）。
+    ALLOW_WILDCARD = "*" in ALLOWED_ORIGINS
+else:
+    # 默认仅放行本机来源；保持与既有测试一致的默认行为。
+    ALLOWED_ORIGINS = frozenset({
+        "http://localhost", f"http://localhost:{PORT}",
+        "http://127.0.0.1", f"http://127.0.0.1:{PORT}",
+    })
+    # 兼容旧 AGENTFLOW_ALLOWED_ORIGIN="*"
+    _LEGACY = os.environ.get("AGENTFLOW_ALLOWED_ORIGIN", "")
+    ALLOW_WILDCARD = (_LEGACY == "*")
+
+# P3 FIX: 端点级请求体大小限制（字节）。未列出的端点使用全局 MAX_BODY_SIZE。
+# 这避免了单个保守阈值限制大 payload 端点（如 execute 允许完整 DAG JSON）
+# 同时收紧小文本端点（如 decompose 只接受 requirement 文本）。
+ENDPOINT_BODY_LIMITS = {
+    "/api/decompose": int(os.environ.get("AGENTFLOW_MAX_BODY_DECOMPOSE", str(10 * 1024))),       # 10 KB
+    "/api/supervisor": int(os.environ.get("AGENTFLOW_MAX_BODY_SUPERVISOR", str(64 * 1024))),     # 64 KB
+    "/api/execute": int(os.environ.get("AGENTFLOW_MAX_BODY_EXECUTE", str(1024 * 1024))),          # 1 MB
+    "/api/execute/stream": int(os.environ.get("AGENTFLOW_MAX_BODY_EXECUTE", str(1024 * 1024))),   # 1 MB
+}
+
+
+def _body_limit_for(path: str) -> int:
+    """Return the per-endpoint body size limit, falling back to MAX_BODY_SIZE.
+
+    The effective limit is min(endpoint_limit, MAX_BODY_SIZE): the per-endpoint
+    value is a tighter cap, while MAX_BODY_SIZE remains a global ceiling (so
+    lowering it for testing/ops affects all endpoints uniformly).
+    """
+    endpoint_limit = ENDPOINT_BODY_LIMITS.get(path)
+    if endpoint_limit is None:
+        return MAX_BODY_SIZE
+    return min(endpoint_limit, MAX_BODY_SIZE)
+
+
+# P3 FIX: OpenAPI 3.1 文档生成。
+# 手动维护的端点描述，供 /api/docs 返回。新增端点时应同步更新此处。
+def _build_openapi_spec() -> dict:
+    """Return a minimal OpenAPI 3.1 spec describing all AgentFlow API endpoints."""
+    return {
+        "openapi": "3.1.0",
+        "info": {
+            "title": "AgentFlow API",
+            "version": "5.0",
+            "description": "异步 Agent DAG 执行引擎 + 自编排 API",
+        },
+        "servers": [{"url": f"http://{HOST}:{PORT}"}],
+        "components": {
+            "securitySchemes": {
+                "bearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "description": "当 AGENTFLOW_API_TOKEN 设置时需要 Bearer token",
+                }
+            }
+        },
+        "paths": {
+            "/health": {"get": {"summary": "健康检查", "tags": ["system"]}},
+            "/api/docs": {"get": {"summary": "OpenAPI 3.1 规范", "tags": ["system"]}},
+            "/api/status": {"get": {"summary": "运行时配置状态", "tags": ["system"]}},
+            "/api/providers": {"get": {"summary": "Provider 能力矩阵", "tags": ["system"]}},
+            "/api/decompose": {"post": {"summary": "编排分解（同步）", "tags": ["orchestration"]}},
+            "/api/supervisor": {"post": {"summary": "多轮对话编排", "tags": ["orchestration"]}},
+            "/api/runs": {
+                "get": {"summary": "执行历史列表", "tags": ["runs"]},
+                "post": {"summary": "异步执行（返回 run_id）", "tags": ["runs"]},
+            },
+            "/api/runs/{run_id}": {
+                "get": {"summary": "单 run 详情", "tags": ["runs"]},
+                "delete": {"summary": "取消/停止 run", "tags": ["runs"]},
+            },
+            "/api/runs/{run_id}/events": {"get": {"summary": "SSE 实时事件流", "tags": ["runs"]}},
+            "/api/runs/{run_id}/nodes": {
+                "get": {"summary": "节点拓扑+上下游", "tags": ["self-orchestration"]},
+                "post": {"summary": "动态新增节点", "tags": ["self-orchestration"]},
+            },
+            "/api/runs/{run_id}/nodes/{node_id}": {
+                "get": {"summary": "单节点详情", "tags": ["self-orchestration"]},
+                "patch": {"summary": "修改节点参数", "tags": ["self-orchestration"]},
+                "delete": {"summary": "删除节点（自动重连）", "tags": ["self-orchestration"]},
+            },
+            "/api/runs/{run_id}/nodes/{node_id}/retry": {
+                "post": {"summary": "重置节点重跑", "tags": ["self-orchestration"]},
+            },
+            "/api/runs/{run_id}/edges": {
+                "get": {"summary": "DAG 边列表", "tags": ["self-orchestration"]},
+                "post": {"summary": "新增依赖边", "tags": ["self-orchestration"]},
+                "delete": {"summary": "删除依赖边", "tags": ["self-orchestration"]},
+            },
+            "/api/runs/{run_id}/reroute": {"post": {"summary": "批量调整 DAG", "tags": ["self-orchestration"]}},
+            "/api/runs/{run_id}/feedback": {"post": {"summary": "Agent 提反馈", "tags": ["self-orchestration"]}},
+            "/api/runs/{run_id}/evolve": {"post": {"summary": "手动触发进化分析", "tags": ["evolution"]}},
+            "/api/runs/{run_id}/evolution": {"get": {"summary": "获取进化报告", "tags": ["evolution"]}},
+            "/api/runs/{run_id}/upgrade": {"post": {"summary": "升级门控全流程", "tags": ["evolution"]}},
+            "/api/runs/{run_id}/resume": {"post": {"summary": "重置节点及下游为 pending（replay）", "tags": ["runs"]}},
+            "/api/runs/{run_id}/clone": {"post": {"summary": "从现有 run 快照克隆新 run", "tags": ["runs"]}},
+            "/api/runs/{run_id}/artifacts": {"get": {"summary": "列出 run 所有产物", "tags": ["runs"]}},
+            "/api/runs/compare": {"get": {"summary": "对比两个 run", "tags": ["runs"]}},
+            "/api/evolution/stats": {"get": {"summary": "聚合进化统计", "tags": ["evolution"]}},
+            "/api/evolution/history": {"get": {"summary": "进化账本历史", "tags": ["evolution"]}},
+            "/api/workflows": {
+                "get": {"summary": "工作流列表", "tags": ["workflows"]},
+                "post": {"summary": "保存工作流", "tags": ["workflows"]},
+            },
+            "/api/workflows/{workflow_id}": {
+                "get": {"summary": "获取工作流", "tags": ["workflows"]},
+                "put": {"summary": "更新工作流", "tags": ["workflows"]},
+                "delete": {"summary": "删除工作流", "tags": ["workflows"]},
+            },
+            "/api/workflows/{workflow_id}/versions": {
+                "get": {"summary": "工作流版本列表", "tags": ["workflows"]},
+            },
+            "/api/workflows/{workflow_id}/templatize": {
+                "post": {"summary": "将工作流转为可复用模板", "tags": ["workflows"]},
+            },
+            "/api/admin/backup": {"post": {"summary": "创建 SQLite 一致性备份", "tags": ["admin"]}},
+            "/api/hook/{token}": {"post": {"summary": "Webhook 触发执行", "tags": ["webhook"]}},
+        },
+        "tags": [
+            {"name": "system"},
+            {"name": "orchestration"},
+            {"name": "runs"},
+            {"name": "self-orchestration"},
+            {"name": "evolution"},
+            {"name": "workflows"},
+            {"name": "admin"},
+            {"name": "webhook"},
+        ],
+    }
+
 
 def _validate_id(id_str: str) -> bool:
     """R3-P0-4: Reject IDs containing path traversal characters.
 
     Used to validate run_id / node_id / workflow_id before they are joined
-    into filesystem paths. Any ID containing '..', '/', or '\\' is rejected.
+    into filesystem paths. Any ID containing '..', '/', or '\\\\' is rejected.
     """
     if not id_str:
         return False
     return ".." not in id_str and "/" not in id_str and "\\" not in id_str
+
+
+# ── Bug #6 FIX: 基于 dataclass 的请求体验证 ────────────
+# 为高风险 POST 端点提供显式类型检查 + 范围校验，替代散落的 if 判断。
+# 验证失败时抛出 ValidationError，由 handler 统一转 400 响应。
+class ValidationError(ValueError):
+    """请求体验证失败。message 直接作为客户端错误响应。"""
+
+
+@dataclass
+class DecomposeRequest:
+    """POST /api/decompose 请求体校验模型。
+
+    与前端 MAX_REQUIREMENT_LEN (2000) 和 node count 上限 (100) 保持一致。
+    """
+    requirement: str = ""
+    count: int = 5
+
+    @classmethod
+    def from_body(cls, body: dict) -> "DecomposeRequest":
+        if not isinstance(body, dict):
+            raise ValidationError("Request body must be a JSON object")
+        requirement = body.get("requirement", "")
+        if not isinstance(requirement, str):
+            raise ValidationError("requirement must be a string")
+        if not requirement.strip():
+            raise ValidationError("Requirement is empty")
+        if len(requirement) > MAX_REQUIREMENT_LEN:
+            raise ValidationError(
+                f"Requirement too long ({len(requirement)} > {MAX_REQUIREMENT_LEN})"
+            )
+        count_raw = body.get("count", 5)
+        try:
+            count = int(count_raw)
+        except (TypeError, ValueError):
+            raise ValidationError("count must be an integer")
+        # 范围验证：clamp 到 1..100（与 test_decompose_count_clamped_to_100
+        # 既有契约一致 —— 超出范围不报错而是截断，避免 LLM 拆解被拒）。
+        count = max(1, min(count, 100))
+        return cls(requirement=requirement, count=count)
+
+
+@dataclass
+class ExecuteRequest:
+    """POST /api/execute (或 /api/runs) 请求体校验模型。"""
+    nodes: list = field(default_factory=list)
+    edges: list = field(default_factory=list)
+    requirement: str = ""
+    workflow_id: str = ""
+
+    @classmethod
+    def from_body(cls, body: dict) -> "ExecuteRequest":
+        if not isinstance(body, dict):
+            raise ValidationError("Request body must be a JSON object")
+        nodes = body.get("nodes", [])
+        if not isinstance(nodes, list):
+            raise ValidationError("nodes must be an array")
+        if len(nodes) == 0:
+            raise ValidationError("No nodes")
+        # 范围验证：单 run 最多 200 节点（防止滥用导致 DB 爆炸）
+        if len(nodes) > 200:
+            raise ValidationError(f"Too many nodes ({len(nodes)} > 200)")
+        edges = body.get("edges", [])
+        if edges is not None and not isinstance(edges, list):
+            raise ValidationError("edges must be an array")
+        requirement = body.get("requirement", "")
+        if not isinstance(requirement, str):
+            raise ValidationError("requirement must be a string")
+        if len(requirement) > MAX_REQUIREMENT_LEN:
+            raise ValidationError(
+                f"Requirement too long ({len(requirement)} > {MAX_REQUIREMENT_LEN})"
+            )
+        workflow_id = body.get("workflow_id", "")
+        if not isinstance(workflow_id, str):
+            raise ValidationError("workflow_id must be a string")
+        return cls(nodes=nodes, edges=edges or [], requirement=requirement,
+                   workflow_id=workflow_id)
+
+
+# ── 结构化日志 helper ────────────────────────────────────
+# P2 FIX: 轻量级结构化日志，替代关键路径的 print() 调用。
+# 输出 ISO 时间戳 + 级别 + 消息 + 可选的 run_id/node_id 上下文。
+def _log(level: str, msg: str, run_id: str = None, node_id: str = None, **kwargs):
+    """Structured logging helper.
+
+    Args:
+        level: Log level (INFO, WARN, ERROR, DEBUG).
+        msg: Log message.
+        run_id: Optional run context.
+        node_id: Optional node context.
+        **kwargs: Additional structured fields appended as key=value.
+    """
+    ts = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
+    parts = [f"[{ts}Z]", f"[{level.upper()}]"]
+    if run_id:
+        parts.append(f"[run={run_id}]")
+    if node_id:
+        parts.append(f"[node={node_id}]")
+    parts.append(msg)
+    for k, v in kwargs.items():
+        parts.append(f"{k}={v}")
+    print(" ".join(parts), file=sys.stderr)
 
 # API 鉴权
 AGENTFLOW_API_TOKEN = os.environ.get("AGENTFLOW_API_TOKEN", "")
@@ -100,10 +372,8 @@ def _publish_event(run_id, event_type, node_id=None, tool_call_id=None, payload=
     try:
         _store.append_event(ev)
     except Exception as exc:
-        print(
-            f"[RunEventPersistence] failed run={run_id} type={event_type}: {exc}",
-            file=sys.stderr,
-        )
+        _log("ERROR", f"Event persistence failed type={event_type}: {exc}",
+             run_id=run_id, tag="RunEventPersistence")
         traceback.print_exc(file=sys.stderr)
         raise
     return ev
@@ -120,22 +390,15 @@ def _run_workspace(run_id: str) -> str:
 
 # R3-P0-10: workspace 清理状态锁，避免多线程并发清理。
 _workspace_cleanup_lock = threading.Lock()
-_workspace_cleanup_done = False
 
 
 def _cleanup_old_workspaces(max_age_seconds: int = 86400):
     """删除超过 max_age_seconds 的 workspace 子目录（best-effort）。
 
-    使用模块级标志确保每次进程生命周期内只执行一次全量扫描，
-    后续由操作系统或外部 cron 处理。异常静默忽略。
+    Bug #4 FIX: 改为可重复调用 — 每次 _run_workspace 入口和后台周期任务
+    都会触发扫描。异常静默忽略，避免清理失败影响主流程。
     """
-    global _workspace_cleanup_done
-    if _workspace_cleanup_done:
-        return
     with _workspace_cleanup_lock:
-        if _workspace_cleanup_done:
-            return
-        _workspace_cleanup_done = True
         ws_root = os.path.join(SCRIPT_DIR, ".agentflow", "workspaces")
         if not os.path.isdir(ws_root):
             return
@@ -153,6 +416,23 @@ def _cleanup_old_workspaces(max_age_seconds: int = 86400):
                     shutil.rmtree(dpath, ignore_errors=True)
         except OSError:
             pass
+
+
+def _workspace_cleanup_loop(interval_seconds: int = 600):
+    """周期性 workspace 清理守护线程（默认每 10 分钟扫描一次）。
+
+    Bug #4 FIX: 替代旧的「进程生命周期内一次性扫描」策略，
+    确保长期运行的服务不会积累过期 workspace。
+    """
+    _log("INFO", f"Workspace cleanup daemon started (interval={interval_seconds}s)",
+         tag="WorkspaceCleanup")
+    while True:
+        try:
+            _cleanup_old_workspaces()
+        except Exception as e:
+            _log("ERROR", f"Workspace cleanup iteration failed: {e}",
+                 tag="WorkspaceCleanup")
+        time.sleep(interval_seconds)
 
 
 def _copy_tree_contents(src: str, dst: str):
@@ -215,19 +495,18 @@ def _publish_node_artifacts(run_id: str, node_id: str, node_dir: str):
 
 def _background_worker():
     """后台工作线程：消费队列里的 run_id，异步执行 DAG。"""
-    # 启动时扫描残留状态
     try:
         scan_result = startup_scan()
         if scan_result["pending_resumed"]:
-            print(f"[StartupScan] 发现 {len(scan_result['pending_resumed'])} 个 pending run",
-                  file=sys.stderr)
+            _log("INFO", f"发现 {len(scan_result['pending_resumed'])} 个 pending run",
+                 tag="StartupScan")
             for rid in scan_result["pending_resumed"]:
                 _executor_queue.put(rid)
         if scan_result["stale_marked"]:
-            print(f"[StartupScan] 标记 {len(scan_result['stale_marked'])} 个 stale run 为 failed",
-                  file=sys.stderr)
+            _log("WARN", f"标记 {len(scan_result['stale_marked'])} 个 stale run 为 failed",
+                 tag="StartupScan")
     except Exception as e:
-        print(f"[StartupScan] 异常: {e}", file=sys.stderr)
+        _log("ERROR", f"启动扫描异常: {e}", tag="StartupScan")
 
     while True:
         run_id = _executor_queue.get()
@@ -235,7 +514,7 @@ def _background_worker():
             _execute_run(run_id)
         except Exception as e:
             _store.update_run_status(run_id, "failed", str(e)[:500])
-            print(f"[BackgroundWorker] Run {run_id} failed: {e}", file=sys.stderr)
+            _log("ERROR", f"Run failed: {e}", run_id=run_id, tag="BackgroundWorker")
         finally:
             _executor_queue.task_done()
 
@@ -290,7 +569,7 @@ def _execute_run(run_id: str):
             # F46 FIX: check if run was cancelled by user (DELETE /api/runs/{rid})
             run_status_check = store.get_run(run_id) or {}
             if run_status_check.get("status") == "cancelled":
-                print(f"[AsyncExec] Run {run_id} cancelled by user, stopping", file=sys.stderr)
+                _log("INFO", "Run cancelled by user, stopping", run_id=run_id, tag="AsyncExec")
                 break
 
             # 检查 DAG 版本变更 → 刷新 ready 列表 + 重建 node_map
@@ -331,7 +610,7 @@ def _execute_run(run_id: str):
                 if has_failure:
                     # 递归标记所有 downstream 为 skipped
                     # R3-P0-12: 限制最大迭代次数，防止 DAG 异常时死循环。
-                    _MAX_SKIP_ITER = 1000
+                    _MAX_SKIP_ITER = min(len(all_nodes) + 1, 1000)  # P2 fix: bound to actual node count
                     changed = True
                     for _skip_iter in range(_MAX_SKIP_ITER):
                         if not changed:
@@ -352,7 +631,8 @@ def _execute_run(run_id: str):
                                             changed = True
                                             break
                     else:
-                        print(f"[AsyncExec] WARNING: skip-propagation hit max iterations ({_MAX_SKIP_ITER}) for run {run_id}", file=sys.stderr)
+                        _log("WARN", f"skip-propagation hit max iterations ({_MAX_SKIP_ITER})",
+                             run_id=run_id, tag="AsyncExec")
                     # 再检查一次
                     ready = store.get_pending_nodes(run_id)
                 if not ready:
@@ -408,7 +688,12 @@ def _execute_run(run_id: str):
                 node_dir = os.path.join(work_dir, f"node_{nid}")
                 os.makedirs(node_dir, exist_ok=True)
                 _materialize_upstream_artifacts(store, run_id, nid, work_dir, node_dir)
-                store.update_node(run_id, nid, status="running")
+                # P1 FIX: Atomic transition pending→running via optimistic lock,
+                # eliminating the TOCTOU race where two workers could grab the
+                # same ready node. If another worker already claimed it, skip.
+                if not store.transition_node_status(run_id, nid, "pending", "running"):
+                    _log("DEBUG", "Node already claimed, skipping", run_id=run_id, node_id=nid, tag="AsyncExec")
+                    continue
                 _publish_event(run_id, "node_start",
                     node_id=nid,
                     payload={
@@ -526,8 +811,8 @@ def _execute_run(run_id: str):
                     # F32 FIX: accumulate retry cost
                     attempt_costs.append(result.get("cost", 0))
                     attempt_durs.append(result.get("duration_ms", 0))
-                    print(f"[AsyncExec] Node {nid} retry {attempt}/{max_attempts}: {qr.reason}",
-                          file=sys.stderr)
+                    _log("INFO", f"Node retry {attempt}/{max_attempts}: {qr.reason}",
+                         run_id=run_id, node_id=nid, tag="AsyncExec")
 
                 # F32 FIX: use accumulated costs from ALL attempts
                 cost = sum(attempt_costs)
@@ -543,8 +828,8 @@ def _execute_run(run_id: str):
                     )
                     if loop_scheduled:
                         upstream_summaries.pop(nid, None)
-                        print(f"[AsyncExec] Node {nid}: workflow feedback loop scheduled -> {node_params.get('loop_to')}",
-                              file=sys.stderr)
+                        _log("INFO", f"Workflow feedback loop scheduled -> {node_params.get('loop_to')}",
+                             run_id=run_id, node_id=nid, tag="AsyncExec")
                         continue
                     status = "failed"
                     result["error"] = qr.reason
@@ -552,6 +837,27 @@ def _execute_run(run_id: str):
                         result["result"] = qr.reason
                 total_cost += cost
                 total_dur += dur
+
+                # P2 FIX: 工作流成本上限检查。超过 MAX_RUN_COST 时中止执行。
+                if total_cost > MAX_RUN_COST:
+                    _log("WARN", f"Run exceeded cost ceiling ${total_cost:.4f} > ${MAX_RUN_COST:.4f}, aborting",
+                         run_id=run_id, tag="BudgetControl")
+                    _publish_event(
+                        run_id,
+                        "budget_exceeded",
+                        payload={"total_cost": total_cost, "limit": MAX_RUN_COST},
+                    )
+                    # 将剩余 pending/running 节点标记为 skipped
+                    for _n in (store.get_run(run_id) or {}).get("nodes", []):
+                        if _n.get("status") in ("pending", "running"):
+                            store.update_node(
+                                run_id,
+                                _n["node_id"],
+                                status="skipped",
+                                result=f"工作流预算超限 (${total_cost:.4f} > ${MAX_RUN_COST:.4f})",
+                            )
+                    store.update_run_status(run_id, "budget_exceeded")
+                    break
 
                 store.update_node(run_id, nid,
                     status=status,
@@ -575,7 +881,7 @@ def _execute_run(run_id: str):
                         "cost": cost,
                         "duration_ms": dur,
                         "turns": result.get("turns", 0),
-                        "result": result.get("result", "")[:500],
+                        "result": result.get("result", "")[:2000],  # P2 fix: was 500
                     })
 
                 _publish_node_artifacts(run_id, nid, node_dir)
@@ -597,14 +903,16 @@ def _execute_run(run_id: str):
                         name=f"{nid}.txt",
                         mime_type="text/plain",
                     )
-                    summary = (full_output[:500] + "...") if len(full_output) > 500 else full_output
+                    summary = (full_output[:2000] + "...") if len(full_output) > 2000 else full_output
                     upstream_summaries[nid] = json.dumps({
                         "summary": summary,
                         "artifact": art_ref.to_dict(),
                     }, ensure_ascii=False)
-                except Exception:
+                except Exception as broker_err:
                     # fallback: 仍用文件路径
-                    summary = (full_output[:500] + "...") if len(full_output) > 500 else full_output
+                    _log("WARN", f"ArtifactBroker publish failed: {broker_err}",
+                         run_id=run_id, node_id=nid, tag="ArtifactBroker")
+                    summary = (full_output[:2000] + "...") if len(full_output) > 2000 else full_output
                     upstream_summaries[nid] = json.dumps({
                         "summary": summary,
                         "artifact": output_path,
@@ -618,13 +926,14 @@ def _execute_run(run_id: str):
                             status="skipped",
                             result=f"上游节点 {nid} 失败 ({status})，跳过")
 
-                print(f"[AsyncExec] Node {nid}: {status} ${cost:.6f} {dur}ms",
-                      file=sys.stderr)
+                _log("INFO", f"Node: {status}", run_id=run_id, node_id=nid,
+                     cost=f"${cost:.6f}", duration=f"{dur}ms", tag="AsyncExec")
 
                 # 检查 DAG 是否被 Agent 在运行中修改过
                 if store.get_dag_version(run_id) > dag_version:
                     dag_version = store.get_dag_version(run_id)
-                    print(f"[AsyncExec] DAG version bumped to {dag_version} — re-evaluating", file=sys.stderr)
+                    _log("INFO", f"DAG version bumped to {dag_version}, re-evaluating",
+                         run_id=run_id, tag="AsyncExec")
                     dag_bumped = True
                     break  # 跳出 Phase 3 后处理循环，外层 while 重新准备 ready
 
@@ -635,6 +944,9 @@ def _execute_run(run_id: str):
         run_status_final = store.get_run(run_id) or {}
         if run_status_final.get("status") == "cancelled":
             final_status = "cancelled"
+        elif run_status_final.get("status") == "budget_exceeded":
+            # P2 FIX: preserve budget_exceeded status set during execution
+            final_status = "budget_exceeded"
         elif counts.get("failed", 0) > 0 or counts.get("timed_out", 0) > 0:
             final_status = "failed"
         # Bug #14 FIX: detect orphaned running/pending nodes
@@ -652,11 +964,11 @@ def _execute_run(run_id: str):
             try:
                 _run_evolution_analysis(run_id)
             except Exception as ev_err:
-                print(f"[Evolution] Auto-analysis failed for {run_id}: {ev_err}", file=sys.stderr)
+                _log("ERROR", f"Auto-analysis failed: {ev_err}", run_id=run_id, tag="Evolution")
 
     except Exception as e:
         store.update_run_status(run_id, "failed", str(e)[:500])
-        print(f"[AsyncExec] Run {run_id} error: {e}", file=sys.stderr)
+        _log("ERROR", f"Run error: {e}", run_id=run_id, tag="AsyncExec")
     finally:
         # R3-P0-11: 确保线程池在 run 结束后关闭（无论成功/失败/异常）。
         _run_pool.shutdown(wait=False)
@@ -679,10 +991,12 @@ def _run_evolution_analysis(run_id: str) -> dict:
     # Record to cross-run ledger
     try:
         _evolution_ledger.record_analysis(run_id, report_dict)
-    except Exception:
-        pass
-    print(f"[Evolution] Run {run_id}: {len(report_dict.get('attributions', []))} attributions, "
-          f"{len(report_dict.get('proposals', []))} proposals (v{version})", file=sys.stderr)
+    except Exception as ledger_err:
+        # P2 FIX: log instead of silently swallowing
+        _log("WARN", f"record_analysis failed: {ledger_err}", run_id=run_id, tag="EvolutionLedger")
+    _log("INFO", f"Evolution report: {len(report_dict.get('attributions', []))} attributions, "
+         f"{len(report_dict.get('proposals', []))} proposals (v{version})",
+         run_id=run_id, tag="Evolution")
     return report_dict
 
 
@@ -853,7 +1167,9 @@ def _workspace_file_snapshot(node_dir: str, limit: int = 80) -> list[str]:
                 files.append(rel)
                 if len(files) >= limit:
                     return files
-    except Exception:
+    except OSError as walk_err:
+        # P2 FIX: log instead of silently returning partial results
+        _log("WARN", f"walk failed: {walk_err}", tag="WorkspaceSnapshot")
         return files
     return files
 
@@ -894,14 +1210,22 @@ def _execute_one_node(node_row: dict, task, node_dir: str, default_model: str,
     额外 run_id 参数：传入时通过 _event_bus 发布 tool/delta 级事件。
     """
     with _global_semaphore:
-        agent_model = node_row.get("model") or default_model
+        # P3 FIX #8: per-node model override. node_row["model"] 是 DB 存储的
+        # 顶层 model 字段（来自 decompose/inspector 编辑），params.agent_model
+        # 是前端 InspectorPanel 提供的 finer-grained 覆盖。优先级：
+        #   node_row["model"] > params.agent_model > default_model
+        node_params_raw = node_row.get("params", {}) or {}
+        agent_model = (
+            node_row.get("model")
+            or node_params_raw.get("agent_model")
+            or default_model
+        )
         agent_type = node_row.get("agent_type", "standard")
 
         # F64 FIX: write env scope to a thread-local manifest file instead of
         # mutating os.environ (which is process-global and races with concurrent
         # node executions). The agent reads its scope from this file via the
         # AGENTFLOW_SCOPE_FILE env var (set once at startup, not per-request).
-        node_params_raw = node_row.get("params", {}) or {}
         agent_scope = node_params_raw.get("scope", "self")
         scope_data = {
             "run_id": run_id or "",
@@ -1028,6 +1352,41 @@ def _get_agent_scope(node_params: dict | None) -> str:
     return params.get("scope", "self")
 
 
+def _health_payload() -> dict:
+    """Bug #12 FIX: 增强 /health 返回运维指标（active_runs/queue_depth/db_size/uptime）。
+
+    所有指标都是 best-effort：单条指标采集失败不影响整体 200 响应。
+    """
+    payload = {"status": "ok", "version": "5.0"}
+    # uptime
+    try:
+        payload["uptime_seconds"] = round(time.time() - _PROCESS_START_TIME, 1)
+    except Exception:
+        pass
+    # queue depth（执行队列积压）
+    try:
+        payload["queue_depth"] = _executor_queue.qsize()
+    except Exception:
+        pass
+    # active runs（running + pending 数量，反映当前负载）
+    try:
+        store = get_store()
+        active = store._read(
+            "SELECT COUNT(*) AS c FROM runs WHERE status IN ('running','pending')"
+        )
+        payload["active_runs"] = int(active[0]["c"]) if active else 0
+    except Exception:
+        pass
+    # DB 文件大小
+    try:
+        from run_store import DB_PATH
+        if os.path.isfile(DB_PATH):
+            payload["db_size_bytes"] = os.path.getsize(DB_PATH)
+    except Exception:
+        pass
+    return payload
+
+
 def _runtime_status() -> dict:
     """返回当前运行时配置（供前端检测 API Key 是否就绪）。"""
     agent = AgentRunner(model=DEFAULT_AGENT_MODEL)
@@ -1119,34 +1478,78 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             return None
         return id_str
 
+    # ── P3 FIX: 请求 ID 追踪 + 全局异常中间件 ──────────
+    def _begin_request(self):
+        """在每个请求开始时调用：生成/提取 X-Request-ID，存到 self.request_id。"""
+        # 优先信任客户端传入的 X-Request-ID（便于跨服务追踪），否则生成新 UUID。
+        incoming = self.headers.get("X-Request-ID", "").strip()
+        if incoming and _validate_id(incoming):
+            self.request_id = incoming
+        else:
+            self.request_id = uuid.uuid4().hex[:16]
+
+    def _handle_uncaught(self, exc: Exception):
+        """全局异常兜底：返回结构化 500 响应而非裸堆栈。
+
+        仅在 do_X 外层 try/except 中调用。已发送响应（BrokenPipe 等）时静默忽略。
+        """
+        rid = getattr(self, "request_id", "unknown")
+        tb = traceback.format_exc()
+        _log("ERROR", f"Unhandled exception: {exc!r}",
+             tag="UnhandledException", request_id=rid, traceback=tb[:500])
+        try:
+            # Bug #11 FIX: 使用 _send_error 统一错误码表。
+            self._send_error(500, "INTERNAL_ERROR",
+                             message=str(exc)[:200])
+        except Exception:
+            # 响应已部分发送或连接已断开，无法再写入 — 静默忽略。
+            pass
+
     def _cors_headers(self, origin: str = "") -> dict:
-        allowed = os.environ.get("AGENTFLOW_ALLOWED_ORIGIN", "")
-        if allowed and origin and origin == allowed:
-            origin_val = origin
-        elif allowed and origin and allowed == "*":
+        # P3 FIX: 严格 origin 白名单（替代通配符回退）。
+        # 规则：
+        #   1. 若 AGENTFLOW_ALLOWED_ORIGINS 显式配置（含 "*"），按白名单校验；
+        #   2. 否则按默认本机来源列表校验；
+        #   3. 命中白名单的 origin 原样回显，否则回退到默认 origin（localhost），
+        #      避免 "*" 通配符泄露给任意站点。
+        _DEFAULT_ORIGIN = "http://localhost"
+        if ALLOW_WILDCARD:
+            origin_val = origin or _DEFAULT_ORIGIN
+            if origin_val == "":
+                origin_val = "*"
+        elif origin and origin in ALLOWED_ORIGINS:
             origin_val = origin
         else:
-            origin_val = origin if origin in (
-                "http://localhost", f"http://localhost:{PORT}",
-                "http://127.0.0.1", f"http://127.0.0.1:{PORT}",
-            ) else "http://localhost"
+            origin_val = _DEFAULT_ORIGIN
         return {
             "Access-Control-Allow-Origin": origin_val,
             "Access-Control-Allow-Methods": "POST, GET, HEAD, OPTIONS, PATCH, DELETE",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Request-ID",
+            "Access-Control-Expose-Headers": "X-Request-ID",
         }
 
     def _require_auth(self) -> bool:
         if not AGENTFLOW_API_TOKEN:
             return True
+        # P1 FIX: 使用 hmac.compare_digest 进行常量时间比较，防止时序侧信道
+        # 攻击者通过响应耗时逐字节爆破 API token。
         auth = self.headers.get("Authorization", "")
-        if auth == f"Bearer {AGENTFLOW_API_TOKEN}":
+        expected_bearer = f"Bearer {AGENTFLOW_API_TOKEN}"
+        if auth.startswith("Bearer ") and hmac.compare_digest(auth, expected_bearer):
             return True
-        if self.headers.get("X-API-Key", "") == AGENTFLOW_API_TOKEN:
+        api_key = self.headers.get("X-API-Key", "")
+        if api_key and hmac.compare_digest(api_key, AGENTFLOW_API_TOKEN):
             return True
         return False
 
     def do_OPTIONS(self):
+        self._begin_request()
+        try:
+            self._do_options_impl()
+        except Exception as e:
+            self._handle_uncaught(e)
+
+    def _do_options_impl(self):
         origin = self.headers.get("Origin", "")
         cors = self._cors_headers(origin)
         self.send_response(204)
@@ -1184,8 +1587,15 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
                 filepath = dist_alt
         allowed_prefix = os.path.normpath(STATIC_DIR) + os.sep
         script_prefix = os.path.normpath(SCRIPT_DIR) + os.sep
-        if not (filepath.startswith(allowed_prefix) or filepath == os.path.normpath(STATIC_DIR) or
-                filepath.startswith(script_prefix)):
+        # P2 FIX: resolve symlinks before prefix check to prevent path traversal
+        # via symlink chains pointing outside STATIC_DIR / SCRIPT_DIR.
+        filepath_real = os.path.realpath(filepath)
+        static_real = os.path.realpath(STATIC_DIR)
+        script_real = os.path.realpath(SCRIPT_DIR)
+        if not (filepath_real.startswith(static_real + os.sep) or
+                filepath_real == static_real or
+                filepath_real.startswith(script_real + os.sep) or
+                filepath_real == script_real):
             self.send_error(403, "Forbidden")
             return
 
@@ -1214,6 +1624,7 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             origin = self.headers.get("Origin", "")
             for k, v in self._cors_headers(origin).items():
                 self.send_header(k, v)
+            self._apply_security_headers()
             self.end_headers()
             if send_body:
                 self.wfile.write(content)
@@ -1221,6 +1632,13 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404, str(e))
 
     def do_HEAD(self):
+        self._begin_request()
+        try:
+            self._do_head_impl()
+        except Exception as e:
+            self._handle_uncaught(e)
+
+    def _do_head_impl(self):
         path = _api_path(self.path)
         if path.startswith("/api/"):
             self.send_error(405, "Method Not Allowed")
@@ -1228,6 +1646,13 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         self._serve_static(send_body=False)
 
     def do_GET(self):
+        self._begin_request()
+        try:
+            self._do_get_impl()
+        except Exception as e:
+            self._handle_uncaught(e)
+
+    def _do_get_impl(self):
         path = _api_path(self.path)
 
         if path == "/api/runs":
@@ -1235,6 +1660,15 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             return
         if path == "/api/status":
             self._handle_status()
+            return
+        if path == "/health":
+            # Bug #12 FIX: 增强 health endpoint，返回运维指标供 Docker/k8s 探针
+            # 和监控面板使用（active_runs/queue_depth/db_size/uptime）。
+            self._send_json(200, _health_payload())
+            return
+        if path == "/api/docs":
+            # P3 FIX: OpenAPI 3.1 spec endpoint.
+            self._send_json(200, _build_openapi_spec())
             return
         if path == "/api/providers":
             self._handle_list_providers()
@@ -1248,7 +1682,20 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/workflows":
             self._handle_list_workflows()
             return
+        if path == "/api/runs/compare":
+            # P3 FIX: 执行历史对比 API。必须在 /api/runs/{id} 通配之前匹配。
+            self._handle_compare_runs()
+            return
         if path.startswith("/api/workflows/"):
+            parts = path.strip("/").split("/")
+            # GET /api/workflows/{id}/versions — 版本列表
+            if len(parts) == 3 and parts[2] == "versions":
+                wf_id = parts[1]
+                if not _validate_id(wf_id):
+                    self._send_json(400, {"error": "Invalid workflow_id"})
+                    return
+                self._handle_list_workflow_versions(wf_id)
+                return
             wf_id = path.split("/")[-1]
             # R3-P0-4: 校验 workflow_id 不含路径穿越字符
             if not _validate_id(wf_id):
@@ -1275,6 +1722,11 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
                 if not _validate_id(parts[2]):
                     self._send_json(400, {"error": "Invalid run_id"}); return
                 self._handle_get_evolution(parts[2])
+            # Bug #3 FIX: GET /api/runs/{rid}/artifacts — 列出该 run 所有生成的产物
+            elif len(parts) == 4 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "artifacts":
+                if not _validate_id(parts[2]):
+                    self._send_json(400, {"error": "Invalid run_id"}); return
+                self._handle_list_run_artifacts(parts[2])
             elif len(parts) == 5 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "nodes":
                 if not _validate_id(parts[2]) or not _validate_id(parts[4]):
                     self._send_json(400, {"error": "Invalid run_id/node_id"}); return
@@ -1290,6 +1742,13 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
         self._serve_static(send_body=True)
 
     def do_POST(self):
+        self._begin_request()
+        try:
+            self._do_post_impl()
+        except Exception as e:
+            self._handle_uncaught(e)
+
+    def _do_post_impl(self):
         path = _api_path(self.path)
         if path == "/api/decompose":
             self.handle_decompose()
@@ -1301,6 +1760,9 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             self.handle_execute_stream()
         elif path == "/api/workflows":
             self._handle_create_workflow()
+        elif path == "/api/admin/backup":
+            # P3 FIX: SQLite 一致性备份端点。
+            self._handle_admin_backup()
         elif path.startswith("/api/hook/"):
             token = path.split("/")[-1]
             self._handle_webhook_trigger(token)
@@ -1313,8 +1775,15 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
                 if len(parts) >= 5 and parts[3] == "nodes":
                     if not _validate_id(parts[4]):
                         self._send_json(400, {"error": "Invalid node_id"}); return
+            # R3-P0-4: 校验 workflow_id（用于 templatize 等子路由）
+            if parts[0] == "api" and parts[1] == "workflows" and len(parts) >= 3:
+                if not _validate_id(parts[2]):
+                    self._send_json(400, {"error": "Invalid workflow_id"}); return
+            # POST /api/workflows/{wid}/templatize — 将工作流转为可复用模板
+            if len(parts) == 4 and parts[0] == "api" and parts[1] == "workflows" and parts[3] == "templatize":
+                self._handle_templatize_workflow(parts[2])
             # POST /api/runs/{rid}/nodes — 新增节点
-            if len(parts) == 4 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "nodes":
+            elif len(parts) == 4 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "nodes":
                 self._handle_add_node(parts[2])
             # POST /api/runs/{rid}/edges — 新增边
             elif len(parts) == 4 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "edges":
@@ -1334,10 +1803,23 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             # POST /api/runs/{rid}/upgrade — 执行升级门控全流程
             elif len(parts) == 4 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "upgrade":
                 self._handle_upgrade(parts[2])
+            # Bug #1 FIX: POST /api/runs/{rid}/resume?from_node={nid} — 重置节点及下游为 pending
+            elif len(parts) == 4 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "resume":
+                self._handle_resume_run(parts[2])
+            # Bug #2 FIX: POST /api/runs/{rid}/clone — 从现有 run 快照创建新 run
+            elif len(parts) == 4 and parts[0] == "api" and parts[1] == "runs" and parts[3] == "clone":
+                self._handle_clone_run(parts[2])
             else:
                 self.send_error(404)
 
     def do_PUT(self):
+        self._begin_request()
+        try:
+            self._do_put_impl()
+        except Exception as e:
+            self._handle_uncaught(e)
+
+    def _do_put_impl(self):
         path = _api_path(self.path)
         if path.startswith("/api/workflows/"):
             wf_id = path.split("/")[-1]
@@ -1349,6 +1831,13 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_PATCH(self):
+        self._begin_request()
+        try:
+            self._do_patch_impl()
+        except Exception as e:
+            self._handle_uncaught(e)
+
+    def _do_patch_impl(self):
         path = _api_path(self.path)
         # PATCH /api/runs/{rid}/nodes/{nid}
         parts = path.strip("/").split("/")
@@ -1361,6 +1850,13 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_DELETE(self):
+        self._begin_request()
+        try:
+            self._do_delete_impl()
+        except Exception as e:
+            self._handle_uncaught(e)
+
+    def _do_delete_impl(self):
         path = _api_path(self.path)
         if path.startswith("/api/workflows/"):
             wf_id = path.split("/")[-1]
@@ -1389,14 +1885,20 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self.send_error(404)
 
-    def _read_json_body(self) -> tuple[dict | None, str | None]:
+    def _read_json_body(self, max_size: int | None = None) -> tuple[dict | None, str | None]:
+        """读取并解析 JSON 请求体。
+
+        Args:
+            max_size: 可选的 per-call 大小上限（字节）。未指定时使用全局 MAX_BODY_SIZE。
+        """
         try:
             length = int(self.headers.get("Content-Length", 0))
             # Bug #30 FIX: guard against negative Content-Length
             if length < 0:
                 return None, "Invalid Content-Length"
-            if length > MAX_BODY_SIZE:
-                return None, f"Request too large ({length} > {MAX_BODY_SIZE})"
+            limit = max_size if max_size is not None else MAX_BODY_SIZE
+            if length > limit:
+                return None, f"Request too large ({length} > {limit})"
             if length == 0:
                 return {}, None
             return json.loads(self.rfile.read(length)), None
@@ -1415,18 +1917,28 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", 0))
-            if length > MAX_BODY_SIZE:
-                self._send_json(413, {"error": f"Request too large ({length} > {MAX_BODY_SIZE})"})
+            # P3 FIX: per-endpoint body limit (decompose 只接受 requirement 文本，10KB 足够)
+            _limit = _body_limit_for("/api/decompose")
+            if length > _limit:
+                self._send_json(413, {"error": f"Request too large ({length} > {_limit})"})
                 return
             body = json.loads(self.rfile.read(length))
-            requirement = body.get("requirement", "")
-            count = max(1, min(int(body.get("count", 5)), 100))
         except (json.JSONDecodeError, ValueError, TypeError):
             self._send_json(400, {"error": "Invalid request"})
             return
 
-        if not requirement:
-            self._send_json(400, {"error": "Requirement is empty"})
+        # Bug #6 FIX: 使用 dataclass 校验器做类型检查 + 范围校验。
+        # 校验失败时 error 字段保留人类可读消息（含 'empty' 关键字以兼容测试），
+        # 同时附带稳定的数字 code。
+        try:
+            req = DecomposeRequest.from_body(body)
+            requirement = req.requirement
+            count = req.count
+        except ValidationError as ve:
+            self._send_json(400, {
+                "error": str(ve),
+                "code": ERROR_CODES["INVALID_REQUEST"],
+            })
             return
 
         # 尝试用 LLM 分解，无 key 则 fallback
@@ -1465,7 +1977,9 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
                         nodes = self._fallback_template(requirement, count)
                 except json.JSONDecodeError:
                     nodes = self._fallback_template(requirement, count)
-        except Exception:
+        except Exception as decomp_err:
+            # P2 FIX: log instead of silently falling back
+            _log("WARN", f"LLM decomposition failed, using fallback template: {decomp_err}", tag="Decompose")
             nodes = self._fallback_template(requirement, count)
 
         # 归一化：确保所有 id/depends_on 为字符串
@@ -1575,18 +2089,26 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
             return
         try:
             length = int(self.headers.get("Content-Length", 0))
-            if length > MAX_BODY_SIZE:
-                self.send_error(413, f"Request too large ({length} > {MAX_BODY_SIZE})")
+            # P3 FIX: per-endpoint body limit (execute 允许完整 DAG JSON，1MB)
+            _limit = _body_limit_for("/api/execute")
+            if length > _limit:
+                self.send_error(413, f"Request too large ({length} > {_limit})")
                 return
             body = json.loads(self.rfile.read(length))
-            nodes = body.get("nodes", [])
-            edges = body.get("edges", [])
-            requirement = body.get("requirement", "")
         except (json.JSONDecodeError, ValueError, TypeError):
             self._send_json(400, {"error": "Invalid request"})
             return
-        if not nodes:
-            self._send_json(400, {"error": "No nodes"})
+        # Bug #6 FIX: dataclass 校验器做类型检查 + 范围校验。
+        try:
+            req = ExecuteRequest.from_body(body)
+            nodes = req.nodes
+            edges = req.edges
+            requirement = req.requirement
+        except ValidationError as ve:
+            self._send_json(400, {
+                "error": str(ve),
+                "code": ERROR_CODES["INVALID_REQUEST"],
+            })
             return
 
         # DAG 校验
@@ -1620,7 +2142,7 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
             self._send_json(422, {"error": "invalid_dag", "details": str(ve)})
             return
 
-        print(f"[Execute] Submitted {run_id}: {len(nodes)} nodes", file=sys.stderr)
+        _log("INFO", f"Submitted run: {len(nodes)} nodes", run_id=run_id, tag="Execute")
         self._send_json(202, {
             "run_id": run_id,
             "status": "pending",
@@ -1776,6 +2298,10 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         origin = self.headers.get("Origin", "")
         for k, v in self._cors_headers(origin).items():
             self.send_header(k, v)
+        # P3 FIX: SSE 流也回显 X-Request-ID。
+        rid = getattr(self, "request_id", "")
+        if rid:
+            self.send_header("X-Request-ID", rid)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "keep-alive")
@@ -1814,40 +2340,37 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         # then deduplicate. Events are published to both EventBus and DB atomically
         # in _publish_event. We read EventBus memory first (atomic under Condition lock),
         # then DB, then continue with live subscription from the max sequence seen.
-        sent_sequences: set[int] = set()
+        #
+        # P2 FIX: Since sequences are monotonic per run, we only need a single
+        # integer (max_sent) to deduplicate — O(1) per event instead of an
+        # ever-growing set with periodic O(n log n) pruning.
+        max_sent = after_sequence
 
         # Step 1: Read EventBus in-memory events (atomic snapshot)
         bus_events = _event_bus.get_events(run_id, after_sequence=after_sequence)
         for ev_obj in bus_events:
             d = ev_obj.to_dict()
             seq = d.get("sequence", 0)
-            if seq > after_sequence and seq not in sent_sequences:
+            if seq > max_sent:
                 self._stream_send(d.get("type", "event"), d)
-                sent_sequences.add(seq)
+                max_sent = seq
 
         # Step 2: Read DB-persisted events that EventBus may have pruned (bounded memory)
         store = get_store()
         persisted = store.list_events(run_id, after_sequence=after_sequence)
         for ev in persisted:
             seq = ev.get("sequence", 0)
-            if seq not in sent_sequences:
+            if seq > max_sent:
                 self._stream_send(ev.get("type", "event"), ev)
-                sent_sequences.add(seq)
-
-        # Track the highest sequence sent to avoid duplicates in live subscription
-        max_sent = max(sent_sequences) if sent_sequences else after_sequence
+                max_sent = seq
 
         # Step 3: Subscribe to live events from where we left off — no gap
         for ev_obj in _event_bus.subscribe(run_id, after_sequence=max_sent, timeout_s=600):
             d = ev_obj.to_dict()
             seq = d.get("sequence", 0)
-            if seq not in sent_sequences:
+            if seq > max_sent:
                 self._stream_send(d.get("type", "event"), d)
-                sent_sequences.add(seq)
-                # Track only recent sequences to prevent unbounded growth
-                if len(sent_sequences) > 5000:
-                    # Keep only the last 1000 sequence numbers
-                    sent_sequences = set(sorted(sent_sequences)[-1000:])
+                max_sent = seq
 
     # ── Run 历史 API ───────────────────────────────
 
@@ -1908,6 +2431,177 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         run["dag_version"] = get_store().get_dag_version(run_id)
         run["edges"] = get_store().get_run_edges(run_id)
         self._send_json(200, run)
+
+    def _handle_list_run_artifacts(self, run_id: str):
+        """Bug #3 FIX: GET /api/runs/{rid}/artifacts
+
+        列出该 run 通过 ArtifactBroker 发布的所有 artifact 元数据，
+        按 source_node 分组聚合，便于前端 InspectorPanel 展示产物清单。
+        """
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        store = get_store()
+        run = store.get_run(run_id)
+        if not run:
+            self._send_json(404, {"error": f"Run {run_id} not found"})
+            return
+        broker = get_broker()
+        artifacts = broker.list_run_artifacts(run_id)
+        # 按 source_node 聚合
+        by_node: dict[str, list] = {}
+        for art in artifacts:
+            by_node.setdefault(art.get("source_node", ""), []).append(art)
+        self._send_json(200, {
+            "run_id": run_id,
+            "total": len(artifacts),
+            "artifacts": artifacts,
+            "by_node": by_node,
+        })
+
+    def _handle_resume_run(self, run_id: str):
+        """Bug #1 FIX: POST /api/runs/{rid}/resume?from_node={nid}
+
+        Replay 从指定节点开始：将 from_node 及其所有下游节点重置为 pending，
+        保留上游 completed 节点的产出。然后将 run 重新入队执行。
+
+        若不提供 from_node，则重置所有 failed/skipped/cancelled 节点（全量 replay）。
+        """
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        store = get_store()
+        run = store.get_run(run_id)
+        if not run:
+            self._send_json(404, {"error": f"Run {run_id} not found"})
+            return
+
+        from urllib.parse import parse_qs
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        from_node = (qs.get("from_node", [""]) or [""])[0]
+
+        existing_ids = {n["node_id"] for n in run["nodes"]}
+        if from_node:
+            if from_node not in existing_ids:
+                self._send_json(404, {
+                    "error": f"Node {from_node} not found in run {run_id}",
+                    "code": ERROR_CODES["NOT_FOUND"],
+                })
+                return
+            # 收集 from_node 及其全部下游（含自身）
+            reset_ids = set(_collect_downstream_nodes(store, run_id, from_node, include_self=True))
+        else:
+            # 无 from_node：重置所有非 completed 终态节点（failed/skipped/cancelled/timed_out）
+            reset_ids = {
+                n["node_id"] for n in run["nodes"]
+                if n.get("status") in ("failed", "skipped", "cancelled", "timed_out", "error")
+            }
+            if not reset_ids:
+                self._send_json(400, {
+                    "error": "No replayable nodes (provide from_node or have failed nodes)",
+                })
+                return
+
+        # 执行重置：清除 result/error/cost，状态置 pending
+        for nid in reset_ids:
+            store.update_node(run_id, nid, status="pending", result="",
+                              error="", cost=0.0, duration_ms=0, turns=0)
+        # 将 run 状态恢复为 pending 并入队
+        store.update_run_status(run_id, "pending", "")
+        _executor_queue.put(run_id)
+        _publish_event(run_id, "run_resumed",
+                       payload={"from_node": from_node, "reset_nodes": sorted(reset_ids)})
+        self._send_json(200, {
+            "ok": True,
+            "run_id": run_id,
+            "status": "pending",
+            "from_node": from_node,
+            "reset_nodes": sorted(reset_ids),
+            "message": f"Replay queued: {len(reset_ids)} node(s) reset to pending",
+        })
+
+    def _handle_clone_run(self, run_id: str):
+        """Bug #2 FIX: POST /api/runs/{rid}/clone
+
+        从现有 run 的工作流快照创建一个新的 run。请求体可选覆盖字段：
+          - requirement: str  覆盖原始需求文本
+          - nodes: list       覆盖节点定义（结构同 /api/execute）
+          - edges: list       覆盖边定义
+          - workflow_id: str  关联的工作流 ID
+          - auto_start: bool  是否立即入队执行（默认 true）
+        """
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        store = get_store()
+        src_run = store.get_run(run_id)
+        if not src_run:
+            self._send_json(404, {"error": f"Run {run_id} not found"})
+            return
+
+        body, err = self._read_json_body()
+        body = body or {}
+        if err:
+            self._send_json(400, {"error": err})
+            return
+
+        # 基线：从源 run 的节点/边构造 nodes/edges
+        base_nodes = [
+            {
+                "id": n["node_id"],
+                "icon": n.get("icon", ""),
+                "label": n.get("label", ""),
+                "desc": n.get("description", ""),
+                "color": n.get("color", ""),
+                "profile": n.get("profile", "dev"),
+                "params": n.get("params", {}) or {},
+            }
+            for n in src_run["nodes"]
+        ]
+        base_edges = store.get_run_edges(run_id)
+        base_requirement = src_run.get("requirement", "")
+
+        # 应用可选覆盖
+        nodes = body.get("nodes", base_nodes)
+        edges = body.get("edges", base_edges)
+        requirement = body.get("requirement", base_requirement)
+        workflow_id = body.get("workflow_id", "")
+        auto_start = body.get("auto_start", True)
+
+        # Bug #6 FIX: 复用 ExecuteRequest 校验器验证克隆后的负载
+        try:
+            req = ExecuteRequest.from_body({
+                "nodes": nodes,
+                "edges": edges,
+                "requirement": requirement,
+                "workflow_id": workflow_id,
+            })
+        except ValidationError as ve:
+            self._send_json(400, {"error": str(ve), "code": ERROR_CODES["INVALID_REQUEST"]})
+            return
+
+        try:
+            new_run_id = store.create_run(
+                req.requirement, _apply_edges_to_nodes(req.nodes, req.edges),
+                req.edges, workflow_id=req.workflow_id,
+            )
+        except ValueError as ve:
+            self._send_json(422, {"error": "invalid_dag", "details": str(ve)})
+            return
+
+        if auto_start:
+            _executor_queue.put(new_run_id)
+        _publish_event(new_run_id, "run_cloned",
+                       payload={"source_run_id": run_id})
+        self._send_json(202, {
+            "ok": True,
+            "run_id": new_run_id,
+            "source_run_id": run_id,
+            "status": "pending" if auto_start else "draft",
+            "node_count": len(req.nodes),
+            "message": f"Cloned from {run_id}",
+        })
 
     # ── 新: Self-Orchestration API 端点 ─────────────────
 
@@ -2074,13 +2768,16 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
             self._send_json(404, {"error": f"Run {run_id} not found"})
             return
 
-        # 从查询参数获取 caller info（因为 DELETE 无 body）
+        # P0 FIX: Do NOT trust x_agent_node_id / x_agent_scope from query string —
+        # they are client-supplied and can be forged by any caller to claim "run"
+        # scope and bypass per-node permission checks. Treat DELETE as an external
+        # API call; _check_scope returns (True, "") when caller_node_id is None.
+        caller_node_id = None
+        caller_scope = "self"
+        # F27 FIX: auto_reconnect 默认关闭，仅当 query param 显式为 "1"/"true" 时开启
         from urllib.parse import parse_qs
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
-        caller_node_id = qs.get("x_agent_node_id", [None])[0]
-        caller_scope = qs.get("x_agent_scope", ["self"])[0]
-        # F27 FIX: auto_reconnect 默认关闭，仅当 query param 显式为 "1"/"true" 时开启
         auto_reconnect = qs.get("auto_reconnect", ["0"])[0].lower() in ("1", "true", "yes")
         allowed, reason = _check_scope(run_id, caller_node_id, node_id, caller_scope)
         if not allowed:
@@ -2158,27 +2855,23 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
                 })
 
     def _handle_remove_edge(self, run_id: str):
-        """DELETE /api/runs/{rid}/edges — 删除依赖边"""
+        """DELETE /api/runs/{rid}/edges — 删除依赖边（query params only）"""
         if not self._require_auth():
             self._send_json(401, {"error": "Unauthorized"})
             return
         store = get_store()
-        # 从 body 或 query params 获取 source/target
-        if self.command == "DELETE":
-            body, err = self._read_json_body()
-            body = body or {}
-            source = body.get("source", "")
-            target = body.get("target", "")
-            caller_node_id = body.get("x_agent_node_id")
-            caller_scope = body.get("x_agent_scope", "self")
-        else:
-            from urllib.parse import parse_qs
-            parsed = urlparse(self.path)
-            qs = parse_qs(parsed.query)
-            source = qs.get("source", [""])[0]
-            target = qs.get("target", [""])[0]
-            caller_node_id = qs.get("x_agent_node_id", [None])[0]
-            caller_scope = qs.get("x_agent_scope", ["self"])[0]
+        # P3 FIX: 移除 DELETE body 读取，只用 query string 参数。
+        # DELETE with body 不是所有 HTTP 客户端都支持，query params 更可靠。
+        from urllib.parse import parse_qs
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        source = qs.get("source", [""])[0]
+        target = qs.get("target", [""])[0]
+        # P0 FIX: Do NOT trust x_agent_node_id / x_agent_scope from query string
+        # or body — they are client-supplied and forgeable. Treat as external API
+        # call; _check_scope returns (True, "") when caller_node_id is None.
+        caller_node_id = None
+        caller_scope = "self"
 
         if not source or not target:
             self._send_json(400, {"error": "source and target are required"})
@@ -2477,7 +3170,7 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
                         promotions.append(r.to_dict())
                         _evolution_ledger.record_promotion(r.to_dict())
                 except Exception as e:
-                    print(f"[Promotion] Failed: {e}", file=sys.stderr)
+                    _log("WARN", f"Promotion failed: {e}", tag="Promotion")
 
         self._send_json(200, {
             "ok": True,
@@ -2529,6 +3222,7 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         workflows = get_store().list_workflows()
         for wf in workflows:
             wf["webhook_url"] = self._webhook_url(wf["webhook_token"])
+            wf.pop("webhook_token", None)  # P2 fix: strip token from list response
         self._send_json(200, {"workflows": workflows, "count": len(workflows)})
 
     def _handle_get_workflow(self, workflow_id: str):
@@ -2539,8 +3233,26 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         if not wf:
             self._send_json(404, {"error": f"Workflow {workflow_id} not found"})
             return
-        wf["webhook_url"] = self._webhook_url(wf["webhook_token"])
+        # P3 FIX: webhook_token 只在创建时返回，GET 响应中 strip 掉，只保留 webhook_url
+        wf["webhook_url"] = self._webhook_url(wf.get("webhook_token", ""))
+        wf.pop("webhook_token", None)
         self._send_json(200, wf)
+
+    def _handle_list_workflow_versions(self, workflow_id: str):
+        """GET /api/workflows/{id}/versions — 工作流版本列表"""
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        wf = get_store().get_workflow(workflow_id)
+        if not wf:
+            self._send_json(404, {"error": f"Workflow {workflow_id} not found"})
+            return
+        versions = get_store().list_workflow_versions(workflow_id)
+        self._send_json(200, {
+            "workflow_id": workflow_id,
+            "versions": versions,
+            "count": len(versions),
+        })
 
     def _handle_create_workflow(self):
         if not self._require_auth():
@@ -2618,7 +3330,7 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         except ValueError as ve:
             self._send_json(422, {"error": "invalid_dag", "details": str(ve)})
             return
-        print(f"[Webhook] Triggered {wf['workflow_id']} -> {run_id}", file=sys.stderr)
+        _log("INFO", f"Triggered via webhook -> {run_id}", run_id=run_id, tag="Webhook")
         self._send_json(202, {
             "run_id": run_id,
             "workflow_id": wf["workflow_id"],
@@ -2626,14 +3338,55 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
             "message": "Webhook triggered execution",
         })
 
+    def _apply_security_headers(self):
+        """P1 FIX: 发送标准安全响应头，缓解 MIME 嗅探、点击劫持、XSS/CSP。"""
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy",
+                         "default-src 'self'; frame-ancestors 'none'; base-uri 'self'")
+
     def _send_json(self, status: int, data: dict):
         self.send_response(status)
         origin = self.headers.get("Origin", "")
         for k, v in self._cors_headers(origin).items():
             self.send_header(k, v)
+        # P3 FIX: 在所有 JSON 响应中回显 X-Request-ID，便于客户端日志关联。
+        rid = getattr(self, "request_id", "")
+        if rid:
+            self.send_header("X-Request-ID", rid)
         self.send_header("Content-Type", "application/json")
+        self._apply_security_headers()
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
+
+    def _send_error(self, http_status: int, error_name: str,
+                    message: str = "", **extra) -> None:
+        """Bug #11 FIX: 统一错误响应构造器。
+
+        自动从 ERROR_CODES 查表填入稳定数字 code，并保留人类可读 error/message。
+        ``error_name`` 必须是 ERROR_CODES 的键（如 'NOT_FOUND'）；
+        未注册的名称回退到 INVALID_REQUEST/INTERNAL_ERROR。
+
+        示例:
+            self._send_error(404, "NOT_FOUND", f"Run {rid} not found")
+            → 404 {"error": "not_found", "code": 40401, "message": "Run x not found"}
+        """
+        code = ERROR_CODES.get(error_name)
+        if code is None:
+            # 回退：4xx → INVALID_REQUEST，5xx → INTERNAL_ERROR
+            fallback = "INVALID_REQUEST" if http_status < 500 else "INTERNAL_ERROR"
+            code = ERROR_CODES[fallback]
+            error_name = error_name or fallback
+        payload = {
+            "error": error_name.lower(),
+            "code": code,
+            "message": message,
+        }
+        rid = getattr(self, "request_id", "")
+        if rid:
+            payload["request_id"] = rid
+        payload.update(extra)
+        self._send_json(http_status, payload)
 
     # ── Supervisor 多 Agent 路由 ────────────────────
 
@@ -2644,8 +3397,10 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
             return
         try:
             length = int(self.headers.get("Content-Length", 0))
-            if length > MAX_BODY_SIZE:
-                self._send_json(413, {"error": "Request too large"})
+            # P3 FIX: per-endpoint body limit (supervisor 多轮对话)
+            _limit = _body_limit_for("/api/supervisor")
+            if length > _limit:
+                self._send_json(413, {"error": f"Request too large ({length} > {_limit})"})
                 return
             body = json.loads(self.rfile.read(length))
             message = body.get("message", "")
@@ -2674,6 +3429,210 @@ depends_on 列出此节点依赖的上游节点 id（首个节点为空数组）
         registry = get_registry()
         self._send_json(200, registry.to_dict())
 
+    # ── P3 FIX: 执行历史对比 ──────────────────────────────
+
+    def _handle_compare_runs(self):
+        """GET /api/runs/compare?run_a={id}&run_b={id}
+
+        返回两个 run 的节点状态/成本/耗时逐项对比，便于 diff 分析。
+        """
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        parsed = urlparse(self.path)
+        from urllib.parse import parse_qs
+        qs = parse_qs(parsed.query)
+        run_a = qs.get("run_a", [""])[0]
+        run_b = qs.get("run_b", [""])[0]
+        if not run_a or not run_b:
+            self._send_json(400, {"error": "run_a and run_b query params are required"})
+            return
+        if not _validate_id(run_a) or not _validate_id(run_b):
+            self._send_json(400, {"error": "Invalid run_id in run_a/run_b"})
+            return
+        store = get_store()
+        ra = store.get_run(run_a)
+        rb = store.get_run(run_b)
+        if not ra:
+            self._send_json(404, {"error": f"Run {run_a} not found"})
+            return
+        if not rb:
+            self._send_json(404, {"error": f"Run {run_b} not found"})
+            return
+
+        # 逐节点对比（按 node_id 对齐）
+        nodes_a = {n["node_id"]: n for n in ra.get("nodes", [])}
+        nodes_b = {n["node_id"]: n for n in rb.get("nodes", [])}
+        all_nids = sorted(set(nodes_a) | set(nodes_b))
+        node_diff = []
+        for nid in all_nids:
+            na = nodes_a.get(nid, {})
+            nb = nodes_b.get(nid, {})
+            node_diff.append({
+                "node_id": nid,
+                "status_a": na.get("status"),
+                "status_b": nb.get("status"),
+                "status_changed": na.get("status") != nb.get("status"),
+                "cost_a": na.get("cost", 0),
+                "cost_b": nb.get("cost", 0),
+                "cost_delta": round((nb.get("cost", 0) or 0) - (na.get("cost", 0) or 0), 6),
+                "duration_a": na.get("duration_ms", 0),
+                "duration_b": nb.get("duration_ms", 0),
+                "duration_delta": (nb.get("duration_ms", 0) or 0) - (na.get("duration_ms", 0) or 0),
+            })
+
+        self._send_json(200, {
+            "run_a": {
+                "run_id": run_a,
+                "status": ra["status"],
+                "total_cost": ra.get("total_cost", 0),
+                "total_dur": ra.get("total_dur", 0),
+                "node_count": len(ra.get("nodes", [])),
+                "created_at": ra.get("created_at"),
+            },
+            "run_b": {
+                "run_id": run_b,
+                "status": rb["status"],
+                "total_cost": rb.get("total_cost", 0),
+                "total_dur": rb.get("total_dur", 0),
+                "node_count": len(rb.get("nodes", [])),
+                "created_at": rb.get("created_at"),
+            },
+            "summary": {
+                "total_cost_delta": round(
+                    (rb.get("total_cost", 0) or 0) - (ra.get("total_cost", 0) or 0), 6),
+                "total_duration_delta": (rb.get("total_dur", 0) or 0) - (ra.get("total_dur", 0) or 0),
+                "status_changed": ra["status"] != rb["status"],
+                "nodes_compared": len(all_nids),
+                "nodes_status_changed": sum(1 for d in node_diff if d["status_changed"]),
+            },
+            "node_diff": node_diff,
+        })
+
+    # ── P3 FIX: 工作流模板化 ──────────────────────────────
+
+    def _handle_templatize_workflow(self, workflow_id: str):
+        """POST /api/workflows/{id}/templatize
+
+        将工作流定义转为可复用模板：提取变量占位符，剥离实例特定数据。
+        """
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        store = get_store()
+        wf = store.get_workflow(workflow_id)
+        if not wf:
+            self._send_json(404, {"error": f"Workflow {workflow_id} not found"})
+            return
+
+        import re
+        import copy
+
+        # 提取变量占位符策略：
+        # 1. requirement 中的具体值替换为 {{requirement}} 占位符
+        # 2. 节点 desc/label 中的具体技术名词保留（它们是模板结构的一部分）
+        # 3. 节点 params 中的值保留（它们定义节点行为）
+        # 4. 剥离 webhook_token、created_at 等实例元数据
+        original_requirement = wf.get("requirement", "")
+        template_nodes = []
+        variables = []
+        for node in wf.get("nodes", []):
+            tn = copy.deepcopy(node)
+            # 标准化 node_id 为占位符模式（保留结构，去实例化）
+            tn.pop("result", None)
+            tn.pop("status", None)
+            tn.pop("cost", None)
+            tn.pop("duration_ms", None)
+            tn.pop("error", None)
+            template_nodes.append(tn)
+
+        # 识别 requirement 中的潜在变量（简单启发式：名词短语）
+        # 这里用保守策略：整个 requirement 作为 {{requirement}} 变量
+        variables.append({
+            "name": "requirement",
+            "default": original_requirement[:200],
+            "description": "原始需求文本，模板实例化时替换",
+        })
+
+        # 从节点 params 中识别可参数化字段
+        for node in template_nodes:
+            params = node.get("params", {}) or {}
+            for pk, pv in params.items():
+                if isinstance(pv, str) and len(pv) > 10:
+                    variables.append({
+                        "name": f"{node.get('id', 'node')}.{pk}",
+                        "default": pv[:200],
+                        "description": f"节点 {node.get('id', '?')} 的 {pk} 参数",
+                    })
+
+        template = {
+            "template_id": f"tpl_{workflow_id}",
+            "source_workflow_id": workflow_id,
+            "name": wf.get("name", ""),
+            "requirement_template": "{{requirement}}",
+            "nodes": template_nodes,
+            "edges": wf.get("edges", []),
+            "variables": variables,
+            "node_count": len(template_nodes),
+            "edge_count": len(wf.get("edges", [])),
+            "created_at": time.time(),
+        }
+        _log("INFO", f"Templatized workflow {workflow_id}: "
+             f"{len(template_nodes)} nodes, {len(variables)} variables",
+             tag="Templatize")
+        self._send_json(200, {"ok": True, "template": template})
+
+    # ── P3 FIX: SQLite 一致性备份 ─────────────────────────
+
+    def _handle_admin_backup(self):
+        """POST /api/admin/backup
+
+        使用 SQLite Online Backup API 创建一致性快照。
+        返回备份文件路径和元数据。
+        """
+        if not self._require_auth():
+            self._send_json(401, {"error": "Unauthorized"})
+            return
+        import sqlite3
+        from run_store import DB_PATH, RUNS_DIR
+        if not os.path.isfile(DB_PATH):
+            self._send_json(404, {"error": f"Database not found at {DB_PATH}"})
+            return
+
+        # 备份目录
+        backup_dir = os.environ.get(
+            "AGENTFLOW_BACKUP_DIR",
+            os.path.join(RUNS_DIR, "backups"),
+        )
+        os.makedirs(backup_dir, exist_ok=True)
+        ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        backup_path = os.path.join(backup_dir, f"runs_backup_{ts}.db")
+
+        try:
+            # SQLite Online Backup API — 在线一致性快照，不阻塞写入。
+            # Bug #9 FIX: 所有 sqlite3.connect 都显式设置 timeout，避免数据库锁
+            # 状态下 backup 操作无限阻塞（与 run_store._get_conn 保持一致）。
+            src = sqlite3.connect(DB_PATH, timeout=5)
+            dst = sqlite3.connect(backup_path, timeout=5)
+            src.backup(dst)
+            dst.close()
+            src.close()
+        except sqlite3.Error as e:
+            _log("ERROR", f"Backup failed: {e}", tag="Backup")
+            self._send_json(500, {"error": f"Backup failed: {e}"})
+            return
+
+        backup_size = os.path.getsize(backup_path)
+        _log("INFO", f"Backup created: {backup_path} ({backup_size} bytes)",
+             tag="Backup")
+        self._send_json(200, {
+            "ok": True,
+            "backup_path": backup_path,
+            "backup_size": backup_size,
+            "timestamp": ts,
+            "source_db": DB_PATH,
+        })
+
     def log_message(self, format, *args):
         print(f"[AgentFlow] {args[0] if args else ''}", file=sys.stderr)
 
@@ -2683,6 +3642,14 @@ if not hasattr(_background_worker, "_started"):
     worker = threading.Thread(target=_background_worker, daemon=True, name="bg-worker")
     worker.start()
     _background_worker._started = True  # type: ignore[attr-defined]
+
+# Bug #4 FIX: 启动 workspace 周期清理守护线程（每 10 分钟一次）
+if not hasattr(_workspace_cleanup_loop, "_started"):
+    _cleanup_thread = threading.Thread(
+        target=_workspace_cleanup_loop, daemon=True, name="ws-cleanup"
+    )
+    _cleanup_thread.start()
+    _workspace_cleanup_loop._started = True  # type: ignore[attr-defined]
 
 if __name__ == "__main__":
     server = http.server.ThreadingHTTPServer((HOST, PORT), AgentFlowHandler)
@@ -2712,7 +3679,28 @@ if __name__ == "__main__":
     print("  GET  /api/workflows    — 工作流列表", file=sys.stderr)
     print("  POST /api/workflows    — 保存工作流", file=sys.stderr)
     print("  POST /api/hook/<token> — Webhook 触发执行", file=sys.stderr)
+
+    # P1 FIX: 优雅关闭。注册 SIGINT/SIGTERM handler，收到信号时调用
+    # server.shutdown()（让 serve_forever 退出）并等待在途请求完成，
+    # 而非被 SIGTERM 默认动作（terminate 进程）立即杀死导致连接中断。
+    _shutdown_requested = threading.Event()
+
+    def _handle_shutdown(signum, frame):
+        print(f"\n[AgentFlow] Received signal {signum}, shutting down gracefully...",
+              file=sys.stderr)
+        # 在独立线程中调用 shutdown，避免在信号 handler 中直接阻塞主线程
+        # （signal handler 运行在主线程，shutdown 会阻塞等待 serve_forever 退出）。
+        threading.Thread(target=server.shutdown, daemon=True).start()
+        _shutdown_requested.set()
+
+    signal.signal(signal.SIGINT, _handle_shutdown)
+    signal.signal(signal.SIGTERM, _handle_shutdown)
+
     try:
         server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nShutting down", file=sys.stderr)
+    finally:
+        server.server_close()
+        if not _shutdown_requested.is_set():
+            # KeyboardInterrupt path
+            print("\nShutting down", file=sys.stderr)
+        print("[AgentFlow] Server stopped.", file=sys.stderr)

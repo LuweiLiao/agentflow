@@ -26,6 +26,9 @@ from runtime_events import RuntimeEvent
 class RunEventBus:
     """In-memory event bus per run with monotonic sequences and subscription."""
 
+    # P2 FIX: events for a completed run are retained for this long before cleanup.
+    RUN_TTL_SECONDS = 1800  # 30 minutes
+
     def __init__(self, max_events_per_run: int = 2000):
         self._max_events = max_events_per_run
         # run_id -> list[RuntimeEvent]
@@ -34,6 +37,10 @@ class RunEventBus:
         self._sequences: dict[str, int] = defaultdict(int)
         # threading condition for subscriber notification
         self._cv = threading.Condition()
+        # P2 FIX: per-run completion timestamps for TTL cleanup
+        self._completed_at: dict[str, float] = {}
+        self._last_cleanup = 0.0
+        self._cleanup_interval = 300.0  # check at most every 5 minutes
 
     # ── Publishing ──────────────────────────────────
 
@@ -70,8 +77,14 @@ class RunEventBus:
                 excess = len(run_events) - self._max_events
                 self._events[run_id] = run_events[excess:]
 
+            # P2 FIX: record completion timestamp for TTL cleanup
+            if event_type in ("run_done", "run_failed", "run_cancelled"):
+                self._completed_at[run_id] = time.monotonic()
+
             self._cv.notify_all()
 
+        # P2 FIX: opportunistically clean up stale completed runs
+        self._maybe_cleanup()
         return ev
 
     # ── Querying ────────────────────────────────────
@@ -96,6 +109,39 @@ class RunEventBus:
             if not events:
                 return -1
             return events[-1].sequence
+
+    # ── TTL Cleanup (P2 FIX) ──────────────────────
+
+    def _maybe_cleanup(self):
+        """Periodically prune events for runs completed more than TTL ago.
+
+        Called opportunistically from publish(). Uses a monotonic clock
+        so it is immune to wall-clock adjustments. Thread-safe.
+        """
+        now = time.monotonic()
+        if now - self._last_cleanup < self._cleanup_interval:
+            return
+        self._last_cleanup = now
+        with self._cv:
+            expired = [
+                rid
+                for rid, ts in self._completed_at.items()
+                if now - ts > self.RUN_TTL_SECONDS
+            ]
+            for rid in expired:
+                self._events.pop(rid, None)
+                self._sequences.pop(rid, None)
+                self._completed_at.pop(rid, None)
+
+    def force_cleanup_run(self, run_id: str):
+        """Immediately remove all in-memory state for *run_id*.
+
+        Useful for tests or explicit memory management.
+        """
+        with self._cv:
+            self._events.pop(run_id, None)
+            self._sequences.pop(run_id, None)
+            self._completed_at.pop(run_id, None)
 
     # ── Subscription ────────────────────────────────
 

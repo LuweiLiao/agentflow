@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { WorkflowNode, Profile, NodeStatus } from "./types";
+import type { WorkflowNode, Profile, NodeStatus, NodeParams } from "./types";
 import { STATUS_LABELS } from "./types";
 import { colors, radius, shadow, spacing, transition, formatCost, formatDuration } from "./theme";
+import { PROFILE_CONFIG, statusMeta } from "./utils";  // #3/#4: unified maps
 
 type InspectorPanelProps = {
   node: WorkflowNode | null;
@@ -10,32 +11,28 @@ type InspectorPanelProps = {
   graphInfo: { nodes: number; edges: number };
 };
 
-const PROFILE_OPTIONS: { value: Profile; label: string; color: string }[] = [
-  { value: "analysis", label: "📊 分析", color: colors.profile.analysis },
-  { value: "design", label: "🎨 设计", color: colors.profile.design },
-  { value: "dev", label: "💻 开发", color: colors.profile.dev },
-  { value: "test", label: "🧪 测试", color: colors.profile.test },
-  { value: "doc", label: "📝 文档", color: colors.profile.doc },
-  { value: "deploy", label: "🚀 部署", color: colors.profile.deploy },
-];
+/**
+ * Build the profile picker options from the unified `PROFILE_CONFIG` (#4).
+ * Previously this was a hand-maintained duplicate of the same data.
+ */
+const PROFILE_OPTIONS: { value: Profile; label: string; color: string }[] = (
+  Object.keys(PROFILE_CONFIG) as Profile[]
+).map((value) => ({
+  value,
+  label: `${PROFILE_CONFIG[value].icon} ${PROFILE_CONFIG[value].label}`,
+  color: PROFILE_CONFIG[value].color,
+}));
 
-const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
-  pending: { bg: "rgba(100,116,139,0.15)", color: colors.text.secondary },
-  running: { bg: "rgba(96,165,250,0.15)", color: colors.status.running },
-  completed: { bg: "rgba(52,211,153,0.15)", color: colors.status.completed },
-  failed: { bg: "rgba(248,113,113,0.15)", color: colors.status.failed },
-  skipped: { bg: "rgba(136,136,136,0.15)", color: colors.status.skipped },  // #11: was hardcoded #a0a0a0
-  timed_out: { bg: "rgba(251,191,36,0.15)", color: colors.status.timed_out },
-  cancelled: { bg: "rgba(148,163,184,0.15)", color: colors.text.secondary },
-};
-
-/* D1 — a small debounced field that syncs local state to the parent. */
+/* D1 — a small debounced field that syncs local state to the parent.
+ * R3-P3: now also exposes a `dirty` flag (true while local has unflushed
+ * edits) so callers can render an "unsaved" indicator next to the input. */
 function useDebouncedField<T>(
   value: T,
   onCommit: (v: T) => void,
   delay = 500
-): [T, (v: T) => void, () => void] {
+): [T, (v: T) => void, () => void, boolean] {
   const [local, setLocal] = useState<T>(value);
+  const [dirty, setDirty] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onCommitRef = useRef(onCommit);
   onCommitRef.current = onCommit;
@@ -45,18 +42,24 @@ function useDebouncedField<T>(
   useEffect(() => {
     if (timer.current) { clearTimeout(timer.current); timer.current = null; }
     setLocal(value);
+    setDirty(false);
   }, [value]);
 
   const commit = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
     onCommitRef.current(local);
+    setDirty(false);
   }, [local]);
 
   const update = useCallback(
     (v: T) => {
       setLocal(v);
+      setDirty(true);
       if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => onCommitRef.current(v), delay);
+      timer.current = setTimeout(() => {
+        onCommitRef.current(v);
+        setDirty(false);
+      }, delay);
     },
     [delay]
   );
@@ -65,7 +68,7 @@ function useDebouncedField<T>(
     if (timer.current) clearTimeout(timer.current);
   }, []);
 
-  return [local, update, commit];
+  return [local, update, commit, dirty];
 }
 
 export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: InspectorPanelProps) {
@@ -90,9 +93,17 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
   }, []);
 
   // D1 — debounced editable fields.
-  const [label, setLabel, commitLabel] = useDebouncedField(node?.label ?? "", (v) => node && onUpdate(node.id, { label: v }));
-  const [desc, setDesc, commitDesc] = useDebouncedField(node?.desc ?? "", (v) => node && onUpdate(node.id, { desc: v }));
-  const [model, setModel, commitModel] = useDebouncedField(node?.model ?? "", (v) => node && onUpdate(node.id, { model: v || undefined }));
+  // R3-P3: capture `dirty` for each field to drive the "未保存" indicator dot.
+  const [label, setLabel, commitLabel, labelDirty] = useDebouncedField(node?.label ?? "", (v) => node && onUpdate(node.id, { label: v }));
+  const [desc, setDesc, commitDesc, descDirty] = useDebouncedField(node?.desc ?? "", (v) => node && onUpdate(node.id, { desc: v }));
+  const [model, setModel, commitModel, modelDirty] = useDebouncedField(node?.model ?? "", (v) => node && onUpdate(node.id, { model: v || undefined }));
+
+  // 高级参数 — local state for the tag-input text + debounced validation_commands.
+  const [expectedFilesInput, setExpectedFilesInput] = useState("");
+  const [valCommands, setValCommands, commitValCommands] = useDebouncedField(
+    node?.params?.validation_commands ?? "",
+    (v) => node && onUpdate(node.id, { params: { validation_commands: v } })
+  );
 
   if (!node) {
     return (
@@ -109,9 +120,9 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
           textAlign: "center",
         }}>
           <div style={{ fontSize: 32, opacity: 0.4 }}>👆</div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: colors.text.secondary }}>
+          <h2 style={{ fontSize: 13, fontWeight: 500, color: colors.text.secondary, margin: 0 }}>
             点击节点查看属性
-          </div>
+          </h2>
           <div style={{ fontSize: 11, lineHeight: 1.7, maxWidth: 200, color: colors.text.secondary }}>
             在画布中选中任意节点后，<br />这里将显示详细信息和编辑面板
           </div>
@@ -143,8 +154,23 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
   }
 
   const statusKey = (node.status || "pending") as NodeStatus;
-  const ss = STATUS_STYLE[statusKey] || STATUS_STYLE.pending;
+  const ss = statusMeta(statusKey);  // #3: unified status lookup (was STATUS_STYLE[...])
   const activeProfile = PROFILE_OPTIONS.find((p) => p.value === node.profile);
+
+  const handleProfileClick = useCallback(
+    (e: React.MouseEvent) => {
+      const value = (e.currentTarget as HTMLButtonElement).dataset.profileValue;
+      if (value) onUpdate(node.id, { profile: value as Profile });
+    },
+    [node?.id, onUpdate]
+  );
+
+  const handleBudgetChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onUpdate(node.id, { params: { max_budget: parseFloat(e.target.value) || 0 } });
+    },
+    [node?.id, onUpdate]
+  );
 
   const handleDeleteClick = () => {
     if (!confirming) {
@@ -160,36 +186,48 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
   return (
     <div style={{ ...panelStyle, position: "relative" }}>
       <div ref={scrollRef} style={{ height: "100%", overflowY: "auto", paddingRight: 2 }}>
-        <div style={headerStyle}>
+        <h2 style={headerStyle}>
           <span>{node.icon || "🤖"}</span> {node.label || "未命名"}
           <span style={{ fontSize: 10, color: colors.text.tertiary, fontWeight: 400, marginLeft: 4 }}>
             #{node.id.slice(-6)}
           </span>
-        </div>
+        </h2>
 
         {/* D7 — 基本信息 */}
         <SectionHeader>基本信息</SectionHeader>
 
         <div style={fieldStyle}>
-          <label style={labelStyle} htmlFor="insp-label">标签</label>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <label style={labelStyle} htmlFor="insp-label">标签</label>
+            <UnsavedDot show={labelDirty} />
+          </div>
           <input
             id="insp-label"
+            className="af-inspector-input"
             style={inputStyle}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             onBlur={commitLabel}
+            aria-describedby="insp-label-help"
           />
+          <FieldHelp id="insp-label-help">显示在节点卡片标题栏的名称。</FieldHelp>
         </div>
 
         <div style={fieldStyle}>
-          <label style={labelStyle} htmlFor="insp-desc">描述</label>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <label style={labelStyle} htmlFor="insp-desc">描述</label>
+            <UnsavedDot show={descDirty} />
+          </div>
           <textarea
             id="insp-desc"
+            className="af-inspector-input"
             style={{ ...inputStyle, resize: "vertical", minHeight: 44, lineHeight: 1.5 }}
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
             onBlur={commitDesc}
+            aria-describedby="insp-desc-help"
           />
+          <FieldHelp id="insp-desc-help">向 Agent 说明本步骤的目标与产出（支持多行）。</FieldHelp>
         </div>
 
         {/* D7 — 配置 */}
@@ -205,6 +243,7 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
                 <button
                   key={p.value}
                   type="button"
+                  className="af-profile-btn"
                   title={p.label}
                   aria-pressed={active}
                   onClick={() => onUpdate(node.id, { profile: p.value })}
@@ -232,16 +271,170 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
         </div>
 
         <div style={fieldStyle}>
-          <label style={labelStyle} htmlFor="insp-model">模型</label>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <label style={labelStyle} htmlFor="insp-model">模型</label>
+            <UnsavedDot show={modelDirty} />
+          </div>
           <input
             id="insp-model"
+            className="af-inspector-input"
             style={inputStyle}
             value={model}
             placeholder="默认模型"
             onChange={(e) => setModel(e.target.value)}
             onBlur={commitModel}
+            aria-describedby="insp-model-help"
           />
+          <FieldHelp id="insp-model-help">留空使用系统默认模型；可填如 claude-sonnet-4 等。</FieldHelp>
         </div>
+
+        {/* ── 高级参数（可折叠） ── */}
+        <CollapsibleSection title="高级参数">
+          {/* expected_files — tag-style input */}
+          <div style={fieldStyle}>
+            <label style={labelStyle} htmlFor="insp-expected-files">期望产物文件</label>
+            {(node.params?.expected_files?.length ?? 0) > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
+                {(node.params?.expected_files || []).map((f) => (
+                  <span
+                    key={f}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontSize: 11,
+                      padding: "2px 4px 2px 8px",
+                      borderRadius: radius.sm,
+                      background: colors.bg[4],
+                      color: colors.text.secondary,
+                      border: `1px solid ${colors.border.default}`,
+                    }}
+                  >
+                    {f}
+                    <button
+                      type="button"
+                      aria-label={`移除 ${f}`}
+                      onClick={() =>
+                        onUpdate(node.id, {
+                          params: {
+                            expected_files: (node.params?.expected_files || []).filter((x) => x !== f),
+                          },
+                        })
+                      }
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: colors.text.tertiary,
+                        cursor: "pointer",
+                        padding: 0,
+                        fontSize: 13,
+                        lineHeight: 1,
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <input
+              id="insp-expected-files"
+              className="af-inspector-input"
+              style={inputStyle}
+              placeholder="文件名，逗号或回车添加"
+              value={expectedFilesInput}
+              onChange={(e) => setExpectedFilesInput(e.target.value)}
+              onBlur={() => {
+                const val = expectedFilesInput.trim().replace(/,$/, "");
+                if (val) {
+                  onUpdate(node.id, {
+                    params: {
+                      expected_files: [
+                        ...(node.params?.expected_files || []),
+                        ...val.split(",").map((s) => s.trim()).filter(Boolean),
+                      ],
+                    },
+                  });
+                  setExpectedFilesInput("");
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === ",") {
+                  e.preventDefault();
+                  const val = expectedFilesInput.trim().replace(/,$/, "");
+                  if (val) {
+                    const parts = val.split(",").map((s) => s.trim()).filter(Boolean);
+                    onUpdate(node.id, {
+                      params: { expected_files: [...(node.params?.expected_files || []), ...parts] },
+                    });
+                    setExpectedFilesInput("");
+                  }
+                } else if (e.key === "Backspace" && !expectedFilesInput) {
+                  const files = node.params?.expected_files || [];
+                  if (files.length > 0) {
+                    onUpdate(node.id, { params: { expected_files: files.slice(0, -1) } });
+                  }
+                }
+              }}
+            />
+          </div>
+
+          {/* validation_commands — multi-line textarea */}
+          <div style={fieldStyle}>
+            <label style={labelStyle} htmlFor="insp-valcmd">验证命令</label>
+            <textarea
+              id="insp-valcmd"
+              className="af-inspector-input"
+              style={{
+                ...inputStyle,
+                resize: "vertical",
+                minHeight: 60,
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                lineHeight: 1.5,
+              }}
+              placeholder="每行一条 shell 验证命令"
+              value={valCommands}
+              onChange={(e) => setValCommands(e.target.value)}
+              onBlur={commitValCommands}
+              aria-describedby="insp-valcmd-help"
+            />
+            <FieldHelp id="insp-valcmd-help">节点完成后将逐行执行；任意一行返回非零视为失败。</FieldHelp>
+          </div>
+
+          {/* max_budget — number input */}
+          <div style={fieldStyle}>
+            <label style={labelStyle} htmlFor="insp-budget">预算上限 ($)</label>
+            <input
+              id="insp-budget"
+              type="number"
+              step="0.1"
+              min="0"
+              className="af-inspector-input"
+              style={inputStyle}
+              value={node.params?.max_budget ?? 0.5}
+              onChange={handleBudgetChange}
+            />
+          </div>
+
+          {/* agent_type — dropdown */}
+          <div style={fieldStyle}>
+            <label style={labelStyle} htmlFor="insp-agent-type">Agent 类型</label>
+            <select
+              id="insp-agent-type"
+              className="af-inspector-input"
+              style={{ ...inputStyle, cursor: "pointer" }}
+              value={node.params?.agent_type || "standard"}
+              onChange={(e) =>
+                onUpdate(node.id, {
+                  params: { agent_type: e.target.value as NodeParams["agent_type"] },
+                })
+              }
+            >
+              <option value="standard">standard</option>
+              <option value="claude-code">claude-code</option>
+            </select>
+          </div>
+        </CollapsibleSection>
 
         {/* D7 — 状态 */}
         <SectionHeader>状态</SectionHeader>
@@ -256,7 +449,7 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
               fontSize: 12,
               fontWeight: 500,
               padding: "4px 10px",
-              borderRadius: 999,
+              borderRadius: radius.full,  // #2: was hardcoded 999 — now uses token
               background: ss.bg,
               color: ss.color,
             }}
@@ -300,6 +493,7 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
         <button
           onClick={handleDeleteClick}
           aria-label={confirming ? "确认删除节点" : "删除节点"}
+          className="af-delete-btn"
           style={{
             position: "sticky",
             bottom: 8,
@@ -343,7 +537,7 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
-    <div
+    <h3
       style={{
         display: "flex",
         alignItems: "center",
@@ -358,6 +552,104 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
     >
       <span>{children}</span>
       <span style={{ flex: 1, height: 1, background: colors.border.subtle }} />
+    </h3>
+  );
+}
+
+/**
+ * R3-P3 #7 — "未保存" indicator dot. Renders a small pulsing orange dot when
+ * `show` is true (local edits not yet flushed to the parent via debounce).
+ * Returns null when there is nothing pending so layout doesn't shift.
+ */
+function UnsavedDot({ show }: { show: boolean }) {
+  if (!show) return null;
+  return (
+    <span
+      aria-hidden
+      title="未保存（停止输入后将自动提交）"
+      style={{
+        display: "inline-block",
+        width: 6,
+        height: 6,
+        borderRadius: "50%",
+        background: colors.status.timed_out,
+        boxShadow: `0 0 0 2px ${colors.bg[3]}`,
+        animation: "af-unsaved-pulse 1.4s ease-in-out infinite",
+        flexShrink: 0,
+      }}
+    />
+  );
+}
+
+/**
+ * R3-P3 #1 — small helper-text element rendered below an input. The id
+ * passed in is what the input's `aria-describedby` points to so screen
+ * readers announce the hint when the field receives focus.
+ */
+function FieldHelp({ id, children }: { id: string; children: React.ReactNode }) {
+  return (
+    <div
+      id={id}
+      style={{
+        marginTop: 3,
+        fontSize: 10,
+        lineHeight: 1.4,
+        color: colors.text.tertiary,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function CollapsibleSection({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={{ marginTop: 4 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls={`collapsible-${title}`}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          width: "100%",
+          padding: "6px 0",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          fontSize: 12,
+          fontWeight: 700,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: colors.text.secondary,
+        }}
+      >
+        <span
+          aria-hidden
+          style={{
+            display: "inline-block",
+            transition: `transform ${transition.fast}`,
+            transform: open ? "rotate(90deg)" : "rotate(0deg)",
+            fontSize: 10,
+          }}
+        >
+          ▶
+        </span>
+        <span>{title}</span>
+        <span style={{ flex: 1, height: 1, background: colors.border.subtle }} />
+      </button>
+      {open && <div id={`collapsible-${title}`} style={{ marginTop: 2 }}>{children}</div>}
     </div>
   );
 }
@@ -365,7 +657,7 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 const panelStyle: React.CSSProperties = {
   background: colors.bg[3],
   borderLeft: `1px solid ${colors.border.subtle}`,
-  padding: "14px 14px",  // #7: was 16px — slightly tighter to widen content area
+  padding: `${spacing[16]}px ${spacing[16]}px`,  // #7: was 16px — slightly tighter to widen content area
   width: 280,
   height: "100%",
   boxSizing: "border-box",
@@ -397,7 +689,7 @@ const labelStyle: React.CSSProperties = {
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  padding: "7px 9px",
+  padding: `${spacing[8]}px ${spacing[10]}px`,
   background: colors.bg[1],
   border: `1px solid ${colors.border.default}`,
   borderRadius: radius.md,
@@ -409,7 +701,7 @@ const inputStyle: React.CSSProperties = {
 };
 
 const footerStatStyle: React.CSSProperties = {
-  padding: "10px 0",
+  padding: `${spacing[10]}px 0`,
   borderTop: `1px solid ${colors.border.subtle}`,
   fontSize: 11,
   color: colors.text.secondary,

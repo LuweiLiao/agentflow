@@ -333,7 +333,13 @@ class AgentRunner:
                     name, args_str = fn.get("name", ""), fn.get("arguments", "{}")
                     try:
                         args = json.loads(args_str) if args_str else {}
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as json_err:
+                        # P3 FIX: 记录解析错误而非静默返回空 dict。
+                        # 静默返回 {} 会导致工具以空参数执行，产生难以追踪的故障。
+                        import sys as _sys
+                        print(f"[AgentRunner][WARN] tool_calls JSON parse failed: "
+                              f"tool={name!r} raw_args={args_str[:200]!r} "
+                              f"error={json_err}", file=_sys.stderr)
                         args = {}
 
                     yield {
@@ -660,7 +666,49 @@ Agent 可以通过此模块调用编排 API 调整 DAG 结构。
     # ── LLM 调用 ─────────────────────────────────────────
 
     def _llm_call(self, messages: list, tools: list = None):
-        return self.adapter.chat_completion(messages, tools=tools)
+        """P2 FIX: 调用 LLM，支持 provider failover 链。
+
+        如果主模型调用失败（超时或 5xx），自动尝试 AGENT_FALLBACK_MODEL
+        环境变量指定的备选模型。
+        """
+        try:
+            return self.adapter.chat_completion(messages, tools=tools)
+        except Exception as primary_err:
+            fallback_model = os.environ.get("AGENT_FALLBACK_MODEL", "").strip()
+            if not fallback_model or fallback_model == self.model:
+                raise
+            if not self._is_failover_eligible(primary_err):
+                raise
+            self._log(
+                f"主模型 {self.model} 失败 ({type(primary_err).__name__}: {primary_err}), "
+                f"切换到 fallback 模型: {fallback_model}",
+                err=True,
+            )
+            try:
+                fallback_agent = AgentRunner(model=fallback_model)
+                if not fallback_agent.api_key:
+                    raise
+                return fallback_agent.adapter.chat_completion(messages, tools=tools)
+            except Exception:
+                # fallback 也失败 — 抛出原始错误
+                raise primary_err from primary_err
+
+    @staticmethod
+    def _is_failover_eligible(err: Exception) -> bool:
+        """判断错误是否适用于 failover（仅超时或 5xx 错误触发切换）。"""
+        import urllib.error
+        if isinstance(err, TimeoutError):
+            return True
+        if isinstance(err, urllib.error.HTTPError):
+            return 500 <= err.code < 600
+        if isinstance(err, urllib.error.URLError):
+            return True
+        err_str = str(err).lower()
+        if "timeout" in err_str or "timed out" in err_str:
+            return True
+        if any(code in err_str for code in ("500", "502", "503", "504", "5xx")):
+            return True
+        return False
 
     # ── 工具函数 ─────────────────────────────────────────
 
@@ -727,10 +775,15 @@ Agent 可以通过此模块调用编排 API 调整 DAG 结构。
 
 
 def tempfile_get():
-    """创建临时工作目录。"""
-    path = os.path.join("/tmp", f"agentflow_node_{int(time.time() * 1000)}_{os.getpid()}")
-    os.makedirs(path, exist_ok=True)
-    return path
+    """创建临时工作目录。
+
+    P1 FIX: 使用 tempfile.mkdtemp() 替代 timestamp+PID 命名方案。
+    旧实现 ``agentflow_node_{ms}_{pid}`` 在高并发（同毫秒、或 PID 回绕）时
+    会碰撞，且目录名可预测，存在符号链接竞态风险。mkdtemp 原子创建一个
+    不可预测的唯一目录名并返回。
+    """
+    import tempfile
+    return tempfile.mkdtemp(prefix="agentflow_node_")
 
 
 # ── CLI 入口 ────────────────────────────────────────────

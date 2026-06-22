@@ -40,9 +40,24 @@
     40|.mypy_cache/
     41|.ruff_cache/
     42|
-    43|# Git
-    44|!.gitignore
-    45|
+# Git
+!.gitignore
+
 # Runtime data
 .agentflow/
 node_modules/
+frontend/node_modules/
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.env
+*.envrc
+
+# Hermes
+.hermes/
+hermes-cache/
+audit-*.json
+frontend-audit-report.json
+visual-audit.json

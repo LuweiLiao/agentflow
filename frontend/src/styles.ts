@@ -3,10 +3,12 @@
 import type { CSSProperties } from "react";
 import {
   colors,
+  fontSize,
   radius,
   shadow,
   spacing,
   transition,
+  zIndex,
   INSPECTOR_WIDTH,
   LOG_PANEL_HEIGHT,
   TOOLBAR_HEIGHT,
@@ -14,10 +16,12 @@ import {
 
 export {
   colors,
+  fontSize,
   radius,
   shadow,
   spacing,
   transition,
+  zIndex,
   INSPECTOR_WIDTH,
   LOG_PANEL_HEIGHT,
   TOOLBAR_HEIGHT,
@@ -47,9 +51,9 @@ export const toolbarStyle: CSSProperties = {
   flexShrink: 0,
   background: `linear-gradient(180deg, ${colors.bg[3]} 0%, ${colors.bg[2]} 100%)`,
   borderBottom: `1px solid ${colors.border.subtle}`,
-  boxShadow: "0 1px 0 rgba(96,165,250,0.06), 0 4px 16px rgba(0,0,0,0.3)",
+  boxShadow: shadow.toolbarGlow,
   position: "relative",
-  zIndex: 50,
+  zIndex: zIndex.toolbar,
 };
 
 /** Top action row: logo + requirement + primary actions  |  utility buttons. */
@@ -86,7 +90,7 @@ export const toolbarDividerStyle: CSSProperties = {
 };
 
 export const logoStyle: CSSProperties = {
-  fontSize: 17,  // #19: was 15 — bumped for brand prominence
+  fontSize: fontSize.xl,  // #10/#19: was hardcoded 17 — now uses token (xl=18)
   fontWeight: 700,
   color: colors.text.primary,
   whiteSpace: "nowrap",
@@ -104,7 +108,7 @@ export const reqInputStyle: CSSProperties = {
   border: `1px solid ${colors.border.default}`,
   borderRadius: radius.md,
   color: colors.text.primary,
-  fontSize: 13,
+  fontSize: fontSize.base,  // #10: token-driven (base=13)
   lineHeight: 1.45,
   resize: "none",
   fontFamily: "inherit",
@@ -120,7 +124,7 @@ export const btnStyle: CSSProperties = {
   border: "1px solid rgba(59,130,246,0.35)",
   borderRadius: radius.md,
   color: colors.accent.blue,
-  fontSize: 13,
+  fontSize: fontSize.base,  // #10: token-driven (base=13)
   fontWeight: 600,
   // R2-#10: cursor handled by CSS — inline cursor was overriding :disabled state
   whiteSpace: "nowrap",
@@ -135,24 +139,24 @@ export const runBtnStyle: CSSProperties = {
 };
 
 export const btnMiniStyle: CSSProperties = {
-  padding: `${spacing[8]}px 10px`,
+  padding: `${spacing[8]}px ${spacing[10]}px`,  // #1: was hardcoded 10px — now uses spacing[10]
   background: "transparent",
   border: `1px solid ${colors.border.default}`,
   borderRadius: radius.md,
   color: colors.text.secondary,
-  fontSize: 14,
+  fontSize: fontSize.md,  // #10: token-driven (md=14)
   // R2-#10: cursor handled by CSS — inline cursor was overriding :disabled state
   lineHeight: 1,
   transition: `background ${transition.fast}, border-color ${transition.fast}, color ${transition.fast}`,
 };
 
 export const selectMiniStyle: CSSProperties = {
-  padding: `${spacing[8]}px 10px`,
+  padding: `${spacing[8]}px ${spacing[10]}px`,  // #1: was hardcoded 10px — now uses spacing[10]
   background: colors.bg[1],
   border: `1px solid ${colors.border.default}`,
   borderRadius: radius.md,
   color: colors.text.secondary,
-  fontSize: 12,
+  fontSize: fontSize.base,  // #10: was hardcoded 12 (between sm/base) — bump to base=13
   maxWidth: 180,  // #3: cap width — was unbounded at 387px
   cursor: "pointer",
 };
@@ -166,7 +170,7 @@ export const toolbarStatusBarStyle: CSSProperties = {
   padding: `${spacing[4]}px ${spacing[12]}px`,
   borderTop: `1px solid ${colors.border.subtle}`,
   background: colors.bg[1],
-  fontSize: 12,  // R2-#10: was 11 — improve readability
+  fontSize: fontSize.sm,  // #10: was hardcoded 12 — use sm=11 (status-bar context)
   color: colors.text.secondary,  // R2-#10: was tertiary (fgB=154) — below WCAG AA at 11px
 };
 
@@ -192,7 +196,7 @@ export const iconBtnBase: CSSProperties = {
   cursor: "pointer",
   padding: spacing[4],
   borderRadius: radius.sm,
-  fontSize: 13,
+  fontSize: fontSize.base,  // #10: token-driven (base=13)
   transition: `background ${transition.fast}, color ${transition.fast}`,
 };
 
@@ -216,7 +220,7 @@ export const runGroupBtnBase: CSSProperties = {
   borderRadius: radius.md,  // #1/#2: was missing — inner buttons had 0 while container had 6
   background: "transparent",
   color: colors.text.secondary,
-  fontSize: 13,
+  fontSize: fontSize.base,  // #10: token-driven (base=13)
   fontWeight: 600,
   cursor: "pointer",
   whiteSpace: "nowrap",

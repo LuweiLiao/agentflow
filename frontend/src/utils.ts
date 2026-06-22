@@ -4,18 +4,103 @@ import type { Edge, Node } from "@xyflow/react";
 import { MarkerType } from "@xyflow/react";
 import type { AgentNodeData } from "./AgentNode";
 import type { WorkflowNode, WorkflowEdge, NodeStatus } from "./types";
+import { STATUS_LABELS } from "./types";
 import { colors, profileColor } from "./theme";
 import { autoLayout } from "./layout";
 
-export const PROFILE_COLORS: Record<string, string> = {
-  analysis: colors.profile.analysis,
-  design: colors.profile.design,
-  dev: colors.profile.dev,
-  test: colors.profile.test,
-  doc: colors.profile.doc,
-  deploy: colors.profile.deploy,
+/* ── Unified profile metadata (#4 — single source of truth) ────── */
+/**
+ * `PROFILE_CONFIG` is the single source of truth for per-profile metadata
+ * (color / icon / label / description). All UI surfaces (BlockLibrary,
+ * AgentNode, InspectorPanel) derive from this — no more duplicated maps.
+ */
+export interface ProfileMeta {
+  color: string;
+  icon: string;
+  label: string;
+  desc: string;
+}
+
+export const PROFILE_CONFIG: Record<string, ProfileMeta> = {
+  analysis: { color: colors.profile.analysis, icon: "📊", label: "分析", desc: "需求分析与方案调研" },
+  design:   { color: colors.profile.design,   icon: "🏗️", label: "设计", desc: "架构设计与接口定义" },
+  dev:      { color: colors.profile.dev,      icon: "💻", label: "开发", desc: "编码实现核心逻辑" },
+  test:     { color: colors.profile.test,     icon: "🧪", label: "测试", desc: "单元测试与质量验证" },
+  doc:      { color: colors.profile.doc,      icon: "📝", label: "文档", desc: "文档编写与说明" },
+  deploy:   { color: colors.profile.deploy,   icon: "🚀", label: "部署", desc: "部署与上线发布" },
 };
+
+/** Derive a flat profile→color map for backward compatibility. */
+export const PROFILE_COLORS: Record<string, string> = Object.fromEntries(
+  Object.entries(PROFILE_CONFIG).map(([k, v]) => [k, v.color])
+);
 export const DEFAULT_COLOR = colors.accent.purple;
+
+/** Resolve profile metadata, falling back to a neutral default. */
+export function profileMeta(profile: string | undefined): ProfileMeta {
+  if (profile && PROFILE_CONFIG[profile]) return PROFILE_CONFIG[profile];
+  return {
+    color: profileColor(profile),
+    icon: "🤖",
+    label: profile || "未分类",
+    desc: "",
+  };
+}
+
+/* ── Unified status→style map (#3 — single source of truth) ────── */
+/**
+ * `STATUS_CONFIG` consolidates every per-status visual attribute (bg / text
+ * color / dot color / localized label) previously duplicated in AgentNode
+ * (`STATUS_CONFIG`) and InspectorPanel (`STATUS_STYLE`). The localized label
+ * is sourced from `STATUS_LABELS` (types.ts) so labels stay single-sourced.
+ */
+export interface StatusMeta {
+  bg: string;
+  color: string;
+  dot: string;
+  label: string;
+}
+
+const STATUS_BG: Record<string, string> = {
+  pending:   "rgba(100,116,139,0.16)",
+  running:   "rgba(96,165,250,0.16)",
+  completed: "rgba(52,211,153,0.16)",
+  failed:    "rgba(248,113,113,0.16)",
+  skipped:   "rgba(136,136,136,0.16)",
+  timed_out: "rgba(251,191,36,0.16)",
+  cancelled: "rgba(148,163,184,0.16)",
+};
+
+function buildStatusConfig(): Record<string, StatusMeta> {
+  const statuses: Array<{ key: string; dot: string; textColor: string }> = [
+    { key: "pending",   dot: colors.status.pending,   textColor: "#94a3b8" },
+    { key: "running",   dot: colors.status.running,   textColor: colors.status.running },
+    { key: "completed", dot: colors.status.completed, textColor: colors.status.completed },
+    { key: "failed",    dot: colors.status.failed,    textColor: colors.status.failed },
+    { key: "skipped",   dot: colors.status.skipped,   textColor: colors.status.skipped },
+    { key: "timed_out", dot: colors.status.timed_out, textColor: colors.status.timed_out },
+    { key: "cancelled", dot: colors.status.cancelled, textColor: colors.text.secondary },
+  ];
+  const out: Record<string, StatusMeta> = {};
+  for (const s of statuses) {
+    out[s.key] = {
+      bg: STATUS_BG[s.key] ?? STATUS_BG.pending,
+      color: s.textColor,
+      dot: s.dot,
+      // STATUS_LABELS is keyed by NodeStatus; fall back to the raw key.
+      label: (STATUS_LABELS as Record<string, string>)[s.key] ?? s.key,
+    };
+  }
+  return out;
+}
+
+export const STATUS_CONFIG: Record<string, StatusMeta> = buildStatusConfig();
+
+/** Resolve status metadata with a `pending` fallback for unknown statuses. */
+export function statusMeta(status: string | undefined): StatusMeta {
+  const key = status || "pending";
+  return STATUS_CONFIG[key] ?? STATUS_CONFIG.pending;
+}
 
 /**
  * Generate a unique node id. Uses crypto.randomUUID when available and falls
@@ -46,6 +131,7 @@ export function rfNodeToWorkflowNode(rfNode: Node<AgentNodeData>, edges?: Edge[]
     cost: rfNode.data.cost,
     duration_ms: rfNode.data.duration_ms,
     model: rfNode.data.model,
+    params: rfNode.data.params,
   };
 }
 
@@ -153,6 +239,7 @@ export function toRfNodes(
         cost: n.cost,
         duration_ms: n.duration_ms,
         model: n.model,
+        params: n.params,
         index: i + 1,
         hasSubWorkflow: n.sub_workflow != null && Object.keys(n.sub_workflow).length > 0,
       },
@@ -176,6 +263,74 @@ export function toRfNodes(
   });
 
   return { rfNodes, rfEdges };
+}
+
+/**
+ * Detect whether the given edges (plus an optional hypothetical new edge)
+ * form a directed cycle. Consolidates the 3 previously duplicated cycle
+ * detection routines in App.tsx (isValidConnection, onConnect, handleImport).
+ *
+ * Behaviour:
+ *   - If `extraEdge` is provided (the "would adding source→target create a
+ *     cycle?" case used by isValidConnection/onConnect), only checks for a
+ *     back-path from `target` to `source` — O(reachable-from-target).
+ *   - If `extraEdge` is omitted, performs a full DAG cycle check (used by
+ *     handleImport to validate imported JSON).
+ *
+ * @returns `true` if a cycle exists.
+ */
+export function hasCycle(
+  edges: { source: string; target: string }[],
+  extraEdge?: { source: string; target: string }
+): boolean {
+  const adj = new Map<string, string[]>();
+  const addEdge = (s: string, t: string) => {
+    if (!adj.has(s)) adj.set(s, []);
+    adj.get(s)!.push(t);
+  };
+  for (const e of edges) addEdge(e.source, e.target);
+  if (extraEdge) addEdge(extraEdge.source, extraEdge.target);
+
+  // Hypothetical-edge check: only verify no path target → source.
+  if (extraEdge) {
+    const visited = new Set<string>();
+    const stack = [extraEdge.target];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      if (cur === extraEdge.source) return true; // back-edge found → cycle
+      if (visited.has(cur)) continue;
+      visited.add(cur);
+      for (const next of adj.get(cur) || []) stack.push(next);
+    }
+    return false;
+  }
+
+  // Full DAG cycle check (iterative DFS with recursion stack).
+  const visited = new Set<string>();
+  const onStack = new Set<string>();
+  for (const root of adj.keys()) {
+    if (visited.has(root)) continue;
+    const stack: Array<[string, number]> = [[root, 0]];
+    onStack.add(root);
+    visited.add(root);
+    while (stack.length > 0) {
+      const [node, i] = stack[stack.length - 1];
+      const neighbors = adj.get(node) || [];
+      if (i < neighbors.length) {
+        stack[stack.length - 1][1] = i + 1;
+        const next = neighbors[i];
+        if (onStack.has(next)) return true; // cycle
+        if (visited.has(next)) continue;
+        visited.add(next);
+        onStack.add(next);
+        stack.push([next, 0]);
+      } else {
+        stack.pop();
+        onStack.delete(node);
+      }
+    }
+  }
+  return false;
 }
 
 /** Look up a node's profile color by id (falls back to default accent). */

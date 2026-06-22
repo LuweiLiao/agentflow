@@ -61,27 +61,48 @@ export const colors = {
   },
 } as const;
 
-/* ── Spacing scale ──────────────────────────────────────────────── */
+/* ── Spacing scale (#1 — full 0–32 ramp) ───────────────────────── */
 
-export const spacing = { 4: 4, 8: 8, 12: 12, 16: 16, 20: 20, 24: 24, 32: 32 } as const;
+export const spacing = {
+  0: 0,
+  2: 2,
+  4: 4,
+  6: 6,
+  8: 8,
+  10: 10,
+  12: 12,
+  16: 16,
+  20: 20,
+  24: 24,
+  32: 32,
+} as const;
 export type Spacing = (typeof spacing)[keyof typeof spacing];
 
-/* ── Font size scale (#20 — unified type scale) ──────────────────── */
+/* ── Font size scale (#10 / #20 — unified type scale) ──────────── */
 
 export const fontSize = {
-  xs: 10,   // minimal decorative text
-  sm: 11,   // hints, metadata
-  base: 12, // body text, inputs
-  md: 13,   // buttons, labels
-  lg: 14,   // headers, panel titles
-  xl: 16,   // section headers
-  "2xl": 18, // brand logo
+  xs: 10,    // minimal decorative text
+  sm: 11,    // hints, metadata
+  base: 13,  // body text, inputs
+  md: 14,    // buttons, labels
+  lg: 16,    // headers, panel titles
+  xl: 18,    // section headers
+  xxl: 22,   // brand / display
+  /** @deprecated alias kept for backward-compat — prefer `xxl`. */
+  "2xl": 22,
 } as const;
 export type FontSize = (typeof fontSize)[keyof typeof fontSize];
 
-/* ── Border radius ──────────────────────────────────────────────── */
+/* ── Border radius (#2 — unified token incl. `full`) ───────────── */
 
-export const radius = { sm: 4, md: 6, lg: 8, xl: 12, "2xl": 16 } as const;
+export const radius = {
+  sm: 4,
+  md: 6,
+  lg: 8,
+  xl: 12,
+  "2xl": 16,
+  full: 9999,
+} as const;
 export type Radius = (typeof radius)[keyof typeof radius];
 
 /* ── Shadows ────────────────────────────────────────────────────── */
@@ -92,6 +113,8 @@ export const shadow = {
   lg: "0 8px 24px rgba(0,0,0,0.45)",
   glow: "0 0 0 3px rgba(96,165,250,0.25)",
   hoverLift: "0 6px 18px rgba(0,0,0,0.4)",
+  /** Toolbar bottom glow — subtle blue line + drop shadow. */
+  toolbarGlow: "0 1px 0 rgba(96,165,250,0.06), 0 4px 16px rgba(0,0,0,0.3)",
 } as const;
 
 /* ── Transitions ────────────────────────────────────────────────── */
@@ -195,4 +218,10 @@ export const cssVariables = `:root {
   --transition-fast: ${transition.fast};
   --transition-base: ${transition.base};
   --transition-slow: ${transition.slow};
+  --shadow-sm: ${shadow.sm};
+  --shadow-md: ${shadow.md};
+  --shadow-lg: ${shadow.lg};
+  --shadow-glow: ${shadow.glow};
+  --shadow-hoverLift: ${shadow.hoverLift};
+  --shadow-toolbarGlow: ${shadow.toolbarGlow};
 }`;

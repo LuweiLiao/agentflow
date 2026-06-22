@@ -41,6 +41,12 @@
   --transition-fast: 0.12s ease;
   --transition-base: 0.18s ease;
   --transition-slow: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.35);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.45);
+  --shadow-glow: 0 0 0 3px rgba(96,165,250,0.25);
+  --shadow-hoverLift: 0 6px 18px rgba(0,0,0,0.4);
+  --shadow-toolbarGlow: 0 1px 0 rgba(96,165,250,0.06), 0 4px 16px rgba(0,0,0,0.3);
 
   color-scheme: dark;
 }
@@ -94,7 +100,7 @@ html {
 
 *::-webkit-scrollbar-thumb {
   background: #2a2f42;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 2px solid transparent;
   background-clip: content-box;
 }
@@ -113,6 +119,67 @@ html {
   outline: 2px solid var(--color-accent-blue);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
+}
+
+/* ── Log panel clear button hover/focus-visible (CSS#26) ──────── */
+.af-log-clear-btn:hover {
+  color: var(--color-text-secondary);
+  background: rgba(255,255,255,0.08);
+}
+.af-log-clear-btn:focus-visible {
+  outline: 2px solid var(--color-accent-blue);
+  outline-offset: 2px;
+}
+
+/* ── Log panel level filter button hover/focus-visible (CSS#26) ── */
+.af-log-level-btn:hover {
+  background: rgba(255,255,255,0.06);
+}
+.af-log-level-btn:focus-visible {
+  outline: 2px solid var(--color-accent-blue);
+  outline-offset: 2px;
+}
+
+/* ── Evolution panel close button hover (CSS#27) ───────────────── */
+.af-panel-close-btn:hover {
+  color: var(--color-text-primary);
+}
+.af-panel-close-btn:focus-visible {
+  outline: 2px solid var(--color-accent-blue);
+  outline-offset: 2px;
+}
+
+/* ── Evolution panel tab button hover (CSS#27) ────────────────── */
+.af-evo-tab-btn:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+.af-evo-tab-btn:focus-visible {
+  outline: 2px solid var(--color-accent-blue);
+  outline-offset: 2px;
+}
+
+/* ── Evolution panel action button hover (CSS#27) ─────────────── */
+.af-evo-btn:hover:not(:disabled) {
+  filter: brightness(1.2);
+  transform: translateY(-1px);
+}
+.af-evo-btn:focus-visible {
+  outline: 2px solid var(--color-accent-blue);
+  outline-offset: 2px;
+}
+
+/* ── Inspector delete button hover/focus/disabled (CSS#28) ─────── */
+.af-delete-btn:hover:not(:disabled) {
+  filter: brightness(1.25);
+  background: rgba(248,113,113,0.2);
+}
+.af-delete-btn:focus-visible {
+  outline: 2px solid var(--color-accent-blue);
+  outline-offset: 2px;
+}
+.af-delete-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* ── Reduced motion ────────────────────────────────────────────── */
@@ -161,16 +228,57 @@ html {
 
 /* ── Agent node card ───────────────────────────────────────────── */
 .agentflow-node-card {
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
 }
 
 .agentflow-node-card:hover {
   transform: translateY(-1px);
 }
 
+/* ── Selected node focus ring (CSS#29) ──────────────────────────── */
+.af-node--selected {
+  box-shadow: var(--shadow-glow);
+  z-index: 2;
+  position: relative;
+}
+
+/* ── Inspector panel input focus (CSS#23) ───────────────────────── */
+.af-inspector-input:focus {
+  outline: none;
+  border-color: var(--color-accent-blue);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.3);
+}
+
+/* ── Inspector profile button hover/focus-visible (CSS#24) ──────── */
+.af-profile-btn:hover:not(:disabled) {
+  filter: brightness(1.25);
+}
+.af-profile-btn:focus-visible {
+  outline: 2px solid var(--color-accent-blue);
+  outline-offset: 2px;
+}
+
+/* ── Block library search input focus (CSS#25) ───────────────────── */
+.af-search-input:focus {
+  outline: none;
+  border-color: var(--color-accent-blue);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.25);
+}
+
+/* ── Block library card hover (CSS :hover replaces JS onMouseEnter/onMouseLeave) ─── */
+.af-block-card:hover {
+  border-color: var(--card-color, var(--color-accent-blue)) !important;
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: var(--shadow-hoverLift);
+}
+
+.af-block-card:focus-visible {
+  border-color: var(--card-color, var(--color-accent-blue)) !important;
+}
+
 /* ── React Flow handle hover (C8) ──────────────────────────────── */
 .react-flow__handle {
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .react-flow__handle:hover {
@@ -244,7 +352,7 @@ html {
 .af-btn-primary:hover:not(:disabled),
 .af-btn-run:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-md);
 }
 
 .af-btn-primary:active:not(:disabled),
@@ -283,6 +391,12 @@ html {
   box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.22);
 }
 
+.af-req-input:focus-visible {
+  outline: 2px solid var(--color-accent-blue);
+  outline-offset: 2px;
+  border-color: var(--color-accent-blue);
+}
+
 /* ── Spinner animation (#21) ──────────────────────────────────── */
 @keyframes af-spin {
   to { transform: rotate(360deg); }
@@ -302,6 +416,12 @@ html {
 .af-canvas--dragover {
   background: rgba(96, 165, 250, 0.04) !important;
   box-shadow: inset 0 0 0 2px rgba(96, 165, 250, 0.4);
+}
+
+/* ── Error boundary retry button focus-visible ─────────────────── */
+.af-error-retry-btn:focus-visible {
+  outline: 2px solid var(--color-accent-blue);
+  outline-offset: 2px;
 }
 
 /* ── Progress bar segments (B8) ───────────────────────────────── */
@@ -329,8 +449,14 @@ html {
   animation: progress-stripe 0.8s linear infinite;
 }
 
+/* R3-P3 #7 — pulse for the "未保存" debounce indicator dot in InspectorPanel. */
+@keyframes af-unsaved-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(0.85); }
+}
+
 /* ── Focus management: canvas container (H3) ──────────────────── */
-.af-canvas:focus {
+.af-canvas:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -378,7 +504,7 @@ html {
 /* Hide edge text labels by default; reveal on edge hover. */
 .react-flow__edge .react-flow__edge-textwrapper {
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--transition-fast);
   pointer-events: none;
 }
 .react-flow__edge:hover .react-flow__edge-textwrapper {

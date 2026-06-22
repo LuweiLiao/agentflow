@@ -227,13 +227,35 @@ class ArtifactBroker:
         return ArtifactRef.from_dict(meta)
 
     def delete_run_artifacts(self, run_id: str):
-        """删除一个 run 关联的所有 artifacts（清理用）。"""
+        """删除一个 run 关联的所有 artifacts（清理用）。
+
+        Bug #5 FIX: 之前只从 registry 删除条目但保留磁盘上的 blob 文件，
+        导致内容寻址存储无限增长。现在同时删除底层 blob 文件，并清理
+        其他 artifact 引用同一 blob 的去重判断（基于 sha256）。
+        """
         to_delete = [
             aid for aid, meta in self._registry.items()
             if meta.get("source_run") == run_id
         ]
+        # 收集待删除的 sha256，但仅当没有其他 artifact 仍引用同一 blob 时才删文件
+        deleted_shas: set[str] = set()
         for aid in to_delete:
+            meta = self._registry.get(aid, {})
+            sha = meta.get("sha256", "")
+            if sha:
+                deleted_shas.add(sha)
             del self._registry[aid]
+        # 计算仍被保留 artifact 引用的 sha（避免误删共享 blob）
+        retained_shas = {
+            meta.get("sha256") for meta in self._registry.values()
+        }
+        for sha in deleted_shas:
+            if sha and sha not in retained_shas:
+                blob_path = self._content_path(sha)
+                try:
+                    blob_path.unlink()
+                except (FileNotFoundError, OSError):
+                    pass  # best-effort
         self._save_registry()
 
     def summary(self) -> dict:
@@ -241,6 +263,19 @@ class ArtifactBroker:
             "total_artifacts": len(self._registry),
             "store_path": str(self._artifact_dir),
         }
+
+    def list_run_artifacts(self, run_id: str) -> list[dict]:
+        """列出指定 run 关联的所有 artifact 元数据（供 GET /api/runs/{rid}/artifacts）。
+
+        返回按 created_at 升序的元数据列表，便于前端按节点分组展示。
+        """
+        items = [
+            dict(meta, artifact_id=aid)
+            for aid, meta in self._registry.items()
+            if meta.get("source_run") == run_id
+        ]
+        items.sort(key=lambda m: m.get("created_at", 0))
+        return items
 
 
 # 全局单例
