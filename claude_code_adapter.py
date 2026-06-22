@@ -65,12 +65,13 @@ class ClaudeCodeAdapter:
     - Parses JSON output from stdout
     """
 
-    ENGINE_DIR = Path("/home/llw/claude-code-engine")
+    # ── 引擎配置 ──
+    ENGINE_DIR = Path(os.environ.get("AGENTFLOW_CC_ENGINE_DIR", "/opt/claude-code-engine"))
     CLI_ENTRY = "src/entrypoints/cli.tsx"
-    BUN_PATH = "/home/llw/.nvm/versions/node/v24.14.1/bin/bun"
+    BUN_PATH = os.environ.get("BUN_PATH", "/usr/local/bin/bun")
 
     def __init__(self, engine_dir: Optional[str] = None):
-        self.engine_dir = Path(engine_dir or self.ENGINE_DIR)
+        self.engine_dir = Path(engine_dir) if engine_dir else Path(self.ENGINE_DIR)
         if not self.engine_dir.exists():
             raise FileNotFoundError(f"CC engine not found at {self.engine_dir}")
         self._session_id: Optional[str] = None

@@ -1,12 +1,31 @@
 services:
   agentflow:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # 构建时可配置 CC 引擎路径（默认从本地目录复制）
+      # args:
+      #   CC_ENGINE_SRC: ./claude-code-engine
     ports:
       - "9600:9600"
     env_file:
       - .env
     environment:
       - AGENTFLOW_HOST=0.0.0.0
+      - AGENTFLOW_PORT=9600
+      # CC 引擎路径（Docker 内固定路径）
+      - AGENTFLOW_CC_ENGINE_DIR=/opt/claude-code-engine
+      - BUN_PATH=/usr/local/bin/bun
     restart: unless-stopped
     volumes:
+      # 运行时数据持久化
       - .agentflow:/app/.agentflow
+      # 可选：挂载宿主机 CC 引擎替代镜像内引擎（开发调试用）
+      # - /home/llw/claude-code-engine:/opt/claude-code-engine:ro
+    # 资源限制（CC 引擎跑 LLM 推理时内存开销大）
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G

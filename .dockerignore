@@ -1,0 +1,67 @@
+# 排除不需要进入 Docker 构建上下文的文件
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+frontend/node_modules/
+
+# 运行时数据
+.agentflow/
+.tmp/
+
+# 构建产物（前端由 Stage 1 构建，不复制宿主机的 dist）
+frontend/dist/
+dist/
+
+# 环境变量（避免泄漏 API Key）
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 日志
+*.log
+*.pid
+
+# Hermes
+.hermes/
+hermes-cache/
+
+# 架构文档（非运行时代码）
+01-vision-and-philosophy/
+02-system-architecture/
+03-data-contracts/
+04-prompt-compiler-agent/
+05-orchestrator/
+06-agent-runtime/
+07-ui-and-canvas/
+08-implementation-roadmap/
+agent-ecosystem/
+
+# 大文件（设计文档 PNG）
+*.png
