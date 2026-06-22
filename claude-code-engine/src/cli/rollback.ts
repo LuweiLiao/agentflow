@@ -1,5 +1,5 @@
 /**
- * `claude rollback [target]` — roll back to a previous Claude Code version.
+ * `claude rollback [target]` — roll back to a previous AgentFlow-Code version.
  *
  * ANT-only command (USER_TYPE === "ant").
  *
@@ -38,7 +38,7 @@ export async function rollback(
         '  --dry-run      Show what would be installed\n' +
         '  --safe         Roll back to server-pinned safe version\n\n' +
         'Examples:\n' +
-        '  claude rollback 2.1.880\n' +
+        '  agentflow-code rollback 5.0.0\n' +
         '  claude rollback --list\n' +
         '  claude rollback --safe',
     )

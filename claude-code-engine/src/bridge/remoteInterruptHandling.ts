@@ -1,13 +1,5 @@
-import { feature } from 'bun:bundle'
+/** AgentFlow-Code: remoteInterruptHandling stub. */
+export const __stub = true
 
-export function handleRemoteInterrupt(
-  abortController: AbortController | null,
-): void {
-  if (feature('PROACTIVE') || feature('KAIROS')) {
-    const { pauseProactive } =
-      require('../proactive/index.js') as typeof import('../proactive/index.js')
-    pauseProactive()
-  }
-
-  abortController?.abort()
-}
+/** Auto-generated stub export. */
+export function handleRemoteInterrupt(..._args: any[]): any { return undefined }

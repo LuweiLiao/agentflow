@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/cli/handlers/auth.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: auth handler stub — OAuth removed. */\nexport async function handleAuthCommand(..._args: any[]): Promise<void> {}\nexport function isAuthCommand(): boolean { return false }\n\n/** Auto-generated stub export. */\nexport function installOAuthTokens(..._args: any[]): any { return undefined }\n"
+  ],
+  "mappings": ";;;;;;AACA,eAAsB,iBAAiB,IAAI,OAA6B;AACjE,SAAS,aAAa,GAAY;AAAA,EAAE,OAAO;AAAA;AAG3C,SAAS,kBAAkB,IAAI,OAAmB;AAAA,EAAE;AAAA;AAAA;",
+  "debugId": "602AD77BD12127A064756E2164756E21",
+  "names": []
+}

@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/doctor/doctor.tsx"],
+  "sourcesContent": [
+    "import { Doctor } from '../../screens/Doctor.js';\nimport type { LocalJSXCommandCall } from '../../types/command.js';\n\nexport const call: LocalJSXCommandCall = (onDone, _context, _args) => {\n  return Promise.resolve(<Doctor onDone={onDone} />);\n};\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;iBAGa,OAA4B,CAAC,QAAQ,UAAU,UAAU;AAAA,EACpE,OAAO,QAAQ,wBAAQ,gBAAC,QAAD;AAAA,IAAQ;AAAA,GAAgB,CAAE;AAAA;AAAA;AAAA,EAJnD;AAAA;AAAA;",
+  "debugId": "7B41B87474B73E9464756E2164756E21",
+  "names": []
+}

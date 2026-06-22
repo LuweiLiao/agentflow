@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/voice/voiceModeEnabled.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: voiceModeEnabled stub. */\nexport const __stub = true\n\n/** Auto-generated stub export. */\nexport function isVoiceGrowthBookEnabled(..._args: any[]): any { return undefined }\n\n/** Auto-generated stub export. */\nexport function isVoiceModeEnabled(..._args: any[]): any { return undefined }\n\n/** Auto-generated stub export. */\nexport function isVoiceAvailable(..._args: any[]): any { return undefined }\n\n/** Auto-generated stub export. */\nexport function hasVoiceAuth(..._args: any[]): any { return undefined }\n"
+  ],
+  "mappings": ";;;;;;AAIO,SAAS,wBAAwB,IAAI,OAAmB;AAAA,EAAE;AAAA;AAG1D,SAAS,kBAAkB,IAAI,OAAmB;AAAA,EAAE;AAAA;AAGpD,SAAS,gBAAgB,IAAI,OAAmB;AAAA,EAAE;AAAA;AAGlD,SAAS,YAAY,IAAI,OAAmB;AAAA,EAAE;AAAA;AAAA,IAZxC,SAAS;AAAA;",
+  "debugId": "B7860F0CC41B4B5D64756E2164756E21",
+  "names": []
+}

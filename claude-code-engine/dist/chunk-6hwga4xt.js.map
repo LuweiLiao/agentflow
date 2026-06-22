@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/feedback/feedback.tsx"],
+  "sourcesContent": [
+    "import * as React from 'react';\nimport type { CommandResultDisplay, LocalJSXCommandContext } from '../../commands.js';\nimport { Feedback } from '../../components/Feedback.js';\nimport type { LocalJSXCommandOnDone } from '../../types/command.js';\nimport type { Message } from '../../types/message.js';\n\n// Shared function to render the Feedback component\nexport function renderFeedbackComponent(\n  onDone: (result?: string, options?: { display?: CommandResultDisplay }) => void,\n  abortSignal: AbortSignal,\n  messages: Message[],\n  initialDescription: string = '',\n  backgroundTasks: {\n    [taskId: string]: {\n      type: string;\n      identity?: { agentId: string };\n      messages?: Message[];\n    };\n  } = {},\n): React.ReactNode {\n  return (\n    <Feedback\n      abortSignal={abortSignal}\n      messages={messages}\n      initialDescription={initialDescription}\n      onDone={onDone}\n      backgroundTasks={backgroundTasks}\n    />\n  );\n}\n\nexport async function call(\n  onDone: LocalJSXCommandOnDone,\n  context: LocalJSXCommandContext,\n  args?: string,\n): Promise<React.ReactNode> {\n  const initialDescription = args || '';\n  return renderFeedbackComponent(onDone, context.abortController.signal, context.messages, initialDescription);\n}\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;AAOO,SAAS,uBAAuB,CACrC,QACA,aACA,UACA,qBAA6B,IAC7B,kBAMI,CAAC,GACY;AAAA,EACjB,uBACE,gBAAC,UAAD;AAAA,IACE;AAAA,IACA;AAAA,IACA;AAAA,IACA;AAAA,IACA;AAAA,GACF;AAAA;AAIJ,eAAsB,IAAI,CACxB,QACA,SACA,MAC0B;AAAA,EAC1B,MAAM,qBAAqB,QAAQ;AAAA,EACnC,OAAO,wBAAwB,QAAQ,QAAQ,gBAAgB,QAAQ,QAAQ,UAAU,kBAAkB;AAAA;AAAA;AAAA;AAAA,EAnC7G;AAAA;AAAA;",
+  "debugId": "2A99F0BB988A614664756E2164756E21",
+  "names": []
+}

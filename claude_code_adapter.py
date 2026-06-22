@@ -31,6 +31,8 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,7 +77,14 @@ class ClaudeCodeAdapter:
     """
 
     # ── 引擎配置 ──
-    ENGINE_DIR = Path(os.environ.get("AGENTFLOW_CC_ENGINE_DIR", "/opt/claude-code-engine"))
+    # Phase C #1: default to the *project-local* engine directory (sibling of
+    # this adapter file) instead of the system-wide /opt/claude-code-engine.
+    # AGENTFLOW_CC_ENGINE_DIR still overrides for container/Docker deployments
+    # (see Dockerfile), so nothing breaks there.
+    ENGINE_DIR = Path(os.environ.get(
+        "AGENTFLOW_CC_ENGINE_DIR",
+        Path(__file__).resolve().parent / "claude-code-engine",
+    ))
     # FIX #1: Use pre-built bundle (dist/cli-bun.js), not raw .tsx source.
     # The pre-built bundle is self-contained and does not require the TS toolchain.
     CLI_ENTRY = "dist/cli-bun.js"
@@ -88,7 +97,8 @@ class ClaudeCodeAdapter:
 
         Args:
             engine_dir: Path to the CC engine installation. Defaults to
-                AGENTFLOW_CC_ENGINE_DIR env var or /opt/claude-code-engine.
+                AGENTFLOW_CC_ENGINE_DIR env var, otherwise the project-local
+                ./claude-code-engine directory (sibling of this file).
             llm_config: Optional unified LLM provider config dict with keys:
                 {provider, api_key, base_url, model}.
                 When provided, the adapter injects OpenAI-compatible env vars
@@ -170,12 +180,25 @@ class ClaudeCodeAdapter:
         """
         # Curated allowlist — avoids leaking arbitrary host secrets into the
         # engine subprocess.
-        allow_prefixes = ("LC_",)
+        # Phase C #3: pass through every provider key the engine supports so
+        # OpenAI / DeepSeek / ZAI / Grok / Google / Azure all work headless,
+        # plus the AGENTFLOW_ prefix so all AgentFlow config vars flow through.
+        allow_prefixes = ("LC_", "AGENTFLOW_")
         allow_exact = {
             "PATH", "HOME", "USER", "LANG", "TERM",
             "NODE_ENV",
-            # API keys the engine itself may consult (passed through only if set).
+            # API keys / provider config the engine itself may consult
+            # (passed through only if set in the host environment).
             "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "OPENAI_BASE_URL",
+            "OPENAI_MODEL",
+            "OPENAI_ORGANIZATION",
+            "DEEPSEEK_API_KEY",
+            "ZAI_API_KEY",
+            "GROK_API_KEY",
+            "GOOGLE_API_KEY",
+            "AZURE_API_KEY",
         }
         env: dict = {}
         for k, v in os.environ.items():
@@ -190,8 +213,15 @@ class ClaudeCodeAdapter:
 
     def _build_cmd(self, append_system_prompt: str = "",
                     max_budget_usd: float = 0.5,
-                    output_format: str = "json") -> list:
-        """Build the CC engine CLI command."""
+                    output_format: str = "json",
+                    workspace_dir: Optional[str] = None) -> list:
+        """Build the CC engine CLI command.
+
+        Args:
+            workspace_dir: Optional workspace path passed to the engine via
+                ``--add-dir`` so it can read/write the caller's project files
+                in addition to the cwd it was launched in (Phase C #5).
+        """
         # FIX #6: Validate budget before spawn — guard against misconfiguration
         # that would produce an instant over-budget failure or a no-op run.
         if not isinstance(max_budget_usd, (int, float)) or max_budget_usd <= 0:
@@ -214,6 +244,10 @@ class ClaudeCodeAdapter:
         ]
         if append_system_prompt:
             cmd.append(f"--append-system-prompt={append_system_prompt}")
+        # Phase C #5: share the workspace with the engine so it can read/write
+        # the caller's project files, not just the directory it was launched in.
+        if workspace_dir:
+            cmd.append(f"--add-dir={workspace_dir}")
         return cmd
 
     def run(self, prompt: str, *,
@@ -230,7 +264,11 @@ class ClaudeCodeAdapter:
             system_prompt_append: Extra system context to inject
             max_budget_usd: Maximum API cost for this run (must be > 0)
             timeout: Max seconds to wait for completion
-            cwd: Working directory (defaults to engine dir)
+            cwd: Working directory the engine runs in. This is the *workflow
+                workspace*, NOT the engine dir. When omitted, a fresh temp
+                directory is created so the engine never writes into its own
+                tree. The directory is also passed to the engine via
+                ``--add-dir`` so it has explicit workspace access (Phase C #2).
             llm_config: Optional per-call override of the unified LLM provider
                 config ({provider, api_key, base_url, model}). When provided,
                 takes precedence over the constructor's llm_config.
@@ -242,9 +280,15 @@ class ClaudeCodeAdapter:
         if llm_config is not None:
             self.llm_config = llm_config
 
+        # Phase C #2: the agent must run in the *workflow workspace*, not the
+        # engine directory. When no cwd is provided, spin up a fresh temp dir
+        # so we never accidentally write into the engine's own tree.
+        workspace_dir = cwd or tempfile.mkdtemp(prefix="agentflow-workspace-")
+
         cmd = self._build_cmd(
             append_system_prompt=system_prompt_append,
             max_budget_usd=max_budget_usd,
+            workspace_dir=workspace_dir,  # Phase C #5: --add-dir=<workspace>
         )
 
         # FIX #5: pass a minimal, sanitized env to the subprocess.
@@ -258,7 +302,7 @@ class ClaudeCodeAdapter:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            cwd=str(cwd or self.engine_dir),
+            cwd=str(workspace_dir),  # Phase C #2: workspace, not engine dir
             env=proc_env,
             text=True,
             # R3-P0-2: 以独立进程组启动，确保 kill 时可杀死整个进程树
@@ -315,6 +359,176 @@ class ClaudeCodeAdapter:
             result.duration_ms = elapsed_ms
         return result
 
+    def run_streaming(self, prompt: str, *,
+                      system_prompt_append: str = "",
+                      max_budget_usd: float = 0.5,
+                      timeout: int = 180,
+                      cwd: Optional[str] = None,
+                      llm_config: Optional[dict] = None):
+        """Run the CC engine with TRUE incremental streaming (Phase C #4).
+
+        Unlike cc_agent_runner's simulated stream_execute(), this reads the
+        engine's stdout line by line as it runs (``--output-format=stream-json``)
+        and yields each parsed event immediately. Supports the engine's
+        tool_use, text_delta, result and error stream event types.
+
+        Yields:
+            ``{"type": "stream_event", "payload": <parsed json line>}`` for
+            each engine event (tool_use / text_delta / result / error / ...),
+            then a final
+            ``{"type": "stream_complete", "payload": {cost_usd, duration_ms,
+            is_error, text, session_id, ...}}`` summary event.
+
+        Returns (via generator return / StopIteration.value):
+            CCEngineResult built from the final 'result' event, or an error
+            result on timeout / non-zero exit / no result event.
+
+        The engine runs in the workflow workspace (cwd or a fresh temp dir),
+        which is also passed via ``--add-dir`` (same Phase C #2 / #5 behavior
+        as run()).
+        """
+        if llm_config is not None:
+            self.llm_config = llm_config
+
+        # Phase C #2: workspace, not engine dir.
+        workspace_dir = cwd or tempfile.mkdtemp(prefix="agentflow-workspace-")
+
+        cmd = self._build_cmd(
+            append_system_prompt=system_prompt_append,
+            max_budget_usd=max_budget_usd,
+            output_format="stream-json",  # Phase C #4: real streaming
+            workspace_dir=workspace_dir,
+        )
+        proc_env = self._build_env()
+
+        start_ts = time.monotonic()
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=str(workspace_dir),
+            env=proc_env,
+            text=True,
+            bufsize=1,  # line buffered — critical for incremental streaming
+            # R3-P0-2: independent process group for clean kill of the tree.
+            start_new_session=True,
+        )
+
+        # Enforce timeout via a watcher thread that kills the whole process
+        # group. When killed, the stdout pipe closes and the read loop ends.
+        timed_out = {"flag": False}
+
+        def _enforce_timeout():
+            if proc.poll() is None:
+                timed_out["flag"] = True
+                self._kill_process_group(proc)
+
+        timer = threading.Timer(timeout, _enforce_timeout)
+        timer.daemon = True
+        timer.start()
+
+        # Feed the prompt on a separate daemon thread to avoid deadlock if the
+        # prompt exceeds the OS pipe buffer (~64 KB) while we are still reading.
+        def _feed_stdin():
+            try:
+                proc.stdin.write(prompt)
+                proc.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+
+        writer = threading.Thread(target=_feed_stdin, daemon=True)
+        writer.start()
+
+        final_result: Optional[CCEngineResult] = None
+        elapsed_ms = 0
+        try:
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    evt = json.loads(line)
+                except json.JSONDecodeError:
+                    # Skip non-JSON log/progress lines the engine may emit.
+                    continue
+                yield {"type": "stream_event", "payload": evt}
+                # Capture the terminal 'result' event for cost/duration.
+                if isinstance(evt, dict) and evt.get("type") == "result":
+                    final_result = self._result_from_dict(
+                        evt, int((time.monotonic() - start_ts) * 1000)
+                    )
+        except GeneratorExit:
+            # Caller abandoned the generator — clean up the subprocess tree.
+            self._kill_process_group(proc)
+            raise
+        finally:
+            timer.cancel()
+            writer.join(timeout=2)
+
+        elapsed_ms = int((time.monotonic() - start_ts) * 1000)
+
+        # Reap the process (with a short remaining timeout budget).
+        try:
+            proc.wait(timeout=max(1, int(timeout - (time.monotonic() - start_ts))))
+        except subprocess.TimeoutExpired:
+            self._kill_process_group(proc)
+
+        if timed_out["flag"]:
+            err_result = CCEngineResult(
+                text=f"Timed out after {timeout}s",
+                raw={"error": "timeout"},
+                is_error=True,
+                duration_ms=elapsed_ms,
+                cost_usd=0.0,
+                session_id="",
+                num_turns=0,
+                usage={},
+                model_usage={},
+                errors=[f"Timeout after {timeout}s"],
+                stop_reason="timeout",
+            )
+            yield {"type": "stream_complete", "payload": {
+                "cost_usd": 0.0, "duration_ms": elapsed_ms,
+                "is_error": True, "text": err_result.text,
+                "session_id": "", "timed_out": True,
+            }}
+            return err_result
+
+        if final_result is None:
+            # No 'result' event was emitted — surface stderr / return code.
+            try:
+                stderr = proc.stderr.read() if proc.stderr else ""
+            except Exception:
+                stderr = ""
+            is_err = proc.returncode != 0
+            final_result = CCEngineResult(
+                text=stderr.strip() if is_err else "",
+                raw={"error": stderr or "no result event",
+                     "returncode": proc.returncode},
+                is_error=is_err,
+                duration_ms=elapsed_ms,
+                cost_usd=0.0,
+                session_id="",
+                num_turns=0,
+                usage={},
+                model_usage={},
+                errors=[stderr or
+                        f"Engine exited (code {proc.returncode}) with no result event"],
+                stop_reason="error" if is_err else "no_result",
+            )
+        elif not final_result.duration_ms:
+            final_result.duration_ms = elapsed_ms
+
+        yield {"type": "stream_complete", "payload": {
+            "cost_usd": final_result.cost_usd,
+            "duration_ms": final_result.duration_ms,
+            "is_error": final_result.is_error,
+            "text": final_result.text,
+            "session_id": final_result.session_id,
+        }}
+        return final_result
+
     @staticmethod
     def _kill_process_group(proc: subprocess.Popen):
         """R3-P0-2: 终止整个进程组，先 SIGTERM 再 SIGKILL。
@@ -338,6 +552,26 @@ class ClaudeCodeAdapter:
                 os.killpg(pgid, signal.SIGKILL)
             except (ProcessLookupError, OSError):
                 pass
+
+    def _result_from_dict(self, data: dict, elapsed_ms: int = 0) -> CCEngineResult:
+        """Build a CCEngineResult from a parsed 'result'-type event dict.
+
+        Shared by _parse_output (json mode) and run_streaming (stream-json
+        mode). When the event lacks duration_ms, fall back to elapsed_ms.
+        """
+        return CCEngineResult(
+            text=data.get("result", ""),
+            raw=data,
+            is_error=data.get("is_error", False),
+            duration_ms=data.get("duration_ms", 0) or elapsed_ms,
+            cost_usd=data.get("total_cost_usd", 0.0),
+            session_id=data.get("session_id", ""),
+            num_turns=data.get("num_turns", 0),
+            usage=data.get("usage", {}),
+            model_usage=data.get("modelUsage", {}),
+            errors=data.get("errors", []),
+            stop_reason=data.get("stop_reason", ""),
+        )
 
     def _parse_output(self, stdout: str) -> CCEngineResult:
         """Parse the JSON output from CC engine stdout.
@@ -363,19 +597,7 @@ class ClaudeCodeAdapter:
                 continue
             idx += consumed
             if isinstance(data, dict) and data.get("type") == "result":
-                return CCEngineResult(
-                    text=data.get("result", ""),
-                    raw=data,
-                    is_error=data.get("is_error", False),
-                    duration_ms=data.get("duration_ms", 0),
-                    cost_usd=data.get("total_cost_usd", 0.0),
-                    session_id=data.get("session_id", ""),
-                    num_turns=data.get("num_turns", 0),
-                    usage=data.get("usage", {}),
-                    model_usage=data.get("modelUsage", {}),
-                    errors=data.get("errors", []),
-                    stop_reason=data.get("stop_reason", ""),
-                )
+                return self._result_from_dict(data)
 
         # FIX #7: Fallback when no parseable result envelope was found.
         # This is an error condition, not a silent success.

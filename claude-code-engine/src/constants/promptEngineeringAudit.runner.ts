@@ -13,7 +13,7 @@ import { describe, test, expect, mock, beforeEach } from 'bun:test'
 
 // --- MACRO 全局注入 (编译时 define 在测试中不可用) ---
 ;(globalThis as any).MACRO = {
-  VERSION: '2.1.888',
+  VERSION: '5.0.0',
   BUILD_TIME: '2026-04-22T00:00:00Z',
   FEEDBACK_CHANNEL: '',
   ISSUES_EXPLAINER: 'report issues on GitHub',
@@ -579,9 +579,9 @@ describe('Opus 4.7 Prompt Engineering Audit', () => {
   // TXT 来源: {product_information}
   // ------------------------------------------------------------------
   describe('#13 Product information', () => {
-    test('env info contains Claude Code product description', async () => {
+    test('env info contains AgentFlow-Code product description', async () => {
       const envInfo = await computeSimpleEnvInfo('claude-opus-4-7')
-      expect(envInfo).toContain('Claude Code')
+      expect(envInfo).toContain('AgentFlow-Code')
       expect(envInfo).toContain('CLI')
     })
 

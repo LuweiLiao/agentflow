@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/usage/usage.tsx"],
+  "sourcesContent": [
+    "import { Settings } from '../../components/Settings/Settings.js';\nimport type { LocalJSXCommandCall } from '../../types/command.js';\n\n/**\n * /usage — unified command replacing /cost and /stats (v2.1.118 upstream alignment).\n *\n * Routing:\n *   - claude.ai subscriber → Settings panel → Usage tab (plan limits + overages)\n *   - API / non-subscriber  → Stats panel (session cost, token counts, activity)\n *\n * Both /cost and /stats are registered as aliases of this command so that\n * existing muscle-memory still works.\n */\nexport const call: LocalJSXCommandCall = async (onDone, context) => {\n  return <Settings onClose={onDone} context={context} defaultTab=\"Usage\" />;\n};\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;iBAaa,OAA4B,OAAO,QAAQ,YAAY;AAAA,EAClE,uBAAO,gBAAC,UAAD;AAAA,IAAU,SAAS;AAAA,IAAQ;AAAA,IAAkB,YAAW;AAAA,GAAQ;AAAA;AAAA;AAAA,EAdzE;AAAA;AAAA;",
+  "debugId": "5DAC899A97DB63B064756E2164756E21",
+  "names": []
+}

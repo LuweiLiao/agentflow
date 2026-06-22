@@ -1,6 +1,6 @@
 export const PRODUCT_URL = 'https://github.com/claude-code-best/claude-code'
 
-// Claude Code Remote session URLs
+// AgentFlow-Code Remote session URLs
 export const CLAUDE_AI_BASE_URL = 'https://claude.ai'
 export const CLAUDE_AI_STAGING_BASE_URL = 'https://claude-ai.staging.ant.dev'
 export const CLAUDE_AI_LOCAL_BASE_URL = 'http://localhost:4000'
@@ -34,7 +34,7 @@ export function isRemoteSessionLocal(
 }
 
 /**
- * Get the base URL for Claude AI based on environment.
+ * Get the base URL for AgentFlow based on environment.
  * For localhost, derives the base URL from the ingress URL to preserve the
  * actual server port instead of using the hardcoded default (4000).
  */

@@ -1,28 +1,8 @@
-export function hasPendingBridgeMessages(
-  lastWrittenIndex: number,
-  messageCount: number,
-): boolean {
-  return lastWrittenIndex < messageCount
-}
+/** AgentFlow-Code: bridgeResultScheduling stub. */
+export const __stub = true
 
-export function isTranscriptResetResultReady(
-  transcriptResetPending: boolean,
-  messageCount: number,
-): boolean {
-  return transcriptResetPending && messageCount === 0
-}
+/** Auto-generated stub export. */
+export function isTranscriptResetResultReady(..._args: any[]): any { return undefined }
 
-export function shouldDeferBridgeResult({
-  hasHandle,
-  isConnected,
-  lastWrittenIndex,
-  messageCount,
-}: {
-  hasHandle: boolean
-  isConnected: boolean
-  lastWrittenIndex: number
-  messageCount: number
-}): boolean {
-  if (!hasHandle || !isConnected) return true
-  return hasPendingBridgeMessages(lastWrittenIndex, messageCount)
-}
+/** Auto-generated stub export. */
+export function shouldDeferBridgeResult(..._args: any[]): any { return undefined }

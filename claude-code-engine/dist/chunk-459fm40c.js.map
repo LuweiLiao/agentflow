@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/services/analytics/datadog.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: datadog stub — Anthropic telemetry removed. */\nexport const __stub = true\n\n/** Auto-generated stub export. */\nexport function shutdownDatadog(..._args: any[]): any { return undefined }\n"
+  ],
+  "mappings": ";;;;;;AAIO,SAAS,eAAe,IAAI,OAAmB;AAAA,EAAE;AAAA;AAAA,IAH3C,SAAS;AAAA;",
+  "debugId": "0771E6B475FB3C2A64756E2164756E21",
+  "names": []
+}

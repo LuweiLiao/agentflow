@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/theme/theme.tsx"],
+  "sourcesContent": [
+    "import * as React from 'react';\nimport type { CommandResultDisplay } from '../../commands.js';\nimport { Pane } from '@anthropic/ink';\nimport { ThemePicker } from '../../components/ThemePicker.js';\nimport { useTheme } from '@anthropic/ink';\nimport type { LocalJSXCommandCall } from '../../types/command.js';\n\ntype Props = {\n  onDone: (result?: string, options?: { display?: CommandResultDisplay }) => void;\n};\n\nfunction ThemePickerCommand({ onDone }: Props): React.ReactNode {\n  const [, setTheme] = useTheme();\n\n  return (\n    <Pane color=\"permission\">\n      <ThemePicker\n        onThemeSelect={setting => {\n          setTheme(setting);\n          onDone(`Theme set to ${setting}`);\n        }}\n        onCancel={() => {\n          onDone('Theme picker dismissed', { display: 'system' });\n        }}\n        skipExitHandling={true}\n      />\n    </Pane>\n  );\n}\n\nexport const call: LocalJSXCommandCall = async (onDone, _context) => {\n  return <ThemePickerCommand onDone={onDone} />;\n};\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;AAWA,SAAS,kBAAkB,GAAG,UAAkC;AAAA,EAC9D,SAAS,YAAY,SAAS;AAAA,EAE9B,uBACE,gBAWE,MAXF;AAAA,IAAM,OAAM;AAAA,IAAZ,0BACE,gBAAC,aAAD;AAAA,MACE,eAAe,aAAW;AAAA,QACxB,SAAS,OAAO;AAAA,QAChB,OAAO,gBAAgB,SAAS;AAAA;AAAA,MAElC,UAAU,MAAM;AAAA,QACd,OAAO,0BAA0B,EAAE,SAAS,SAAS,CAAC;AAAA;AAAA,MAExD,kBAAkB;AAAA,KACpB;AAAA,GACA;AAAA;AAAA,iBAIO,OAA4B,OAAO,QAAQ,aAAa;AAAA,EACnE,uBAAO,gBAAC,oBAAD;AAAA,IAAoB;AAAA,GAAgB;AAAA;AAAA;AAAA,EA7B7C;AAAA,EACA;AAAA,EACA;AAAA;AAAA;",
+  "debugId": "B96754F3C73233AA64756E2164756E21",
+  "names": []
+}

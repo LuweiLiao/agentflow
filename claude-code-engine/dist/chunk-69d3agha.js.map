@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/ssh/createSSHSession.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: SSH stub. */\nexport async function createSSHSession(..._args: any[]): Promise<any> { return null }\n"
+  ],
+  "mappings": ";;;;AACA,eAAsB,gBAAgB,IAAI,OAA4B;AAAA,EAAE,OAAO;AAAA;",
+  "debugId": "F8D6877DCB633FB064756E2164756E21",
+  "names": []
+}

@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/bridge/bridgeMain.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: bridgeMain stub — bridge removed. */\nexport function isBridgeEnabled(): boolean { return false }\nexport function getBridgeDisabledReason(): string | null { return 'Bridge removed in AgentFlow-Code' }\nexport function checkBridgeMinVersion(): boolean { return false }\nexport function getBridgeAccessToken(): string | null { return null }\nexport const BRIDGE_LOGIN_ERROR = 'BRIDGE_DISABLED'\n"
+  ],
+  "mappings": ";;;;AACO,SAAS,eAAe,GAAY;AAAA,EAAE,OAAO;AAAA;AAC7C,SAAS,uBAAuB,GAAkB;AAAA,EAAE,OAAO;AAAA;AAC3D,SAAS,qBAAqB,GAAY;AAAA,EAAE,OAAO;AAAA;AACnD,SAAS,oBAAoB,GAAkB;AAAA,EAAE,OAAO;AAAA;AACxD,IAAM,qBAAqB;",
+  "debugId": "C7C837E9965622B364756E2164756E21",
+  "names": []
+}

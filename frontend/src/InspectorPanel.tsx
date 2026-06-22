@@ -155,15 +155,10 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
 
   const statusKey = (node.status || "pending") as NodeStatus;
   const ss = statusMeta(statusKey);  // #3: unified status lookup (was STATUS_STYLE[...])
-  const activeProfile = PROFILE_OPTIONS.find((p) => p.value === node.profile);
 
-  const handleProfileClick = useCallback(
-    (e: React.MouseEvent) => {
-      const value = (e.currentTarget as HTMLButtonElement).dataset.profileValue;
-      if (value) onUpdate(node.id, { profile: value as Profile });
-    },
-    [node?.id, onUpdate]
-  );
+  // P2-#3: removed dead `handleProfileClick` and unused `activeProfile` —
+  // profile selection is now done inline via the dedicated buttons below
+  // (see PROFILE_OPTIONS .map()).
 
   const handleBudgetChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -489,29 +484,87 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
           </div>
         )}
 
-        {/* D5 — two-step delete */}
-        <button
-          onClick={handleDeleteClick}
-          aria-label={confirming ? "确认删除节点" : "删除节点"}
-          className="af-delete-btn"
-          style={{
-            position: "sticky",
-            bottom: 8,
-            marginTop: 12,
-            width: "100%",
-            padding: "7px 10px",
-            background: confirming ? "rgba(248,113,113,0.25)" : "rgba(248,113,113,0.1)",
-            border: `1px solid ${confirming ? "rgba(248,113,113,0.6)" : "rgba(248,113,113,0.3)"}`,
-            borderRadius: radius.md,
-            color: colors.status.failed,
-            fontSize: 12,
-            fontWeight: confirming ? 700 : 500,
-            cursor: "pointer",
-            transition: `background ${transition.fast}, border-color ${transition.fast}`,
-          }}
-        >
-          {confirming ? "⚠ 确认删除?" : "🗑 删除节点"}
-        </button>
+        {/* D5 — two-step delete (P2-#2: split into Cancel + Confirm buttons). */}
+        {!confirming ? (
+          <button
+            onClick={handleDeleteClick}
+            aria-label="删除节点"
+            className="af-delete-btn"
+            style={{
+              position: "sticky",
+              bottom: 8,
+              marginTop: 12,
+              width: "100%",
+              padding: "7px 10px",
+              background: "rgba(248,113,113,0.1)",
+              border: `1px solid rgba(248,113,113,0.3)`,
+              borderRadius: radius.md,
+              color: colors.status.failed,
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: "pointer",
+              transition: `background ${transition.fast}, border-color ${transition.fast}`,
+            }}
+          >
+            🗑 删除节点
+          </button>
+        ) : (
+          <div
+            role="alertdialog"
+            aria-label="确认删除节点"
+            style={{
+              position: "sticky",
+              bottom: 8,
+              marginTop: 12,
+              display: "flex",
+              gap: 8,
+              width: "100%",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                if (confirmTimer.current) clearTimeout(confirmTimer.current);
+                setConfirming(false);
+              }}
+              aria-label="取消删除"
+              style={{
+                flex: 1,
+                padding: "7px 10px",
+                background: colors.bg[1],
+                border: `1px solid ${colors.border.default}`,
+                borderRadius: radius.md,
+                color: colors.text.secondary,
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: "pointer",
+                transition: `background ${transition.fast}, border-color ${transition.fast}`,
+              }}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteClick}
+              aria-label="确认删除节点"
+              className="af-delete-btn"
+              style={{
+                flex: 1,
+                padding: "7px 10px",
+                background: "rgba(248,113,113,0.25)",
+                border: `1px solid rgba(248,113,113,0.6)`,
+                borderRadius: radius.md,
+                color: colors.status.failed,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                transition: `background ${transition.fast}, border-color ${transition.fast}`,
+              }}
+            >
+              确认删除
+            </button>
+          </div>
+        )}
       </div>
 
       {/* D3 — bottom scroll fade indicator */}

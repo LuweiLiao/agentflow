@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/services/analytics/sink.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: sink stub — Anthropic telemetry removed. */\nexport const __stub = true\n\n/** Auto-generated stub export. */\nexport function initializeAnalyticsSink(..._args: any[]): any { return undefined }\n\n/** Auto-generated stub export. */\nexport function initializeAnalyticsGates(..._args: any[]): any { return undefined }\n"
+  ],
+  "mappings": ";;;;;;AAIO,SAAS,uBAAuB,IAAI,OAAmB;AAAA,EAAE;AAAA;AAGzD,SAAS,wBAAwB,IAAI,OAAmB;AAAA,EAAE;AAAA;AAAA,IANpD,SAAS;AAAA;",
+  "debugId": "AC57056C2A15AD1964756E2164756E21",
+  "names": []
+}

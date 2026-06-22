@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/utils/authPortable.ts"],
+  "sourcesContent": [
+    "import { execa } from 'execa'\nimport { getMacOsKeychainStorageServiceName } from 'src/utils/secureStorage/macOsKeychainHelpers.js'\n\nexport async function maybeRemoveApiKeyFromMacOSKeychainThrows(): Promise<void> {\n  if (process.platform === 'darwin') {\n    const storageServiceName = getMacOsKeychainStorageServiceName()\n    const result = await execa(\n      `security delete-generic-password -a $USER -s \"${storageServiceName}\"`,\n      { shell: true, reject: false },\n    )\n    if (result.exitCode !== 0) {\n      throw new Error('Failed to delete keychain entry')\n    }\n  }\n}\n\nexport function normalizeApiKeyForConfig(apiKey: string): string {\n  return apiKey.slice(-20)\n}\n"
+  ],
+  "mappings": ";;;;;;;;;AAgBO,SAAS,wBAAwB,CAAC,QAAwB;AAAA,EAC/D,OAAO,OAAO,MAAM,GAAG;AAAA;AAAA;AAAA,EAhBzB;AAAA;",
+  "debugId": "232B68E2CA89E09164756E2164756E21",
+  "names": []
+}

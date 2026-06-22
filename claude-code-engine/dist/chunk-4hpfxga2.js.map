@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/services/analytics/index.ts"],
+  "sourcesContent": [
+    "/**\n * AgentFlow-Code — Analytics stub.\n *\n * All Anthropic telemetry (GrowthBook/Datadog/Statsig/1P event logging) removed.\n * Functions are no-ops that return safe defaults.\n */\n\n// ── Types ──\nexport type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS = string\n\n// ── Feature flags (always return defaults) ──\nexport function getFeatureValue_CACHED_MAY_BE_STALE<T>(_key: string, defaultValue: T): T {\n  return defaultValue\n}\nexport function getFeatureValue_CACHED_WITH_REFRESH<T>(_key: string, defaultValue: T): T {\n  return defaultValue\n}\nexport function checkStatsigFeatureGate_CACHED_MAY_BE_STALE(_key: string): boolean {\n  return false\n}\nexport function getDynamicConfig_CACHED_MAY_BE_STALE(_key: string): Record<string, unknown> {\n  return {}\n}\nexport function getDynamicConfig_BLOCKS_ON_INIT(_key: string): Record<string, unknown> {\n  return {}\n}\nexport function onGrowthBookRefresh(_cb: () => void): void {}\n\n// ── Event logging (no-op) ──\nexport function logEvent(\n  _name: string,\n  _metadata?: Record<string, unknown>,\n): void {}\n\n// ── Sanitization ──\nexport function sanitizeToolNameForAnalytics(name: string): string {\n  return name\n}\n\n// ── Lifecycle (no-op) ──\nexport function initializeAnalyticsSink(): void {}\nexport function initializeGrowthBook(): Promise<void> { return Promise.resolve() }\nexport function shutdownDatadog(): void {}\nexport function shutdown1PEventLogging(): void {}\nexport function isFeedbackSurveyDisabled(): boolean { return true }\nexport function isAnalyticsDisabled(): boolean { return true }\n\n// ── Metadata helpers ──\nexport function getAnalyticsMetadata(): Record<string, unknown> {\n  return {}\n}\n"
+  ],
+  "mappings": ";;;;;;AA6BO,SAAS,QAAQ,CACtB,OACA,WACM;AAAA;",
+  "debugId": "F4E6536635872B0864756E2164756E21",
+  "names": []
+}

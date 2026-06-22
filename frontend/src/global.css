@@ -455,6 +455,18 @@ html {
   50%      { opacity: 0.55; transform: scale(0.85); }
 }
 
+/* ── P0-3: Toast slide-in animation ───────────────────────────── */
+@keyframes af-toast-in {
+  from { transform: translateX(120%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+/* ── P1-#2: generic fade-in for modal overlays ────────────────── */
+@keyframes af-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 /* ── Focus management: canvas container (H3) ──────────────────── */
 .af-canvas:focus:not(:focus-visible) {
   outline: none;

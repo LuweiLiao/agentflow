@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/utils/settings/managedPath.ts"],
+  "sourcesContent": [
+    "import memoize from 'lodash-es/memoize.js'\nimport { join } from 'path'\nimport { getPlatform } from '../platform.js'\n\n/**\n * Get the path to the managed settings directory based on the current platform.\n */\nexport const getManagedFilePath = memoize(function (): string {\n  // Allow override for testing/demos (Ant-only, eliminated from external builds)\n  if (\n    process.env.USER_TYPE === 'ant' &&\n    process.env.CLAUDE_CODE_MANAGED_SETTINGS_PATH\n  ) {\n    return process.env.CLAUDE_CODE_MANAGED_SETTINGS_PATH\n  }\n\n  switch (getPlatform()) {\n    case 'macos':\n      return '/Library/Application Support/ClaudeCode'\n    case 'windows':\n      return 'C:\\\\Program Files\\\\ClaudeCode'\n    default:\n      return '/etc/claude-code'\n  }\n})\n\n/**\n * Get the path to the managed-settings.d/ drop-in directory.\n * managed-settings.json is merged first (base), then files in this directory\n * are merged alphabetically on top (drop-ins override base, later files win).\n */\nexport const getManagedSettingsDropInDir = memoize(function (): string {\n  return join(getManagedFilePath(), 'managed-settings.d')\n})\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;AACA;AAAA,IAMa,oBAwBA;AAAA;AAAA,EA/Bb;AAAA,EAEA;AAAA,EAKa,qBAAqB,gBAAQ,QAAS,GAAW;AAAA,IAE5D,IACE,QAAQ,IAAI,cAAc,SAC1B,QAAQ,IAAI,mCACZ;AAAA,MACA,OAAO,QAAQ,IAAI;AAAA,IACrB;AAAA,IAEA,QAAQ,YAAY;AAAA,WACb;AAAA,QACH,OAAO;AAAA,WACJ;AAAA,QACH,OAAO;AAAA;AAAA,QAEP,OAAO;AAAA;AAAA,GAEZ;AAAA,EAOY,8BAA8B,gBAAQ,QAAS,GAAW;AAAA,IACrE,OAAO,KAAK,mBAAmB,GAAG,oBAAoB;AAAA,GACvD;AAAA;",
+  "debugId": "1948774875D0630564756E2164756E21",
+  "names": []
+}

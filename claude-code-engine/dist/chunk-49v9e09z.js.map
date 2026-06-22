@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/utils/array.ts"],
+  "sourcesContent": [
+    "export function intersperse<A>(as: A[], separator: (index: number) => A): A[] {\n  return as.flatMap((a, i) => (i ? [separator(i), a] : [a]))\n}\n\nexport function count<T>(arr: readonly T[], pred: (x: T) => unknown): number {\n  let n = 0\n  for (const x of arr) n += +!!pred(x)\n  return n\n}\n\nexport function uniq<T>(xs: Iterable<T>): T[] {\n  return [...new Set(xs)]\n}\n"
+  ],
+  "mappings": ";;;;;;AAAO,SAAS,WAAc,CAAC,IAAS,WAAsC;AAAA,EAC5E,OAAO,GAAG,QAAQ,CAAC,GAAG,MAAO,IAAI,CAAC,UAAU,CAAC,GAAG,CAAC,IAAI,CAAC,CAAC,CAAE;AAAA;AAGpD,SAAS,KAAQ,CAAC,KAAmB,MAAiC;AAAA,EAC3E,IAAI,IAAI;AAAA,EACR,WAAW,KAAK;AAAA,IAAK,KAAK,CAAC,CAAC,CAAC,KAAK,CAAC;AAAA,EACnC,OAAO;AAAA;AAGF,SAAS,IAAO,CAAC,IAAsB;AAAA,EAC5C,OAAO,CAAC,GAAG,IAAI,IAAI,EAAE,CAAC;AAAA;AAAA;",
+  "debugId": "89B5CD7E38E6F6AF64756E2164756E21",
+  "names": []
+}

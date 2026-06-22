@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/utils/settings/allErrors.ts"],
+  "sourcesContent": [
+    "/**\n * Combines settings validation errors with MCP configuration errors.\n *\n * This module exists to break a circular dependency:\n *   settings.ts → mcp/config.ts → settings.ts\n *\n * By moving the MCP error aggregation here (a leaf that imports both\n * settings.ts and mcp/config.ts, but is imported by neither), the cycle\n * is eliminated.\n */\n\nimport { getMcpConfigsByScope } from '../../services/mcp/config.js'\nimport { getSettingsWithErrors } from './settings.js'\nimport type { SettingsWithErrors } from './validation.js'\n\n/**\n * Get merged settings with all validation errors, including MCP config errors.\n *\n * Use this instead of getSettingsWithErrors() when you need the full set of\n * errors (settings + MCP). The underlying getSettingsWithErrors() no longer\n * includes MCP errors to avoid the circular dependency.\n */\nexport function getSettingsWithAllErrors(): SettingsWithErrors {\n  const result = getSettingsWithErrors()\n  // 'dynamic' scope does not have errors returned; it throws and is set on cli startup\n  const scopes = ['user', 'project', 'local'] as const\n  const mcpErrors = scopes.flatMap(scope => getMcpConfigsByScope(scope).errors)\n  return {\n    settings: result.settings,\n    errors: [...result.errors, ...mcpErrors],\n  }\n}\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;AAsBO,SAAS,wBAAwB,GAAuB;AAAA,EAC7D,MAAM,SAAS,sBAAsB;AAAA,EAErC,MAAM,SAAS,CAAC,QAAQ,WAAW,OAAO;AAAA,EAC1C,MAAM,YAAY,OAAO,QAAQ,WAAS,qBAAqB,KAAK,EAAE,MAAM;AAAA,EAC5E,OAAO;AAAA,IACL,UAAU,OAAO;AAAA,IACjB,QAAQ,CAAC,GAAG,OAAO,QAAQ,GAAG,SAAS;AAAA,EACzC;AAAA;AAAA;AAAA,EAnBF;AAAA,EACA;AAAA;",
+  "debugId": "ED5F287B968876D564756E2164756E21",
+  "names": []
+}

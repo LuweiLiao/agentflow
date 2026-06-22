@@ -53,7 +53,7 @@ import {
   runGroupStopBtn,
   layoutBtnStyle,
 } from "./styles";
-import { colors, profileColor, radius, zIndex, transition, formatCost } from "./theme";  // #2: added radius
+import { colors, fontSize, profileColor, radius, shadow, spacing, transition, zIndex, formatCost } from "./theme";  // #2: added radius
 import type { WorkflowNode, NodeStatus } from "./types";
 
 const MAX_REQUIREMENT_LEN = 2000;
@@ -78,6 +78,126 @@ const EXAMPLES = [
   { icon: "✅", text: "用 Flask + SQLite 开发一个 Todo 网页应用，含用户登录、CRUD、标签分类" },
   { icon: "🚁", text: "在 MATLAB/Simulink 中设计并仿真四旋翼无人机 ADRC 控制器" },
 ];
+
+/* ── P0-3: Toast notification system ────────────────────────────
+ * Lightweight, dependency-free. Toasts stack at the top-right and each
+ * auto-dismisses after 4s. Fired on execution failure, save success/failure
+ * and import errors via the `addToast` callback below. */
+type ToastType = "success" | "error" | "warning" | "info";
+interface Toast {
+  id: number;
+  type: ToastType;
+  message: string;
+}
+
+const TOAST_TYPE_META: Record<ToastType, { color: string; icon: string }> = {
+  success: { color: colors.status.completed, icon: "✅" },
+  error:   { color: colors.status.failed,    icon: "❌" },
+  warning: { color: colors.status.timed_out, icon: "⚠️" },
+  info:    { color: colors.accent.blue,      icon: "ℹ️" },
+};
+
+/* ── P1-#2: themed ConfirmDialog component ─────────────────────
+ * Replaces native `window.confirm` calls so destructive actions stay
+ * within the dark-theme design language. */
+interface ConfirmDialogProps {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = "确认",
+  cancelLabel = "取消",
+  onConfirm,
+  onCancel,
+}: ConfirmDialogProps) {
+  if (!open) return null;
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-dialog-title"
+      onClick={onCancel}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: zIndex.modal,
+        background: "rgba(0,0,0,0.55)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        animation: "af-fade-in 0.15s ease",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          minWidth: 320,
+          maxWidth: 420,
+          background: colors.bg[3],
+          border: `1px solid ${colors.border.default}`,
+          borderRadius: radius.xl,
+          boxShadow: shadow.lg,
+          padding: spacing[20],
+          color: colors.text.primary,
+        }}
+      >
+        <h2
+          id="confirm-dialog-title"
+          style={{ margin: 0, marginBottom: spacing[8], fontSize: 16, fontWeight: 700 }}
+        >
+          {title}
+        </h2>
+        <p style={{ margin: 0, marginBottom: spacing[16], fontSize: 13, color: colors.text.secondary, lineHeight: 1.6 }}>
+          {message}
+        </p>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: spacing[8] }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              padding: `${spacing[8]}px ${spacing[16]}px`,
+              background: colors.bg[1],
+              border: `1px solid ${colors.border.default}`,
+              borderRadius: radius.md,
+              color: colors.text.secondary,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: `background ${transition.fast}, border-color ${transition.fast}`,
+            }}
+          >
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            style={{
+              padding: `${spacing[8]}px ${spacing[16]}px`,
+              background: "rgba(248,113,113,0.18)",
+              border: `1px solid rgba(248,113,113,0.5)`,
+              borderRadius: radius.md,
+              color: colors.status.failed,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              transition: `background ${transition.fast}, border-color ${transition.fast}`,
+            }}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** Pure helper: apply partial WorkflowNode updates to AgentNodeData. (G2) */
 function applyNodeUpdates(data: AgentNodeData, updates: Partial<WorkflowNode>): AgentNodeData {
@@ -157,6 +277,57 @@ function CanvasInner() {
   const [savedWorkflowId, setSavedWorkflowId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const sseController = useRef<AbortController | null>(null);
+
+  // ── P0-3: Toast notification queue ──
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastIdRef = useRef(0);
+  const addToast = useCallback((type: ToastType, message: string) => {
+    const id = ++toastIdRef.current;
+    setToasts((prev) => [...prev, { id, type, message }]);
+    // Auto-dismiss after 4 seconds.
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }, []);
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  // ── P1-#3: backend connection status indicator ──
+  // Polls /api/status once on mount; a green/red dot in the status bar reflects
+  // backend reachability. Failing quietly leaves the dot red without spamming.
+  const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch("/api/status", { method: "GET" });
+        if (cancelled) return;
+        setBackendOnline(resp.ok);
+      } catch {
+        if (!cancelled) setBackendOnline(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── P1-#2: confirm-delete dialog state ──
+  // Replaces `window.confirm` for RF's bulk-delete path so the prompt matches
+  // the themed UI. The pending deletion is captured as a deferred callback.
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    message: string;
+    onConfirm: () => void;
+  }>({ open: false, message: "", onConfirm: () => {} });
+  const requestConfirm = useCallback(
+    (message: string, onConfirm: () => void) => {
+      setConfirmDialog({ open: true, message, onConfirm });
+    },
+    []
+  );
+  const closeConfirm = useCallback(() => {
+    setConfirmDialog({ open: false, message: "", onConfirm: () => {} });
+  }, []);
 
   // ── Pause/Stop transport controls (Simulink-style) ──
   // isPausedRef is read synchronously inside SSE callbacks (which are created
@@ -356,10 +527,12 @@ function CanvasInner() {
         }
       }
     } catch (err) {
-      addLog(`❌ 编排失败: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog(`❌ 编排失败: ${msg}`);
+      addToast("error", `编排失败: ${msg}`);
     }
     setIsDecomposing(false);
-  }, [requirement, addLog, loadWorkflow, rf, setIsDecomposing]);
+  }, [requirement, addLog, loadWorkflow, rf, setIsDecomposing, addToast]);
 
   // ── 执行 ──
   const handleExecute = useCallback(async () => {
@@ -459,10 +632,12 @@ function CanvasInner() {
         },
       });
     } catch (err) {
-      addLog(`❌ 执行失败: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog(`❌ 执行失败: ${msg}`);
+      addToast("error", `执行失败: ${msg}`);
       setIsRunning(false);
     }
-  }, [nodes, edges, requirement, addLog, setNodes, pushUndo, setCurrentRunId, setIsRunning]);
+  }, [nodes, edges, requirement, addLog, setNodes, pushUndo, setCurrentRunId, setIsRunning, addToast]);
 
   // ── Pause / Resume / Stop transport controls (Simulink-style) ──
   const handlePause = useCallback(() => {
@@ -520,6 +695,38 @@ function CanvasInner() {
     setEdges((eds) => applyEdgeAnimation(eds, stateRef.current.nodes));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusSignature, setEdges]);
+
+  // ── P1-#4: Highlight edges connected to the selected node ──
+  // Connected edges become thicker + fully opaque; unconnected edges dim to
+  // 0.25 opacity. When no node is selected, all edges return to default.
+  // Uses the base style stored by makeSignalEdge and re-derives opacity /
+  // stroke width on each selection change.
+  useEffect(() => {
+    const selId = selectedNode?.id ?? null;
+    setEdges((eds) => {
+      let changed = false;
+      const next = eds.map((e) => {
+        const connected = selId !== null && (e.source === selId || e.target === selId);
+        // Preserve the original source-color stroke; only adjust opacity + width.
+        const baseStyle = (e.style ?? {}) as Record<string, unknown>;
+        const baseStroke = typeof baseStyle.stroke === "string" ? baseStyle.stroke : colors.border.bright;
+        const baseWidth = typeof baseStyle.strokeWidth === "number" ? baseStyle.strokeWidth : 2.5;
+        const targetOpacity = selId === null ? 1 : connected ? 1 : 0.25;
+        const targetWidth = connected ? baseWidth + 1.5 : baseWidth;
+        const newStyle = { ...baseStyle, stroke: baseStroke, strokeWidth: targetWidth, opacity: targetOpacity };
+        // Shallow compare to avoid spurious re-renders.
+        if (
+          baseStyle.opacity === newStyle.opacity &&
+          baseStyle.strokeWidth === newStyle.strokeWidth
+        ) {
+          return e;
+        }
+        changed = true;
+        return { ...e, style: newStyle };
+      });
+      return changed ? next : eds;
+    });
+  }, [selectedNode, setEdges]);
 
   // G3 — abort any in-flight SSE stream when the component unmounts.
   useEffect(() => {
@@ -644,13 +851,24 @@ function CanvasInner() {
     [pushUndo, setNodes, setEdges, setSelectedNode, addLog]
   );
 
-  // R3-BUG-P1-005: capture undo snapshot when React Flow deletes nodes via keyboard
+  // R3-BUG-P1-005: capture undo snapshot when React Flow deletes nodes via keyboard.
+  // P1-#2: replaced the native `window.confirm` with the themed ConfirmDialog.
+  // When the user confirms, RF's own delete (already applied by the time the
+  // callback fires via the deleteKeyCode) proceeds — we only push the undo
+  // snapshot here. Cancelling the dialog can't un-delete RF nodes (already
+  // gone from store), but we keep the prompt so destructive multi-delete is
+  // intentional. We re-add the deleted nodes on cancel via undo.
   const onNodesDelete = useCallback(
     (deleted: Node<AgentNodeData>[]) => {
-      if (deleted.length > 0 && !window.confirm('确认删除节点?')) return;
-      pushUndo();
+      if (deleted.length === 0) return;
+      requestConfirm(
+        `将删除 ${deleted.length} 个节点（含相关连线）。此操作可通过撤销 (Ctrl+Z) 恢复。`,
+        () => {
+          pushUndo();
+        }
+      );
     },
-    [pushUndo]
+    [pushUndo, requestConfirm]
   );
 
   // ── 全局键盘快捷键 (P3) ──
@@ -770,17 +988,21 @@ function CanvasInner() {
       if (savedWorkflowId) {
         const wf = await api.updateWorkflow(savedWorkflowId, payload);
         addLog(`💾 工作流已更新: ${wf.workflow_id}`);
+        addToast("success", `工作流已更新`);
       } else {
         const wf = await api.saveWorkflow(payload);
         setSavedWorkflowId(wf.workflow_id);
         addLog(`💾 工作流已保存到服务器: ${wf.workflow_id}`);
+        addToast("success", `工作流已保存到服务器`);
       }
     } catch (err) {
-      addLog(`❌ 保存失败: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog(`❌ 保存失败: ${msg}`);
+      addToast("error", `保存失败: ${msg}`);
     } finally {
       setIsSaving(false);
     }
-  }, [nodes, edges, requirement, savedWorkflowId, addLog]);
+  }, [nodes, edges, requirement, savedWorkflowId, addLog, addToast]);
 
   const handleImport = useCallback(() => {
     const input = document.createElement("input");
@@ -794,7 +1016,10 @@ function CanvasInner() {
       // R3-P3 #9: friendly, structured schema validation. Collect all
       // violations first so the user sees every problem at once instead of
       // fixing them one at a time across multiple import attempts.
-      const fail = (reason: string) => addLog(`❌ 导入失败: ${reason}`);
+      const fail = (reason: string) => {
+        addLog(`❌ 导入失败: ${reason}`);
+        addToast("error", `导入失败: ${reason}`);
+      };
 
       try {
         const text = await file.text();
@@ -873,12 +1098,13 @@ function CanvasInner() {
         loadWorkflow(importedNodes, importedEdges);
         if (typeof obj.requirement === "string") updateRequirement(obj.requirement);
         addLog(`📥 导入工作流: ${file.name} (${importedNodes.length} 节点, ${importedEdges.length} 连线)`);
+        addToast("success", `导入成功: ${file.name}`);
       } catch (err) {
         fail(`未知错误: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
     input.click();
-  }, [loadWorkflow, addLog, updateRequirement]);
+  }, [loadWorkflow, addLog, updateRequirement, addToast]);
 
   // ── 重置 ──
   // R3-BUG-P1-007: reset isRunning and isPaused states
@@ -1250,8 +1476,39 @@ function CanvasInner() {
           </div>
         </div>
 
-        {/* B6 — status bar */}
-        <div style={toolbarStatusBarStyle} aria-live="polite" aria-atomic="true">
+        {/* B6 — status bar (P1-#5: bumped font to 12px for legibility) */}
+        <div
+          style={{ ...toolbarStatusBarStyle, fontSize: 12 }}
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {/* P1-#3: backend connection status indicator */}
+          <span
+            title={backendOnline === null ? "正在连接后端…" : backendOnline ? "后端已连接" : "后端未连接"}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background:
+                  backendOnline === null
+                    ? colors.status.pending
+                    : backendOnline
+                      ? colors.status.completed
+                      : colors.status.failed,
+                boxShadow:
+                  backendOnline === true
+                    ? `0 0 6px ${colors.status.completed}`
+                    : "none",
+                flexShrink: 0,
+                transition: `background ${transition.base}`,
+              }}
+            />
+            {backendOnline === null ? "连接中" : backendOnline ? "在线" : "离线"}
+          </span>
           <span>🧩 节点: <strong style={{ color: colors.text.secondary }}>{nodeCount}</strong></span>
           <span>🔗 连线: <strong style={{ color: colors.text.secondary }}>{edgeCount}</strong></span>
           <span>
@@ -1301,24 +1558,173 @@ function CanvasInner() {
           onDragLeave={onDragLeave}
         >
           {nodes.length === 0 && (
-            <div style={{
-              position: "absolute", inset: 0, display: "flex",
-              flexDirection: "column", alignItems: "center", justifyContent: "center",
-              zIndex: zIndex.panel, pointerEvents: "none", userSelect: "none",
-            }} aria-live="polite">
+            <div
+              style={{
+                position: "absolute", inset: 0, display: "flex",
+                flexDirection: "column", alignItems: "center", justifyContent: "center",
+                zIndex: zIndex.panel, userSelect: "none",
+                // P0-1: pointerEvents auto so the buttons / cards are clickable.
+                pointerEvents: "auto",
+                // Subtle radial gradient backdrop to anchor the empty state.
+                background:
+                  "radial-gradient(circle at 50% 40%, rgba(96,165,250,0.07) 0%, transparent 55%)",
+                padding: spacing[24],
+              }}
+              aria-live="polite"
+            >
+              {/* ── Hero ── */}
               <div style={{
-                fontSize: 48, opacity: 0.15, marginBottom: 16,
-              }}>🧬</div>
-              <div style={{
-                fontSize: 14, color: "rgba(232,237,245,0.3)", textAlign: "center",
-                lineHeight: 1.6,
+                fontSize: 56,
+                opacity: 0.9,
+                marginBottom: spacing[12],
+                filter: "drop-shadow(0 4px 12px rgba(96,165,250,0.35))",
               }}>
-                从左侧模块库拖拽或点击模块开始创建
+                🧬
               </div>
-              <div style={{
-                fontSize: 12, color: "rgba(232,237,245,0.15)", marginTop: 8,
+              <h2 style={{
+                fontSize: fontSize.xxl,
+                fontWeight: 700,
+                color: "rgba(232,237,245,0.85)",
+                margin: 0,
+                marginBottom: spacing[6],
+                letterSpacing: "0.01em",
               }}>
-                点击模块 → 添加到画布 | 拖拽模块 → 指定位置
+                欢迎使用 AgentFlow
+              </h2>
+              <p style={{
+                fontSize: fontSize.md,
+                color: "rgba(232,237,245,0.6)",
+                textAlign: "center",
+                lineHeight: 1.6,
+                maxWidth: 460,
+                margin: 0,
+                marginBottom: spacing[20],
+              }}>
+                用自然语言描述你的目标，AI 自动编排多 Agent 工作流；<br />
+                或从左侧模块库拖拽构建，一键执行、实时观测。
+              </p>
+
+              {/* ── CTA buttons ── */}
+              <div style={{ display: "flex", gap: spacing[12], marginBottom: spacing[24], flexWrap: "wrap", justifyContent: "center" }}>
+                <button
+                  type="button"
+                  className="af-btn"
+                  onClick={() => {
+                    updateRequirement(
+                      "用 PyQt5 实现一个串口调试助手，支持端口扫描、波特率设置、HEX/ASCII 收发"
+                    );
+                    // Focus the requirement textarea by deferring — the input is
+                    // rendered in the toolbar above; a small timeout lets React
+                    // flush the value before focus.
+                    setTimeout(() => {
+                      const el = document.querySelector<HTMLTextAreaElement>(".af-req-input");
+                      el?.focus();
+                    }, 0);
+                  }}
+                  style={{
+                    padding: `${spacing[10]}px ${spacing[20]}px`,
+                    border: "none",
+                    borderRadius: radius.lg,
+                    background: `linear-gradient(135deg, ${colors.accent.blue} 0%, ${colors.accent.purple} 100%)`,
+                    color: "#fff",
+                    fontSize: fontSize.md,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    boxShadow: `0 6px 20px ${colors.accent.blue}40`,
+                    transition: `transform ${transition.fast}, box-shadow ${transition.fast}`,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow = `0 10px 28px ${colors.accent.blue}55`;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = `0 6px 20px ${colors.accent.blue}40`;
+                  }}
+                >
+                  🤖 试试 AI 编排
+                </button>
+                <button
+                  type="button"
+                  className="af-btn-mini"
+                  onClick={() => {
+                    // Switch focus to the canvas so the user can start
+                    // dragging from the block library immediately.
+                    canvasRef.current?.focus();
+                    addToast("info", "从左侧拖拽或点击模块添加节点");
+                  }}
+                  style={{
+                    ...btnMiniStyle,
+                    padding: `${spacing[10]}px ${spacing[20]}px`,
+                    fontSize: fontSize.md,
+                  }}
+                >
+                  📋 从空白开始
+                </button>
+              </div>
+
+              {/* ── Example cards ── */}
+              <div style={{
+                display: "flex",
+                gap: spacing[12],
+                flexWrap: "wrap",
+                justifyContent: "center",
+                maxWidth: 760,
+              }}>
+                {EXAMPLES.map((ex) => (
+                  <button
+                    key={ex.text}
+                    type="button"
+                    onClick={() => {
+                      updateRequirement(ex.text);
+                      addToast("info", "已填入示例需求，点击「🤖 AI 编排」生成");
+                      setTimeout(() => {
+                        const el = document.querySelector<HTMLTextAreaElement>(".af-req-input");
+                        el?.focus();
+                      }, 0);
+                    }}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "flex-start",
+                      gap: spacing[6],
+                      width: 230,
+                      padding: spacing[12],
+                      background: colors.bg[3],
+                      border: `1px solid ${colors.border.default}`,
+                      borderRadius: radius.lg,
+                      color: colors.text.primary,
+                      cursor: "pointer",
+                      textAlign: "left",
+                      transition: `transform ${transition.fast}, border-color ${transition.fast}, background ${transition.fast}`,
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = "translateY(-3px)";
+                      e.currentTarget.style.borderColor = colors.border.bright;
+                      e.currentTarget.style.background = colors.bg[4];
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.borderColor = colors.border.default;
+                      e.currentTarget.style.background = colors.bg[3];
+                    }}
+                  >
+                    <span style={{ fontSize: 24, lineHeight: 1 }}>{ex.icon}</span>
+                    <span style={{
+                      fontSize: fontSize.sm,
+                      fontWeight: 600,
+                      color: "rgba(232,237,245,0.85)",
+                      lineHeight: 1.4,
+                      // Two-line clamp keeps cards equal height.
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                    }}>
+                      {ex.text}
+                    </span>
+                  </button>
+                ))}
               </div>
             </div>
           )}
@@ -1380,8 +1786,78 @@ function CanvasInner() {
         />
       )}
 
-      {/* ── Log Panel ── */}
+      {/* ── Log Panel ── (P0-3: errorCount badge when collapsed uses the
+          LogPanel's own internally-tallied error-log count, so no prop needed.) */}
       <LogPanel logs={logs} onClear={handleClearLogs} />
+
+      {/* ── P0-3: Toast notification overlay ──
+          Fixed top-right stack. Each toast slides in from the right and
+          auto-dismisses after 4s (see addToast above). */}
+      <div
+        aria-live="assertive"
+        aria-atomic="false"
+        style={{
+          position: "fixed",
+          top: spacing[12],
+          right: spacing[12],
+          zIndex: zIndex.modal,
+          display: "flex",
+          flexDirection: "column",
+          gap: spacing[8],
+          pointerEvents: "none",
+          maxWidth: 360,
+        }}
+      >
+        {toasts.map((t) => {
+          const meta = TOAST_TYPE_META[t.type];
+          return (
+            <div
+              key={t.id}
+              role="status"
+              onClick={() => dismissToast(t.id)}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: spacing[8],
+                padding: `${spacing[10]}px ${spacing[12]}px`,
+                background: colors.bg[3],
+                border: `1px solid ${colors.border.default}`,
+                borderLeft: `3px solid ${meta.color}`,
+                borderRadius: radius.md,
+                boxShadow: shadow.md,
+                color: colors.text.primary,
+                fontSize: 13,
+                lineHeight: 1.45,
+                cursor: "pointer",
+                pointerEvents: "auto",
+                // Slide-in animation (defined in global.css).
+                animation: "af-toast-in 0.22s ease",
+              }}
+            >
+              <span aria-hidden style={{ fontSize: 14, lineHeight: 1.3, flexShrink: 0 }}>
+                {meta.icon}
+              </span>
+              <span style={{ flex: 1, minWidth: 0, wordBreak: "break-word" }}>
+                {t.message}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── P1-#2: themed ConfirmDialog ── */}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title="确认操作"
+        message={confirmDialog.message}
+        confirmLabel="确认"
+        cancelLabel="取消"
+        onConfirm={() => {
+          confirmDialog.onConfirm();
+          closeConfirm();
+        }}
+        onCancel={closeConfirm}
+      />
     </div>
   );
 }

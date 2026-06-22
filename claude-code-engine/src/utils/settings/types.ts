@@ -56,7 +56,7 @@ export const PermissionsSchema = lazySchema(() =>
       defaultMode: z
         .enum(PERMISSION_MODES)
         .optional()
-        .describe('Default permission mode when Claude Code needs access'),
+        .describe('Default permission mode when AgentFlow-Code needs access'),
       disableBypassPermissionsMode: z
         .enum(['disable'])
         .optional()
@@ -251,7 +251,7 @@ export const SettingsSchema = lazySchema(() =>
       $schema: z
         .literal(CLAUDE_CODE_SETTINGS_SCHEMA_URL)
         .optional()
-        .describe('JSON Schema reference for Claude Code settings'),
+        .describe('JSON Schema reference for AgentFlow-Code settings'),
       apiKeyHelper: z
         .string()
         .optional()
@@ -284,7 +284,7 @@ export const SettingsSchema = lazySchema(() =>
                   .describe('IdP issuer URL for OIDC discovery'),
                 clientId: z
                   .string()
-                  .describe("Claude Code's client_id registered at the IdP"),
+                  .describe("AgentFlow-Code's client_id registered at the IdP"),
                 callbackPort: z
                   .number()
                   .int()
@@ -325,7 +325,7 @@ export const SettingsSchema = lazySchema(() =>
         ),
       env: EnvironmentVariablesSchema()
         .optional()
-        .describe('Environment variables to set for Claude Code sessions'),
+        .describe('Environment variables to set for AgentFlow-Code sessions'),
       // Attribution for commits and PRs
       attribution: z
         .object({
@@ -347,7 +347,7 @@ export const SettingsSchema = lazySchema(() =>
         .optional()
         .describe(
           'Customize attribution text for commits and PRs. ' +
-            'Each field defaults to the standard Claude Code attribution if not set.',
+            'Each field defaults to the standard AgentFlow-Code attribution if not set.',
         ),
       includeCoAuthoredBy: z
         .boolean()
@@ -369,13 +369,13 @@ export const SettingsSchema = lazySchema(() =>
         .enum(['anthropic', 'openai', 'gemini', 'grok'])
         .optional()
         .describe(
-          'API provider type. "anthropic" uses the Anthropic API (default), "openai" uses the OpenAI Chat Completions API, "gemini" uses the Gemini API, and "grok" uses the xAI Grok API (OpenAI-compatible). ' +
+          'API provider type. "anthropic" uses the AgentFlow API (default), "openai" uses the OpenAI Chat Completions API, "gemini" uses the Gemini API, and "grok" uses the xAI Grok API (OpenAI-compatible). ' +
             'When set to "openai", configure OPENAI_API_KEY, OPENAI_BASE_URL, and OPENAI_MODEL. When set to "gemini", configure GEMINI_API_KEY and optional GEMINI_BASE_URL. When set to "grok", configure GROK_API_KEY (or XAI_API_KEY), optional GROK_BASE_URL, GROK_MODEL, and GROK_MODEL_MAP.',
         ),
       model: z
         .string()
         .optional()
-        .describe('Override the default model used by Claude Code'),
+        .describe('Override the default model used by AgentFlow-Code'),
       // Enterprise allowlist of models
       availableModels: z
         .array(z.string())
@@ -392,7 +392,7 @@ export const SettingsSchema = lazySchema(() =>
         .record(z.string(), z.string())
         .optional()
         .describe(
-          'Override mapping from Anthropic model ID (e.g. "claude-opus-4-6") to provider-specific ' +
+          'Override mapping from AgentFlow model ID (e.g. "claude-opus-4-6") to provider-specific ' +
             'model ID (e.g. a Bedrock inference profile ARN). Typically set in managed settings by ' +
             'enterprise administrators.',
         ),
@@ -936,7 +936,7 @@ export const SettingsSchema = lazySchema(() =>
         .optional()
         .describe(
           'Teams/Enterprise allowlist of channel plugins. When set, ' +
-            'replaces the default Anthropic allowlist — admins decide which ' +
+            'replaces the default AgentFlow allowlist — admins decide which ' +
             'plugins may push inbound messages. Undefined falls back to the default. ' +
             'Requires channelsEnabled: true.',
         ),

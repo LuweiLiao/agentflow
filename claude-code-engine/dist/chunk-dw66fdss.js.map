@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/constants/oauth.ts"],
+  "sourcesContent": [
+    "/**\n * AgentFlow-Code — OAuth configuration stub.\n *\n * Anthropic OAuth infrastructure removed. All functions return safe defaults.\n * AgentFlow-Code uses API keys via environment variables (ANTHROPIC_API_KEY,\n * OPENAI_API_KEY, etc.) — OAuth flow is not supported.\n */\n\nexport const OAUTH_BETA_HEADER = ''\n\nexport type OauthConfig = {\n  BASE_API_URL: string\n  CONSOLE_AUTHORIZE_URL: string\n  CLAUDE_AI_AUTHORIZE_URL: string\n  TOKEN_URL: string\n  API_KEY_URL: string\n  CLIENT_ID: string\n  REDIRECT_URI: string\n  MCP_PROXY_URL: string\n  SCOPES: string[]\n}\n\nconst STUB_CONFIG: OauthConfig = {\n  BASE_API_URL: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',\n  CONSOLE_AUTHORIZE_URL: '',\n  CLAUDE_AI_AUTHORIZE_URL: '',\n  TOKEN_URL: '',\n  API_KEY_URL: '',\n  CLIENT_ID: '',\n  REDIRECT_URI: '',\n  MCP_PROXY_URL: '',\n  SCOPES: [],\n}\n\nexport function getOauthConfig(): OauthConfig {\n  return STUB_CONFIG\n}\n\nexport function getOauthConfigForUrl(_url: string): OauthConfig {\n  return STUB_CONFIG\n}\n\nexport const ALLOWED_OAUTH_BASE_URLS: string[] = []\n\n// ── Additional stubs for backward compatibility ──\nexport function fileSuffixForOauthConfig(_config?: OauthConfig): string {\n  return ''\n}\nexport const MCP_CLIENT_METADATA_URL = ''\n\n/** Auto-generated stub export. */\nexport function CLAUDE_AI_INFERENCE_SCOPE(..._args: any[]): any { return undefined }\n"
+  ],
+  "mappings": ";;;;;;AAkCO,SAAS,cAAc,GAAgB;AAAA,EAC5C,OAAO;AAAA;AAUF,SAAS,wBAAwB,CAAC,SAA+B;AAAA,EACtE,OAAO;AAAA;AAKF,SAAS,yBAAyB,IAAI,OAAmB;AAAA,EAAE;AAAA;AAAA,IA3CrD,oBAAoB,IAc3B,aA0BO,0BAA0B;AAAA;AAAA,EA1BjC,cAA2B;AAAA,IAC/B,cAAc,QAAQ,IAAI,sBAAsB;AAAA,IAChD,uBAAuB;AAAA,IACvB,yBAAyB;AAAA,IACzB,WAAW;AAAA,IACX,aAAa;AAAA,IACb,WAAW;AAAA,IACX,cAAc;AAAA,IACd,eAAe;AAAA,IACf,QAAQ,CAAC;AAAA,EACX;AAAA;",
+  "debugId": "47B3327C50D78BC264756E2164756E21",
+  "names": []
+}

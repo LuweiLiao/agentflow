@@ -72,7 +72,7 @@ export function switchProvider(
   if (hasOpenAIMode && hasAnthropicKey) {
     warnings.push(
       'Both ANTHROPIC_API_KEY and OpenAI-compat mode are set. ' +
-        'ANTHROPIC_API_KEY is for Anthropic workspace endpoints (/v1/agents, /v1/vaults). ' +
+        'ANTHROPIC_API_KEY is for AgentFlow workspace endpoints (/v1/agents, /v1/vaults). ' +
         'OpenAI-compat mode routes /v1/messages to a third-party provider. ' +
         'These are separate planes — verify this is intentional.',
     )
@@ -81,7 +81,7 @@ export function switchProvider(
   if (!process.env[found.apiKeyEnv]) {
     warnings.push(
       `${found.apiKeyEnv} is not set in the current environment. ` +
-        `Set it before starting Claude Code: export ${found.apiKeyEnv}=<your-api-key>`,
+        `Set it before starting AgentFlow-Code: export ${found.apiKeyEnv}=<your-api-key>`,
     )
   }
 

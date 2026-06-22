@@ -131,12 +131,8 @@ export const btnStyle: CSSProperties = {
   transition: `transform ${transition.fast}, box-shadow ${transition.fast}, background ${transition.fast}, opacity ${transition.fast}`,
 };
 
-export const runBtnStyle: CSSProperties = {
-  ...btnStyle,
-  background: "rgba(16,185,129,0.14)",
-  borderColor: "rgba(16,185,129,0.4)",
-  color: colors.accent.green,
-};
+// P2-#3: removed unused `runBtnStyle` — green run button now uses the
+// dedicated `runGroupRunBtn` token (part of the transport control group).
 
 export const btnMiniStyle: CSSProperties = {
   padding: `${spacing[8]}px ${spacing[10]}px`,  // #1: was hardcoded 10px — now uses spacing[10]

@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/services/auth/hostGuard.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: hostGuard stub. */\nexport const __stub = true\n\n/** Auto-generated stub export. */\nexport function assertWorkspaceHost(..._args: any[]): any { return undefined }\n\n/** Auto-generated stub export. */\nexport function assertSubscriptionBaseUrl(..._args: any[]): any { return undefined }\n"
+  ],
+  "mappings": ";;;;;;AAIO,SAAS,mBAAmB,IAAI,OAAmB;AAAA,EAAE;AAAA;AAGrD,SAAS,yBAAyB,IAAI,OAAmB;AAAA,EAAE;AAAA;AAAA;",
+  "debugId": "4568B57CE4EB278C64756E2164756E21",
+  "names": []
+}

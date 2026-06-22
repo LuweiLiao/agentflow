@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/bridge/inboundAttachments.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: inboundAttachments stub. */\nexport const __stub = true\n\n/** Auto-generated stub export. */\nexport function resolveAndPrepend(..._args: any[]): any { return undefined }\n"
+  ],
+  "mappings": ";;AACO,IAAM,SAAS;AAGf,SAAS,iBAAiB,IAAI,OAAmB;AAAA,EAAE;AAAA;",
+  "debugId": "B77B2878FD14363F64756E2164756E21",
+  "names": []
+}

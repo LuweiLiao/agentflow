@@ -398,7 +398,7 @@ export function Feedback({
           </Box>
           <Box marginTop={1}>
             <Text wrap="wrap" dimColor>
-              We will use your feedback to debug related issues or to improve Claude Code&apos;s functionality (eg. to
+              We will use your feedback to debug related issues or to improve AgentFlow-Code&apos;s functionality (eg. to
               reduce the risk of bugs occurring in the future).
             </Text>
           </Box>
@@ -509,8 +509,8 @@ async function generateTitle(description: string, abortSignal: AbortSignal): Pro
   try {
     const response = await queryHaiku({
       systemPrompt: asSystemPrompt([
-        'Generate a concise, technical issue title (max 80 chars) for a public GitHub issue based on this bug report for Claude Code.',
-        'Claude Code is an agentic coding CLI based on the Anthropic API.',
+        'Generate a concise, technical issue title (max 80 chars) for a public GitHub issue based on this bug report for AgentFlow-Code.',
+        'AgentFlow-Code is an agentic coding CLI based on the AgentFlow API.',
         'The title should:',
         '- Include the type of issue [Bug] or [Feature Request] as the first thing in the title',
         '- Be concise, specific and descriptive of the actual problem',
@@ -518,9 +518,9 @@ async function generateTitle(description: string, abortSignal: AbortSignal): Pro
         '- For error messages, extract the key error (e.g., "Missing Tool Result Block" rather than the full message)',
         '- Be direct and clear for developers to understand the problem',
         '- If you cannot determine a clear issue, use "Bug Report: [brief description]"',
-        '- Any LLM API errors are from the Anthropic API, not from any other model provider',
+        '- Any LLM API errors are from the AgentFlow API, not from any other model provider',
         'Your response will be directly used as the title of the Github issue, and as such should not contain any other commentary or explaination',
-        'Examples of good titles include: "[Bug] Auto-Compact triggers to soon", "[Bug] Anthropic API Error: Missing Tool Result Block", "[Bug] Error: Invalid Model Name for Opus"',
+        'Examples of good titles include: "[Bug] Auto-Compact triggers to soon", "[Bug] AgentFlow API Error: Missing Tool Result Block", "[Bug] Error: Invalid Model Name for Opus"',
       ]),
       userPrompt: description,
       signal: abortSignal,

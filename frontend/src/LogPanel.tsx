@@ -6,6 +6,8 @@ import { colors, radius, spacing, transition } from "./theme";
 interface LogPanelProps {
   logs: string[];
   onClear?: () => void;
+  /** P0-3: error count to surface as a badge in the header when collapsed. */
+  errorCount?: number;
 }
 
 type Level = "all" | "info" | "success" | "error" | "warning";
@@ -37,15 +39,16 @@ function colorForLevel(level: Exclude<Level, "all">): string {
 
 const COLLAPSE_KEY = "agentflow:logCollapsed";
 
-export default function LogPanel({ logs, onClear }: LogPanelProps) {
+export default function LogPanel({ logs, onClear, errorCount = 0 }: LogPanelProps) {
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       const stored = localStorage.getItem(COLLAPSE_KEY);
-      // Default to collapsed if no stored preference
-      if (stored === null) return true;
+      // P1-#1: default to EXPANDED on first visit (better discoverability).
+      // Only honour an explicit stored preference once the user has toggled.
+      if (stored === null) return false;
       return stored === "1";
     } catch {
-      return true;
+      return false;
     }
   });
   const [query, setQuery] = useState("");
@@ -166,6 +169,33 @@ export default function LogPanel({ logs, onClear }: LogPanelProps) {
         <span style={{ fontSize: 10, color: colors.text.tertiary }}>
           ({visibleLogs.length}/{logs.length})
         </span>
+        {/* P0-3: error-count badge — only surfaced when the panel is collapsed
+            so users notice problems without expanding the log dock. Uses the
+            internally-tallied error-log count (counts.error) which is the
+            authoritative source; the optional `errorCount` prop overrides it
+            when a caller supplies a different metric. */}
+        {collapsed && (errorCount || counts.error) > 0 && (
+          <span
+            aria-label={`${errorCount || counts.error} 条错误日志`}
+            title={`${errorCount || counts.error} 条错误日志`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minWidth: 18,
+              height: 18,
+              padding: "0 5px",
+              borderRadius: radius.full,
+              background: colors.status.failed,
+              color: "#fff",
+              fontSize: 10,
+              fontWeight: 700,
+              lineHeight: 1,
+            }}
+          >
+            {errorCount || counts.error}
+          </span>
+        )}
         <div style={{ flex: 1 }} />
         {/* E3 — clear logs */}
         {onClear && !collapsed && (

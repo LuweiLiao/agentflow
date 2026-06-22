@@ -144,43 +144,43 @@ if (false) {}
 async function main() {
   const args = process.argv.slice(2);
   if (args.length === 1 && (args[0] === "--version" || args[0] === "-v" || args[0] === "-V")) {
-    console.log(`${"2.7.0"} (Claude Code)`);
+    console.log(`${"5.0.0"} (Claude Code)`);
     return;
   }
-  const { profileCheckpoint } = await import("./chunk-dx6jwg4s.js");
+  const { profileCheckpoint } = await import("./chunk-rj9ttefs.js");
   profileCheckpoint("cli_entry");
   if (false) {}
   if (process.argv[2] === "--claude-in-chrome-mcp") {
     profileCheckpoint("cli_claude_in_chrome_mcp_path");
-    const { runClaudeInChromeMcpServer } = await import("./chunk-7bsp4aag.js");
+    const { runClaudeInChromeMcpServer } = await import("./chunk-m5h8v49n.js");
     await runClaudeInChromeMcpServer();
     return;
   } else if (process.argv[2] === "--chrome-native-host") {
     profileCheckpoint("cli_chrome_native_host_path");
-    const { runChromeNativeHost } = await import("./chunk-syf0yv1n.js");
+    const { runChromeNativeHost } = await import("./chunk-ygn0by9f.js");
     await runChromeNativeHost();
     return;
   } else if (process.argv[2] === "--computer-use-mcp") {
     profileCheckpoint("cli_computer_use_mcp_path");
-    const { runComputerUseMcpServer } = await import("./chunk-vr9bgvdm.js");
+    const { runComputerUseMcpServer } = await import("./chunk-2j3g2hc1.js");
     await runComputerUseMcpServer();
     return;
   }
   if (process.argv[2] === "--acp") {
     profileCheckpoint("cli_acp_path");
-    const { runAcpAgent } = await import("./chunk-10y7qas8.js");
+    const { runAcpAgent } = await import("./chunk-95ag9dnt.js");
     await runAcpAgent();
     return;
   }
   if (args[0] === "weixin") {
     profileCheckpoint("cli_weixin_path");
     const { handleWeixinCli } = await import("./chunk-7rz2wah9.js");
-    const { enableConfigs } = await import("./chunk-j3819msd.js");
-    const { initializeAnalyticsSink } = await import("./chunk-sh4g80km.js");
-    const { shutdownDatadog } = await import("./chunk-ppw569at.js");
-    const { shutdown1PEventLogging } = await import("./chunk-z1zp3ca5.js");
-    const { logForDebugging } = await import("./chunk-4pc4xsr3.js");
-    const { ChannelPermissionRequestNotificationSchema } = await import("./chunk-mw00ahtt.js");
+    const { enableConfigs } = await import("./chunk-yba38hsx.js");
+    const { initializeAnalyticsSink } = await import("./chunk-h59pn285.js");
+    const { shutdownDatadog } = await import("./chunk-creev8wv.js");
+    const { shutdown1PEventLogging } = await import("./chunk-9b9hghsh.js");
+    const { logForDebugging } = await import("./chunk-1c7pvfza.js");
+    const { ChannelPermissionRequestNotificationSchema } = await import("./chunk-4g4g45f9.js");
     await handleWeixinCli(args.slice(1), {
       enableConfigs,
       initializeAnalyticsSink,
@@ -190,26 +190,26 @@ async function main() {
       registerPermissionHandler(server, handler) {
         server.setNotificationHandler(ChannelPermissionRequestNotificationSchema(), async (notification) => handler(notification.params));
       }
-    }, "2.7.0");
+    }, "5.0.0");
     return;
   }
   if (args[0] === "--daemon-worker" || args[0]?.startsWith("--daemon-worker=")) {
     if (false) {}
     const kind = args[0] === "--daemon-worker" ? args[1] : args[0].split("=")[1];
-    const { runDaemonWorker } = await import("./chunk-wg4fxf7p.js");
+    const { runDaemonWorker } = await import("./chunk-kttq6taf.js");
     await runDaemonWorker(kind);
     return;
   }
   if (args[0] === "remote-control" || args[0] === "rc" || args[0] === "remote" || args[0] === "sync" || args[0] === "bridge") {
     profileCheckpoint("cli_bridge_path");
-    const { enableConfigs } = await import("./chunk-j3819msd.js");
+    const { enableConfigs } = await import("./chunk-yba38hsx.js");
     enableConfigs();
-    const { getBridgeDisabledReason, checkBridgeMinVersion } = await import("./chunk-88fffmc4.js");
-    const { BRIDGE_LOGIN_ERROR } = await import("./chunk-13qesvnw.js");
-    const { bridgeMain } = await import("./chunk-q9wxhvn1.js");
+    const { getBridgeDisabledReason, checkBridgeMinVersion } = await import("./chunk-xkjz24rh.js");
+    const { BRIDGE_LOGIN_ERROR } = await import("./chunk-r2tvdagb.js");
+    const { bridgeMain } = await import("./chunk-1qxy9r1w.js");
     const { exitWithError } = await import("./chunk-3vfxjn7g.js");
-    const { getClaudeAIOAuthTokens } = await import("./chunk-9vycs6kn.js");
-    const { getBridgeAccessToken } = await import("./chunk-5xq5xtqh.js");
+    const { getClaudeAIOAuthTokens } = await import("./chunk-01kn1vgp.js");
+    const { getBridgeAccessToken } = await import("./chunk-vjng07a4.js");
     if (!getClaudeAIOAuthTokens()?.accessToken && !getBridgeAccessToken()) {
       exitWithError(BRIDGE_LOGIN_ERROR);
     }
@@ -221,7 +221,7 @@ async function main() {
     if (versionError) {
       exitWithError(versionError);
     }
-    const { waitForPolicyLimitsToLoad, isPolicyAllowed } = await import("./chunk-bskjrxxy.js");
+    const { waitForPolicyLimitsToLoad, isPolicyAllowed } = await import("./chunk-cmqvk9dr.js");
     await waitForPolicyLimitsToLoad();
     if (!isPolicyAllowed("allow_remote_control")) {
       exitWithError("Error: Remote Control is disabled by your organization's policy.");
@@ -231,19 +231,19 @@ async function main() {
   }
   if (args[0] === "daemon") {
     profileCheckpoint("cli_daemon_path");
-    const { enableConfigs } = await import("./chunk-j3819msd.js");
+    const { enableConfigs } = await import("./chunk-yba38hsx.js");
     enableConfigs();
-    const { setShellIfWindows } = await import("./chunk-mhxen7e7.js");
+    const { setShellIfWindows } = await import("./chunk-fgf6ekwm.js");
     setShellIfWindows();
-    const { initSinks } = await import("./chunk-grj29450.js");
+    const { initSinks } = await import("./chunk-0a829ycf.js");
     initSinks();
-    const { daemonMain } = await import("./chunk-a6j7vg59.js");
+    const { daemonMain } = await import("./chunk-0xdea6y3.js");
     await daemonMain(args.slice(1));
     return;
   }
   if (args[0] === "autonomy") {
     profileCheckpoint("cli_autonomy_path");
-    const { getAutonomyCommandText } = await import("./chunk-jvm8084e.js");
+    const { getAutonomyCommandText } = await import("./chunk-rqzxjqgk.js");
     const text = await getAutonomyCommandText(args.slice(1).join(" "));
     await new Promise((resolve, reject) => {
       process.stdout.write(`${text}
@@ -259,11 +259,11 @@ async function main() {
   }
   if (args.includes("--bg") || args.includes("--background")) {
     profileCheckpoint("cli_daemon_path");
-    const { enableConfigs } = await import("./chunk-j3819msd.js");
+    const { enableConfigs } = await import("./chunk-yba38hsx.js");
     enableConfigs();
-    const { setShellIfWindows } = await import("./chunk-mhxen7e7.js");
+    const { setShellIfWindows } = await import("./chunk-fgf6ekwm.js");
     setShellIfWindows();
-    const bg = await import("./chunk-p3m1y6rx.js");
+    const bg = await import("./chunk-fpghc8cf.js");
     await bg.handleBgStart(args.filter((a) => a !== "--bg" && a !== "--background"));
     return;
   }
@@ -271,26 +271,26 @@ async function main() {
     const mapped = args[0] === "ps" ? "status" : args[0];
     console.error(`[deprecated] Use: claude daemon ${mapped}${args[1] ? " " + args[1] : ""}`);
     profileCheckpoint("cli_daemon_path");
-    const { enableConfigs } = await import("./chunk-j3819msd.js");
+    const { enableConfigs } = await import("./chunk-yba38hsx.js");
     enableConfigs();
-    const { setShellIfWindows } = await import("./chunk-mhxen7e7.js");
+    const { setShellIfWindows } = await import("./chunk-fgf6ekwm.js");
     setShellIfWindows();
-    const { initSinks } = await import("./chunk-grj29450.js");
+    const { initSinks } = await import("./chunk-0a829ycf.js");
     initSinks();
-    const { daemonMain } = await import("./chunk-a6j7vg59.js");
+    const { daemonMain } = await import("./chunk-0xdea6y3.js");
     await daemonMain([args[0] === "ps" ? "status" : args[0], ...args.slice(1)]);
     return;
   }
   if (args[0] === "job") {
     profileCheckpoint("cli_templates_path");
-    const { templatesMain } = await import("./chunk-w0tmm8s0.js");
+    const { templatesMain } = await import("./chunk-ht5meh38.js");
     await templatesMain(args.slice(1));
     process.exit(0);
   }
   if (args[0] === "new" || args[0] === "list" || args[0] === "reply") {
     console.error(`[deprecated] Use: claude job ${args[0]} ${args.slice(1).join(" ")}`.trim());
     profileCheckpoint("cli_templates_path");
-    const { templatesMain } = await import("./chunk-w0tmm8s0.js");
+    const { templatesMain } = await import("./chunk-ht5meh38.js");
     await templatesMain(args);
     process.exit(0);
   }
@@ -299,11 +299,11 @@ async function main() {
   const hasTmuxFlag = args.includes("--tmux") || args.includes("--tmux=classic");
   if (hasTmuxFlag && (args.includes("-w") || args.includes("--worktree") || args.some((a) => a.startsWith("--worktree=")))) {
     profileCheckpoint("cli_tmux_worktree_fast_path");
-    const { enableConfigs } = await import("./chunk-j3819msd.js");
+    const { enableConfigs } = await import("./chunk-yba38hsx.js");
     enableConfigs();
     const { isWorktreeModeEnabled } = await import("./chunk-h12a4f4x.js");
     if (isWorktreeModeEnabled()) {
-      const { execIntoTmuxWorktree } = await import("./chunk-1wc7rtjx.js");
+      const { execIntoTmuxWorktree } = await import("./chunk-cj0jk1z1.js");
       const result = await execIntoTmuxWorktree(args);
       if (result.handled) {
         return;
@@ -323,12 +323,12 @@ async function main() {
   const { startCapturingEarlyInput } = await import("./chunk-4tjdwtyy.js");
   startCapturingEarlyInput();
   profileCheckpoint("cli_before_main_import");
-  const { main: cliMain } = await import("./chunk-e9az5f8k.js");
+  const { main: cliMain } = await import("./chunk-zqhzmecb.js");
   profileCheckpoint("cli_after_main_import");
   await cliMain();
   profileCheckpoint("cli_after_main_complete");
 }
 await main();
 
-//# debugId=7642A208AD686B3764756E2164756E21
+//# debugId=F9A61520E3A68FF364756E2164756E21
 //# sourceMappingURL=cli.js.map

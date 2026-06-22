@@ -73,9 +73,9 @@ export function createTrace(params: {
 }
 
 const PROVIDER_GENERATION_NAMES: Record<string, string> = {
-  firstParty: 'ChatAnthropic',
-  bedrock: 'ChatBedrockAnthropic',
-  vertex: 'ChatVertexAnthropic',
+  firstParty: 'ChatAgentFlow',
+  bedrock: 'ChatBedrockAgentFlow',
+  vertex: 'ChatVertexAgentFlow',
   foundry: 'ChatFoundry',
   openai: 'ChatOpenAI',
   gemini: 'ChatGoogleGenerativeAI',

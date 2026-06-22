@@ -120,7 +120,7 @@ const USAGE_TEXT = [
   '  status           Show current break-cache status and stats',
   '',
   'How it works:',
-  '  The Anthropic prompt cache keys on the system-prompt prefix hash.',
+  '  The AgentFlow prompt cache keys on the system-prompt prefix hash.',
   '  A unique nonce invalidates the hash, forcing a fresh compute.',
   '  This is useful when you want to ensure a clean context window.',
 ].join('\n')
@@ -229,7 +229,7 @@ export async function callBreakCache(
         '',
         `Total breaks this session: ${stats.totalBreaks}`,
         '',
-        '_How it works: Anthropic prompt cache keys on the system-prompt prefix hash._',
+        '_How it works: AgentFlow prompt cache keys on the system-prompt prefix hash._',
         '_A unique nonce invalidates the hash, forcing a fresh compute._',
       ].join('\n'),
     }

@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/tasks/tasks.tsx"],
+  "sourcesContent": [
+    "import * as React from 'react';\nimport type { LocalJSXCommandContext } from '../../commands.js';\nimport { BackgroundTasksDialog } from '../../components/tasks/BackgroundTasksDialog.js';\nimport type { LocalJSXCommandOnDone } from '../../types/command.js';\n\nexport async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXCommandContext): Promise<React.ReactNode> {\n  return <BackgroundTasksDialog toolUseContext={context} onDone={onDone} />;\n}\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;AAKA,eAAsB,IAAI,CAAC,QAA+B,SAA2D;AAAA,EACnH,uBAAO,gBAAC,uBAAD;AAAA,IAAuB,gBAAgB;AAAA,IAAS;AAAA,GAAgB;AAAA;AAAA;AAAA;AAAA,EAJzE;AAAA;AAAA;",
+  "debugId": "4E307CA3DBFCFA4564756E2164756E21",
+  "names": []
+}

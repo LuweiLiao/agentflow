@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/bridge/bridgeEnabled.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: bridgeEnabled stub — bridge removed. */\nexport function isBridgeEnabled(): boolean { return false }\nexport function getBridgeDisabledReason(): string | null { return 'Bridge removed in AgentFlow-Code' }\nexport function checkBridgeMinVersion(): boolean { return false }\nexport function getBridgeAccessToken(): string | null { return null }\nexport const BRIDGE_LOGIN_ERROR = 'BRIDGE_DISABLED'\n\n/** Auto-generated stub export. */\nexport function isEnvLessBridgeEnabled(..._args: any[]): any { return undefined }\n"
+  ],
+  "mappings": ";;;;;;AACO,SAAS,eAAe,GAAY;AAAA,EAAE,OAAO;AAAA;AAC7C,SAAS,uBAAuB,GAAkB;AAAA,EAAE,OAAO;AAAA;AAC3D,SAAS,qBAAqB,GAAY;AAAA,EAAE,OAAO;AAAA;AACnD,SAAS,oBAAoB,GAAkB;AAAA,EAAE,OAAO;AAAA;AAIxD,SAAS,sBAAsB,IAAI,OAAmB;AAAA,EAAE;AAAA;AAAA,IAHlD,qBAAqB;AAAA;",
+  "debugId": "B1D6A6CE6E53002A64756E2164756E21",
+  "names": []
+}

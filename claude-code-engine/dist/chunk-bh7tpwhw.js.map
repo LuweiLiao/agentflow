@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/services/oauth/getOauthProfile.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: getOauthProfile stub. */\nexport const __stub = true\n\n/** Auto-generated stub export. */\nexport function getOauthProfileFromOauthToken(..._args: any[]): any { return undefined }\n\n/** Auto-generated stub export. */\nexport function getOauthProfileFromApiKey(..._args: any[]): any { return undefined }\n"
+  ],
+  "mappings": ";;;;;;AAIO,SAAS,6BAA6B,IAAI,OAAmB;AAAA,EAAE;AAAA;AAG/D,SAAS,yBAAyB,IAAI,OAAmB;AAAA,EAAE;AAAA;AAAA;",
+  "debugId": "3550AC3A7DBE62EC64756E2164756E21",
+  "names": []
+}

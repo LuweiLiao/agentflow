@@ -11,7 +11,7 @@ export const anthropicAdapter: ProviderUsageAdapter = {
    *   anthropic-ratelimit-unified-7d-utilization
    *   anthropic-ratelimit-unified-7d-reset
    *
-   * Only present for OAuth (Claude AI Pro/Max) subscribers. For raw API keys
+   * Only present for OAuth (AgentFlow Pro/Max) subscribers. For raw API keys
    * these headers are absent and this adapter returns [].
    */
   parseHeaders(headers): ProviderUsageBucket[] {

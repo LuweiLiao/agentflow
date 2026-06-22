@@ -350,7 +350,7 @@ function formatReportMarkdown(
     )
 
   return [
-    '# Claude Code Performance Snapshot',
+    '# AgentFlow-Code Performance Snapshot',
     '',
     `- timestamp: ${new Date().toISOString()}`,
     `- session:   ${sessionId}`,
@@ -407,7 +407,7 @@ function formatReportMarkdown(
     '- ___',
     '',
     "_(File this report in your repo's issue tracker. No network call was made._",
-    '_The fork does not transmit perf reports to Anthropic.)_',
+    '_The fork does not transmit perf reports to AgentFlow.)_',
   ]
     .filter(line => line !== '')
     .join('\n')

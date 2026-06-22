@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/services/remoteManagedSettings/index.ts"],
+  "sourcesContent": [
+    "/**\n * AgentFlow-Code — Remote managed settings stub.\n * Anthropic MDM/remote settings removed. No-op.\n */\nexport async function waitForRemoteManagedSettingsToLoad(): Promise<void> {}\nexport function getRemoteManagedSettings(): Record<string, unknown> | null { return null }\n\n/** Auto-generated stub export. */\nexport function clearRemoteManagedSettingsCache(..._args: any[]): any { return undefined }\n\n/** Auto-generated stub export. */\nexport function initializeRemoteManagedSettingsLoadingPromise(..._args: any[]): any { return undefined }\n\n/** Auto-generated stub export. */\nexport function isEligibleForRemoteManagedSettings(..._args: any[]): any { return undefined }\n\n/** Auto-generated stub export. */\nexport function loadRemoteManagedSettings(..._args: any[]): any { return undefined }\n\n/** Auto-generated stub export. */\nexport function refreshRemoteManagedSettings(..._args: any[]): any { return undefined }\n"
+  ],
+  "mappings": ";;;;;;AAIA,eAAsB,kCAAkC,GAAkB;AAInE,SAAS,+BAA+B,IAAI,OAAmB;AAAA,EAAE;AAAA;AAGjE,SAAS,6CAA6C,IAAI,OAAmB;AAAA,EAAE;AAAA;AAG/E,SAAS,kCAAkC,IAAI,OAAmB;AAAA,EAAE;AAAA;AAGpE,SAAS,yBAAyB,IAAI,OAAmB;AAAA,EAAE;AAAA;AAG3D,SAAS,4BAA4B,IAAI,OAAmB;AAAA,EAAE;AAAA;AAAA;",
+  "debugId": "553C6706416B55B464756E2164756E21",
+  "names": []
+}

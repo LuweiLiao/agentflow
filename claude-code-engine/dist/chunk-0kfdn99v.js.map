@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/login/login.tsx"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: Login component stub - OAuth removed. */\nimport React from 'react'\nexport function Login(): React.ReactElement | null { return null }\nexport default Login\n"
+  ],
+  "mappings": ";;;;;;AAEO,SAAS,KAAK,GAA8B;AAAA,EAAE,OAAO;AAAA;AAAA;",
+  "debugId": "470F7ED392BE4F0664756E2164756E21",
+  "names": []
+}

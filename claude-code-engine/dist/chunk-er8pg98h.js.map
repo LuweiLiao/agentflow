@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/bridge/envLessBridgeConfig.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: envLessBridgeConfig stub. */\nexport const __stub = true\n\n/** Auto-generated stub export. */\nexport function checkEnvLessBridgeMinVersion(..._args: any[]): any { return undefined }\n"
+  ],
+  "mappings": ";;;;;;AAIO,SAAS,4BAA4B,IAAI,OAAmB;AAAA,EAAE;AAAA;AAAA,IAHxD,SAAS;AAAA;",
+  "debugId": "5274CD876A564B3D64756E2164756E21",
+  "names": []
+}

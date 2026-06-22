@@ -61,7 +61,7 @@ export const call: LocalCommandCall = async args => {
     const key = getShortcutDisplay('voice:pushToTalk', 'Chat', 'Space')
     return {
       type: 'text' as const,
-      value: `Voice mode switched to Anthropic STT. Hold ${key} to record.`,
+      value: `Voice mode switched to AgentFlow STT. Hold ${key} to record.`,
     }
   }
 
@@ -161,7 +161,7 @@ export const call: LocalCommandCall = async args => {
   logEvent('tengu_voice_toggled', { enabled: true })
   const key = getShortcutDisplay('voice:pushToTalk', 'Chat', 'Space')
   let langNote = ''
-  const providerLabel = provider === 'doubao' ? 'Doubao ASR' : 'Anthropic'
+  const providerLabel = provider === 'doubao' ? 'Doubao ASR' : 'AgentFlow'
   // Doubao backend handles all languages natively — skip language hints
   if (provider !== 'doubao') {
     const stt = normalizeLanguageForSTT(currentSettings.language)

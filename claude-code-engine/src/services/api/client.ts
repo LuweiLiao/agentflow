@@ -73,11 +73,11 @@ import {
 function createStderrLogger(): ClientOptions['logger'] {
   return {
     error: (msg, ...args) =>
-      console.error('[Anthropic SDK ERROR]', msg, ...args),
-    warn: (msg, ...args) => console.error('[Anthropic SDK WARN]', msg, ...args),
-    info: (msg, ...args) => console.error('[Anthropic SDK INFO]', msg, ...args),
+      console.error('[AgentFlow SDK ERROR]', msg, ...args),
+    warn: (msg, ...args) => console.error('[AgentFlow SDK WARN]', msg, ...args),
+    info: (msg, ...args) => console.error('[AgentFlow SDK INFO]', msg, ...args),
     debug: (msg, ...args) =>
-      console.error('[Anthropic SDK DEBUG]', msg, ...args),
+      console.error('[AgentFlow SDK DEBUG]', msg, ...args),
   }
 }
 

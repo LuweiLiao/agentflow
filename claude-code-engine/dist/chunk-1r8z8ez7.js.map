@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/services/analytics/firstPartyEventLogger.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: firstPartyEventLogger stub — Anthropic telemetry removed. */\nexport const __stub = true\n\n/** Auto-generated stub export. */\nexport function shutdown1PEventLogging(..._args: any[]): any { return undefined }\n\n/** Auto-generated stub export. */\nexport function logEventTo1P(..._args: any[]): any { return undefined }\n"
+  ],
+  "mappings": ";;;;;;AAIO,SAAS,sBAAsB,IAAI,OAAmB;AAAA,EAAE;AAAA;AAGxD,SAAS,YAAY,IAAI,OAAmB;AAAA,EAAE;AAAA;AAAA,IANxC,SAAS;AAAA;",
+  "debugId": "F9E55EDCA908020564756E2164756E21",
+  "names": []
+}

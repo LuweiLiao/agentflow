@@ -1,46 +1,18 @@
-/**
- * Shared bridge auth/URL resolution. Consolidates the ant-only
- * CLAUDE_BRIDGE_* dev overrides that were previously copy-pasted across
- * a dozen files — inboundAttachments, BriefTool/upload, bridgeMain,
- * initReplBridge, remoteBridgeCore, daemon workers, /rename,
- * /remote-control.
- *
- * Two layers: *Override() returns the ant-only env var (or undefined);
- * the non-Override versions fall through to the real OAuth store/config.
- * Callers that compose with a different auth source (e.g. daemon workers
- * using IPC auth) use the Override getters directly.
- */
+/** AgentFlow-Code: bridgeConfig stub — bridge removed. */
+export function isBridgeEnabled(): boolean { return false }
+export function getBridgeDisabledReason(): string | null { return 'Bridge removed in AgentFlow-Code' }
+export function checkBridgeMinVersion(): boolean { return false }
+export function getBridgeAccessToken(): string | null { return null }
+export const BRIDGE_LOGIN_ERROR = 'BRIDGE_DISABLED'
 
-import { getOauthConfig } from '../constants/oauth.js'
-import { getClaudeAIOAuthTokens } from '../utils/auth.js'
+/** Auto-generated stub export. */
+export function getBridgeBaseUrlOverride(..._args: any[]): any { return undefined }
 
-/** Dev override: CLAUDE_BRIDGE_OAUTH_TOKEN, else undefined. */
-export function getBridgeTokenOverride(): string | undefined {
-  return process.env.CLAUDE_BRIDGE_OAUTH_TOKEN || undefined
-}
+/** Auto-generated stub export. */
+export function getBridgeTokenOverride(..._args: any[]): any { return undefined }
 
-/** Dev override: CLAUDE_BRIDGE_BASE_URL, else undefined. */
-export function getBridgeBaseUrlOverride(): string | undefined {
-  return process.env.CLAUDE_BRIDGE_BASE_URL || undefined
-}
+/** Auto-generated stub export. */
+export function getBridgeBaseUrl(..._args: any[]): any { return undefined }
 
-/**
- * Access token for bridge API calls: dev override first, then the OAuth
- * keychain. Undefined means "not logged in".
- */
-export function getBridgeAccessToken(): string | undefined {
-  return getBridgeTokenOverride() ?? getClaudeAIOAuthTokens()?.accessToken
-}
-
-/**
- * Base URL for bridge API calls: dev override first, then the production
- * OAuth config. Always returns a URL.
- */
-export function getBridgeBaseUrl(): string {
-  return getBridgeBaseUrlOverride() ?? getOauthConfig().BASE_API_URL
-}
-
-/** True when the user has explicitly configured a custom bridge server. */
-export function isSelfHostedBridge(): boolean {
-  return !!getBridgeBaseUrlOverride()
-}
+/** Auto-generated stub export. */
+export function isSelfHostedBridge(..._args: any[]): any { return undefined }

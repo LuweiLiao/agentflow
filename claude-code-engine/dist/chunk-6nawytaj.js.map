@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/bridge/createSession.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: createSession stub. */\nexport const __stub = true\n"
+  ],
+  "mappings": ";;;;;;IACa,SAAS;AAAA;",
+  "debugId": "DE94040008B9890164756E2164756E21",
+  "names": []
+}

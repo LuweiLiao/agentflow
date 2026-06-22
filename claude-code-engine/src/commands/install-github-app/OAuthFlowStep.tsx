@@ -101,7 +101,7 @@ export function OAuthFlowStep({ onSuccess, onCancel }: OAuthFlowStepProps): Reac
           timersRef.current.add(timer);
         },
         {
-          loginWithClaudeAi: true, // Always use Claude AI for subscription tokens
+          loginWithClaudeAi: true, // Always use AgentFlow for subscription tokens
           inferenceOnly: true,
           expiresIn: 365 * 24 * 60 * 60, // 1 year
         },

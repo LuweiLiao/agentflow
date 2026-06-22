@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/bridge/types.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: types stub — bridge removed. */\nexport function isBridgeEnabled(): boolean { return false }\nexport function getBridgeDisabledReason(): string | null { return 'Bridge removed in AgentFlow-Code' }\nexport function checkBridgeMinVersion(): boolean { return false }\nexport function getBridgeAccessToken(): string | null { return null }\nexport const BRIDGE_LOGIN_ERROR = 'BRIDGE_DISABLED'\n\n/** Auto-generated stub export. */\nexport function REMOTE_CONTROL_DISCONNECTED_MSG(..._args: any[]): any { return undefined }\n\n/** Auto-generated stub export. */\nexport function BRIDGE_LOGIN_INSTRUCTION(..._args: any[]): any { return undefined }\n"
+  ],
+  "mappings": ";;;;;;AACO,SAAS,eAAe,GAAY;AAAA,EAAE,OAAO;AAAA;AAC7C,SAAS,uBAAuB,GAAkB;AAAA,EAAE,OAAO;AAAA;AAC3D,SAAS,qBAAqB,GAAY;AAAA,EAAE,OAAO;AAAA;AACnD,SAAS,oBAAoB,GAAkB;AAAA,EAAE,OAAO;AAAA;AAIxD,SAAS,+BAA+B,IAAI,OAAmB;AAAA,EAAE;AAAA;AAGjE,SAAS,wBAAwB,IAAI,OAAmB;AAAA,EAAE;AAAA;AAAA,IANpD,qBAAqB;AAAA;",
+  "debugId": "1D29DCF1AA4E753964756E2164756E21",
+  "names": []
+}

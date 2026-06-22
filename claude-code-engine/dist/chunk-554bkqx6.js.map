@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/bridge/trustedDevice.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: trustedDevice stub — bridge removed. */\nexport function isBridgeEnabled(): boolean { return false }\nexport function getBridgeDisabledReason(): string | null { return 'Bridge removed in AgentFlow-Code' }\nexport function checkBridgeMinVersion(): boolean { return false }\nexport function getBridgeAccessToken(): string | null { return null }\nexport const BRIDGE_LOGIN_ERROR = 'BRIDGE_DISABLED'\n\n/** Auto-generated stub export. */\nexport function clearTrustedDeviceTokenCache(..._args: any[]): any { return undefined }\n"
+  ],
+  "mappings": ";;;;;;AACO,SAAS,eAAe,GAAY;AAAA,EAAE,OAAO;AAAA;AAC7C,SAAS,uBAAuB,GAAkB;AAAA,EAAE,OAAO;AAAA;AAC3D,SAAS,qBAAqB,GAAY;AAAA,EAAE,OAAO;AAAA;AACnD,SAAS,oBAAoB,GAAkB;AAAA,EAAE,OAAO;AAAA;AAIxD,SAAS,4BAA4B,IAAI,OAAmB;AAAA,EAAE;AAAA;AAAA,IAHxD,qBAAqB;AAAA;",
+  "debugId": "03FEE65CBAD94CA764756E2164756E21",
+  "names": []
+}

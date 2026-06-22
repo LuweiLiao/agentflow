@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/daemon/main.ts"],
+  "sourcesContent": [
+    "/** AgentFlow-Code: main stub. */\nexport const __stub = true\n"
+  ],
+  "mappings": ";;;;;;IACa,SAAS;AAAA;",
+  "debugId": "AF764067BC1D02FC64756E2164756E21",
+  "names": []
+}
