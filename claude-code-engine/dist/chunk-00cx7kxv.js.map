@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/server/lockfile.ts"],
+  "sourcesContent": [
+    "// Auto-generated stub — replace with real implementation\n\nexport interface ServerLockInfo {\n  pid: number\n  port: number\n  host: string\n  httpUrl: string\n  startedAt: number\n}\n\nexport const writeServerLock: (info: ServerLockInfo) => Promise<void> =\n  async () => {}\nexport const removeServerLock: () => Promise<void> = async () => {}\nexport const probeRunningServer: () => Promise<ServerLockInfo | null> =\n  async () => null\n"
+  ],
+  "mappings": ";;;;AAUO,IAAM,kBACX,YAAY;AACP,IAAM,mBAAwC,YAAY;AAC1D,IAAM,qBACX,YAAY;",
+  "debugId": "2614A0CEE5FE0D1064756E2164756E21",
+  "names": []
+}

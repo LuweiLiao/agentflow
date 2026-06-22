@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/server/server.ts"],
+  "sourcesContent": [
+    "// Auto-generated stub — replace with real implementation\nexport {}\nexport const startServer: (...args: unknown[]) => {\n  port?: number\n  stop: (closeActiveConnections: boolean) => void\n} = () => ({ stop() {} })\n"
+  ],
+  "mappings": ";;;;AAEO,IAAM,cAGT,OAAO,EAAE,IAAI,GAAG,GAAG;",
+  "debugId": "D7B8D853B7534F6164756E2164756E21",
+  "names": []
+}

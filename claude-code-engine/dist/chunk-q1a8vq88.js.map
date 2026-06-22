@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/server/sessionManager.ts"],
+  "sourcesContent": [
+    "// Auto-generated stub — replace with real implementation\nexport {}\nexport const SessionManager: new (\n  ...args: unknown[]\n) => { destroyAll(): Promise<void>; [key: string]: unknown } = class {\n  async destroyAll() {}\n} as never\n"
+  ],
+  "mappings": ";;;;AAEO,IAAM,iBAEkD,MAAM;AAAA,OAC7D,WAAU,GAAG;AACrB;",
+  "debugId": "08E816D56D882DEE64756E2164756E21",
+  "names": []
+}

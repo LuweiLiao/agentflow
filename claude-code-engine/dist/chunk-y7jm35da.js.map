@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/poor/poor.ts"],
+  "sourcesContent": [
+    "import type { LocalCommandCall } from '../../types/command.js'\nimport { isPoorModeActive, setPoorMode } from './poorMode.js'\n\nexport const call: LocalCommandCall = async (_, context) => {\n  const currentlyActive = isPoorModeActive()\n  const newState = !currentlyActive\n  setPoorMode(newState)\n\n  if (newState) {\n    // Disable prompt suggestion in AppState\n    context.setAppState(prev => ({\n      ...prev,\n      promptSuggestionEnabled: false,\n    }))\n  } else {\n    // Re-enable prompt suggestion\n    context.setAppState(prev => ({\n      ...prev,\n      promptSuggestionEnabled: true,\n    }))\n  }\n\n  const status = newState ? 'ON' : 'OFF'\n  const details = newState\n    ? 'extract_memories and prompt_suggestion are disabled'\n    : 'extract_memories and prompt_suggestion are restored'\n  return { type: 'text', value: `Poor mode ${status} — ${details}` }\n}\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;IAGa,OAAyB,OAAO,GAAG,YAAY;AAAA,EAC1D,MAAM,kBAAkB,iBAAiB;AAAA,EACzC,MAAM,WAAW,CAAC;AAAA,EAClB,YAAY,QAAQ;AAAA,EAEpB,IAAI,UAAU;AAAA,IAEZ,QAAQ,YAAY,WAAS;AAAA,SACxB;AAAA,MACH,yBAAyB;AAAA,IAC3B,EAAE;AAAA,EACJ,EAAO;AAAA,IAEL,QAAQ,YAAY,WAAS;AAAA,SACxB;AAAA,MACH,yBAAyB;AAAA,IAC3B,EAAE;AAAA;AAAA,EAGJ,MAAM,SAAS,WAAW,OAAO;AAAA,EACjC,MAAM,UAAU,WACZ,wDACA;AAAA,EACJ,OAAO,EAAE,MAAM,QAAQ,OAAO,aAAa,iBAAW,UAAU;AAAA;AAAA;AAAA,EAzBlE;AAAA;",
+  "debugId": "5D2C70ABABA015C064756E2164756E21",
+  "names": []
+}

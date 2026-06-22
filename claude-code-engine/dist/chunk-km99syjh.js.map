@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/poor/poorMode.ts"],
+  "sourcesContent": [
+    "/**\n * Poor mode state — when active, skips extract_memories and prompt_suggestion\n * to reduce token consumption.\n *\n * Persisted to settings.json so it survives session restarts.\n */\n\nimport {\n  getInitialSettings,\n  updateSettingsForSource,\n} from '../../utils/settings/settings.js'\n\nlet poorModeActive: boolean | null = null\n\nexport function isPoorModeActive(): boolean {\n  if (poorModeActive === null) {\n    poorModeActive = getInitialSettings().poorMode === true\n  }\n  return poorModeActive\n}\n\nexport function setPoorMode(active: boolean): void {\n  poorModeActive = active\n  updateSettingsForSource('userSettings', {\n    poorMode: active || undefined,\n  })\n}\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;;AAcO,SAAS,gBAAgB,GAAY;AAAA,EAC1C,IAAI,mBAAmB,MAAM;AAAA,IAC3B,iBAAiB,mBAAmB,EAAE,aAAa;AAAA,EACrD;AAAA,EACA,OAAO;AAAA;AAGF,SAAS,WAAW,CAAC,QAAuB;AAAA,EACjD,iBAAiB;AAAA,EACjB,wBAAwB,gBAAgB;AAAA,IACtC,UAAU,UAAU;AAAA,EACtB,CAAC;AAAA;AAAA,IAbC,iBAAiC;AAAA;AAAA,EALrC;AAAA;",
+  "debugId": "916E0A747032780564756E2164756E21",
+  "names": []
+}

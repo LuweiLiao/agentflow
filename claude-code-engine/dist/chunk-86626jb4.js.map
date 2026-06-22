@@ -1,0 +1,13 @@
+{
+  "version": 3,
+  "sources": ["../node_modules/.bun/@opentelemetry+exporter-logs-otlp-proto@0.215.0+e40b0dfdd726a224/node_modules/@opentelemetry/exporter-logs-otlp-proto/build/esm/platform/node/OTLPLogExporter.js", "../node_modules/.bun/@opentelemetry+exporter-logs-otlp-proto@0.215.0+e40b0dfdd726a224/node_modules/@opentelemetry/exporter-logs-otlp-proto/build/esm/platform/node/index.js", "../node_modules/.bun/@opentelemetry+exporter-logs-otlp-proto@0.215.0+e40b0dfdd726a224/node_modules/@opentelemetry/exporter-logs-otlp-proto/build/esm/platform/index.js", "../node_modules/.bun/@opentelemetry+exporter-logs-otlp-proto@0.215.0+e40b0dfdd726a224/node_modules/@opentelemetry/exporter-logs-otlp-proto/build/esm/index.js"],
+  "sourcesContent": [
+    "/*\n * Copyright The OpenTelemetry Authors\n * SPDX-License-Identifier: Apache-2.0\n */\nimport { OTLPExporterBase } from '@opentelemetry/otlp-exporter-base';\nimport { ProtobufLogsSerializer } from '@opentelemetry/otlp-transformer';\nimport { convertLegacyHttpOptions, createOtlpHttpExportDelegate, } from '@opentelemetry/otlp-exporter-base/node-http';\n/**\n * OTLP Log Protobuf Exporter for Node.js\n */\nexport class OTLPLogExporter extends OTLPExporterBase {\n    constructor(config = {}) {\n        super(createOtlpHttpExportDelegate(convertLegacyHttpOptions(config, 'LOGS', 'v1/logs', {\n            'Content-Type': 'application/x-protobuf',\n        }), ProtobufLogsSerializer));\n    }\n}\n//# sourceMappingURL=OTLPLogExporter.js.map",
+    "/*\n * Copyright The OpenTelemetry Authors\n * SPDX-License-Identifier: Apache-2.0\n */\nexport { OTLPLogExporter } from './OTLPLogExporter';\n//# sourceMappingURL=index.js.map",
+    "/*\n * Copyright The OpenTelemetry Authors\n * SPDX-License-Identifier: Apache-2.0\n */\nexport { OTLPLogExporter } from './node';\n//# sourceMappingURL=index.js.map",
+    "/*\n * Copyright The OpenTelemetry Authors\n * SPDX-License-Identifier: Apache-2.0\n */\nexport { OTLPLogExporter } from './platform';\n//# sourceMappingURL=index.js.map"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;IAIA,2BACA,yBACA,kBAIa;AAAA;AAAA,EANb;AAAA,EACA;AAAA,EACA;AAAA,EAIa,kBAAN,MAAM,wBAAwB,2CAAiB;AAAA,IAClD,WAAW,CAAC,SAAS,CAAC,GAAG;AAAA,MACrB,MAAM,8CAA6B,0CAAyB,QAAQ,QAAQ,WAAW;AAAA,QACnF,gBAAgB;AAAA,MACpB,CAAC,GAAG,8CAAsB,CAAC;AAAA;AAAA,EAEnC;AAAA;;;;ECZA;AAAA;;;;ECAA;AAAA;;;;ECAA;AAAA;",
+  "debugId": "DB1DB89EF65381E864756E2164756E21",
+  "names": []
+}

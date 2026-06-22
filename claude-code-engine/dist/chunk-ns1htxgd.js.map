@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../node_modules/.bun/@anthropic-ai+sdk@0.81.0+3c5d820c62823f0b/node_modules/@anthropic-ai/sdk/index.mjs"],
+  "sourcesContent": [
+    "// File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.\nexport { Anthropic as default } from \"./client.mjs\";\nexport { toFile } from \"./core/uploads.mjs\";\nexport { APIPromise } from \"./core/api-promise.mjs\";\nexport { BaseAnthropic, Anthropic, HUMAN_PROMPT, AI_PROMPT } from \"./client.mjs\";\nexport { PagePromise } from \"./core/pagination.mjs\";\nexport { AnthropicError, APIError, APIConnectionError, APIConnectionTimeoutError, APIUserAbortError, NotFoundError, ConflictError, RateLimitError, BadRequestError, AuthenticationError, InternalServerError, PermissionDeniedError, UnprocessableEntityError, } from \"./core/error.mjs\";\n//# sourceMappingURL=index.mjs.map"
+  ],
+  "mappings": ";;;;;;;;;;;;;;EACA;AAAA,EACA;AAAA,EACA;AAAA,EACA;AAAA,EACA;AAAA,EACA;AAAA;",
+  "debugId": "1A9E15B04CD303E564756E2164756E21",
+  "names": []
+}

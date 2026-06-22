@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/server/parseConnectUrl.ts"],
+  "sourcesContent": [
+    "// Auto-generated stub — replace with real implementation\nexport {}\nexport const parseConnectUrl: (url: string) => {\n  serverUrl: string\n  authToken: string\n  [key: string]: unknown\n} = () => ({ serverUrl: '', authToken: '' })\n"
+  ],
+  "mappings": ";;;;AAEO,IAAM,kBAIT,OAAO,EAAE,WAAW,IAAI,WAAW,GAAG;",
+  "debugId": "2D9531086A67E38C64756E2164756E21",
+  "names": []
+}

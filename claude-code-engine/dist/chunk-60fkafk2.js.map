@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../packages/builtin-tools/src/tools/TungstenTool/TungstenTool.js"],
+  "sourcesContent": [
+    "export const TungstenTool = {\n  name: 'TungstenTool',\n  isEnabled: () => false,\n}\n\nexport const clearSessionsWithTungstenUsage = () => {}\nexport const resetInitializationState = () => {}\n"
+  ],
+  "mappings": ";;;;;;IAAa,cAKA,iCAAiC,MAAM,IACvC,2BAA2B,MAAM;AAAA;AAAA,EANjC,eAAe;AAAA,IAC1B,MAAM;AAAA,IACN,WAAW,MAAM;AAAA,EACnB;AAAA;",
+  "debugId": "EF7495C1B3F2AC3B64756E2164756E21",
+  "names": []
+}

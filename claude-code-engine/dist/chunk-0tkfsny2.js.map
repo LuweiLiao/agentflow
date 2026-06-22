@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/files/files.ts"],
+  "sourcesContent": [
+    "import { relative } from 'path'\nimport type { ToolUseContext } from '../../Tool.js'\nimport type { LocalCommandResult } from '../../types/command.js'\nimport { getCwd } from '../../utils/cwd.js'\nimport { cacheKeys } from '../../utils/fileStateCache.js'\n\nexport async function call(\n  _args: string,\n  context: ToolUseContext,\n): Promise<LocalCommandResult> {\n  const files = context.readFileState ? cacheKeys(context.readFileState) : []\n\n  if (files.length === 0) {\n    return { type: 'text' as const, value: 'No files in context' }\n  }\n\n  const fileList = files.map(file => relative(getCwd(), file)).join('\\n')\n  return { type: 'text' as const, value: `Files in context:\\n${fileList}` }\n}\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;;;;AAAA;AAMA,eAAsB,IAAI,CACxB,OACA,SAC6B;AAAA,EAC7B,MAAM,QAAQ,QAAQ,gBAAgB,UAAU,QAAQ,aAAa,IAAI,CAAC;AAAA,EAE1E,IAAI,MAAM,WAAW,GAAG;AAAA,IACtB,OAAO,EAAE,MAAM,QAAiB,OAAO,sBAAsB;AAAA,EAC/D;AAAA,EAEA,MAAM,WAAW,MAAM,IAAI,UAAQ,SAAS,OAAO,GAAG,IAAI,CAAC,EAAE,KAAK;AAAA,CAAI;AAAA,EACtE,OAAO,EAAE,MAAM,QAAiB,OAAO;AAAA,EAAsB,WAAW;AAAA;AAAA;AAAA,EAd1E;AAAA,EACA;AAAA;",
+  "debugId": "8DDDC93B317D6D2F64756E2164756E21",
+  "names": []
+}

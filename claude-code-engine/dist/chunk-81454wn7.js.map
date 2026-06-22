@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/server/serverBanner.ts"],
+  "sourcesContent": [
+    "// Auto-generated stub — replace with real implementation\nexport {}\nexport const printBanner: (...args: unknown[]) => void = () => {}\n"
+  ],
+  "mappings": ";;;;AAEO,IAAM,cAA4C,MAAM;",
+  "debugId": "CB727369D299C9C464756E2164756E21",
+  "names": []
+}

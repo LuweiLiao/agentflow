@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/diff/diff.tsx"],
+  "sourcesContent": [
+    "import type { LocalJSXCommandCall } from '../../types/command.js';\n\nexport const call: LocalJSXCommandCall = async (onDone, context) => {\n  const { DiffDialog } = await import('../../components/diff/DiffDialog.js');\n  return <DiffDialog messages={context.messages} onDone={onDone} />;\n};\n"
+  ],
+  "mappings": ";;;;;;;;;;;iBAEa,OAA4B,OAAO,QAAQ,YAAY;AAAA,EAClE,QAAQ,eAAe,MAAa;AAAA,EACpC,uBAAO,gBAAC,YAAD;AAAA,IAAY,UAAU,QAAQ;AAAA,IAAU;AAAA,GAAgB;AAAA;AAAA;AAAA;AAAA;",
+  "debugId": "D2A4BC1FD6EEB0B964756E2164756E21",
+  "names": []
+}

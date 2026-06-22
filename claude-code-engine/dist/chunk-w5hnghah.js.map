@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../node_modules/.bun/@modelcontextprotocol+sdk@1.29.0/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js"],
+  "sourcesContent": [
+    "import { JSONRPCMessageSchema } from '../types.js';\n/**\n * Buffers a continuous stdio stream into discrete JSON-RPC messages.\n */\nexport class ReadBuffer {\n    append(chunk) {\n        this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;\n    }\n    readMessage() {\n        if (!this._buffer) {\n            return null;\n        }\n        const index = this._buffer.indexOf('\\n');\n        if (index === -1) {\n            return null;\n        }\n        const line = this._buffer.toString('utf8', 0, index).replace(/\\r$/, '');\n        this._buffer = this._buffer.subarray(index + 1);\n        return deserializeMessage(line);\n    }\n    clear() {\n        this._buffer = undefined;\n    }\n}\nexport function deserializeMessage(line) {\n    return JSONRPCMessageSchema.parse(JSON.parse(line));\n}\nexport function serializeMessage(message) {\n    return JSON.stringify(message) + '\\n';\n}\n//# sourceMappingURL=stdio.js.map"
+  ],
+  "mappings": ";;;;;;;;;;AAIO,MAAM,WAAW;AAAA,EACpB,MAAM,CAAC,OAAO;AAAA,IACV,KAAK,UAAU,KAAK,UAAU,OAAO,OAAO,CAAC,KAAK,SAAS,KAAK,CAAC,IAAI;AAAA;AAAA,EAEzE,WAAW,GAAG;AAAA,IACV,IAAI,CAAC,KAAK,SAAS;AAAA,MACf,OAAO;AAAA,IACX;AAAA,IACA,MAAM,QAAQ,KAAK,QAAQ,QAAQ;AAAA,CAAI;AAAA,IACvC,IAAI,UAAU,IAAI;AAAA,MACd,OAAO;AAAA,IACX;AAAA,IACA,MAAM,OAAO,KAAK,QAAQ,SAAS,QAAQ,GAAG,KAAK,EAAE,QAAQ,OAAO,EAAE;AAAA,IACtE,KAAK,UAAU,KAAK,QAAQ,SAAS,QAAQ,CAAC;AAAA,IAC9C,OAAO,mBAAmB,IAAI;AAAA;AAAA,EAElC,KAAK,GAAG;AAAA,IACJ,KAAK,UAAU;AAAA;AAEvB;AACO,SAAS,kBAAkB,CAAC,MAAM;AAAA,EACrC,OAAO,qBAAqB,MAAM,KAAK,MAAM,IAAI,CAAC;AAAA;AAE/C,SAAS,gBAAgB,CAAC,SAAS;AAAA,EACtC,OAAO,KAAK,UAAU,OAAO,IAAI;AAAA;AAAA;AAAA;AAAA,EA5BrC;AAAA;",
+  "debugId": "FCA5769CABD793EB64756E2164756E21",
+  "names": []
+}

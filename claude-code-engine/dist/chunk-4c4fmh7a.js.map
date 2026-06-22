@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/output-style/output-style.tsx"],
+  "sourcesContent": [
+    "import type { LocalJSXCommandOnDone } from '../../types/command.js';\n\nexport async function call(onDone: LocalJSXCommandOnDone): Promise<undefined> {\n  onDone(\n    '/output-style has been deprecated. Use /config to change your output style, or set it in your settings file. Changes take effect on the next session.',\n    { display: 'system' },\n  );\n}\n"
+  ],
+  "mappings": ";;;;;;AAEA,eAAsB,IAAI,CAAC,QAAmD;AAAA,EAC5E,OACE,yJACA,EAAE,SAAS,SAAS,CACtB;AAAA;AAAA;",
+  "debugId": "216ACF79C13A8A3264756E2164756E21",
+  "names": []
+}

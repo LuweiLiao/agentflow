@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/components/design-system/Dialog.tsx"],
+  "sourcesContent": [
+    "export { Dialog } from '@anthropic/ink';\n"
+  ],
+  "mappings": ";;;;;;;;;;EAAA;AAAA;",
+  "debugId": "CE3D29776626EAF164756E2164756E21",
+  "names": []
+}

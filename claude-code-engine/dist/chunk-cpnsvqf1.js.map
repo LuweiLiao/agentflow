@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/utils/attributionTrailer.ts"],
+  "sourcesContent": [
+    "// Auto-generated stub — replace with real implementation\nexport {}\nexport const buildPRTrailers: (\n  attributionData: unknown,\n  attribution: unknown,\n) => string[] = () => []\n"
+  ],
+  "mappings": ";;;;;;IAEa,kBAGG,MAAM,CAAC;AAAA;",
+  "debugId": "53B4344C0BC4FCFE64756E2164756E21",
+  "names": []
+}

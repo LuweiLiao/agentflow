@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/status/status.tsx"],
+  "sourcesContent": [
+    "import * as React from 'react';\nimport type { LocalJSXCommandContext } from '../../commands.js';\nimport { Settings } from '../../components/Settings/Settings.js';\nimport type { LocalJSXCommandOnDone } from '../../types/command.js';\n\nexport async function call(onDone: LocalJSXCommandOnDone, context: LocalJSXCommandContext): Promise<React.ReactNode> {\n  return <Settings onClose={onDone} context={context} defaultTab=\"Status\" />;\n}\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;AAKA,eAAsB,IAAI,CAAC,QAA+B,SAA2D;AAAA,EACnH,uBAAO,gBAAC,UAAD;AAAA,IAAU,SAAS;AAAA,IAAQ;AAAA,IAAkB,YAAW;AAAA,GAAS;AAAA;AAAA;AAAA;AAAA,EAJ1E;AAAA;AAAA;",
+  "debugId": "EF23CE73475682AB64756E2164756E21",
+  "names": []
+}

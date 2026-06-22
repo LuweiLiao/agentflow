@@ -61,3 +61,7 @@ hermes-cache/
 audit-*.json
 frontend-audit-report.json
 visual-audit.json
+
+# Claude Code 引擎 — node_modules 不进 git（docker build 时 bun install 恢复）
+claude-code-engine/node_modules/
+claude-code-engine/.git/

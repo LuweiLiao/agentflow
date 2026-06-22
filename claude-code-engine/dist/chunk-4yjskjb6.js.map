@@ -1,0 +1,11 @@
+{
+  "version": 3,
+  "sources": ["../node_modules/.bun/@smithy+util-uri-escape@4.2.2/node_modules/@smithy/util-uri-escape/dist-cjs/index.js", "../node_modules/.bun/@smithy+querystring-builder@4.2.14/node_modules/@smithy/querystring-builder/dist-cjs/index.js"],
+  "sourcesContent": [
+    "'use strict';\n\nconst escapeUri = (uri) => encodeURIComponent(uri).replace(/[!'()*]/g, hexEncode);\nconst hexEncode = (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`;\n\nconst escapeUriPath = (uri) => uri.split(\"/\").map(escapeUri).join(\"/\");\n\nexports.escapeUri = escapeUri;\nexports.escapeUriPath = escapeUriPath;\n",
+    "'use strict';\n\nvar utilUriEscape = require('@smithy/util-uri-escape');\n\nfunction buildQueryString(query) {\n    const parts = [];\n    for (let key of Object.keys(query).sort()) {\n        const value = query[key];\n        key = utilUriEscape.escapeUri(key);\n        if (Array.isArray(value)) {\n            for (let i = 0, iLen = value.length; i < iLen; i++) {\n                parts.push(`${key}=${utilUriEscape.escapeUri(value[i])}`);\n            }\n        }\n        else {\n            let qsEntry = key;\n            if (value || typeof value === \"string\") {\n                qsEntry += `=${utilUriEscape.escapeUri(value)}`;\n            }\n            parts.push(qsEntry);\n        }\n    }\n    return parts.join(\"&\");\n}\n\nexports.buildQueryString = buildQueryString;\n"
+  ],
+  "mappings": ";;;;;;;EAEA,IAAM,YAAY,CAAC,QAAQ,mBAAmB,GAAG,EAAE,QAAQ,YAAY,SAAS;AAAA,EAChF,IAAM,YAAY,CAAC,MAAM,IAAI,EAAE,WAAW,CAAC,EAAE,SAAS,EAAE,EAAE,YAAY;AAAA,EAEtE,IAAM,gBAAgB,CAAC,QAAQ,IAAI,MAAM,GAAG,EAAE,IAAI,SAAS,EAAE,KAAK,GAAG;AAAA,EAE7D,oBAAY;AAAA,EACZ,wBAAgB;AAAA;;;;ECNxB,IAAI;AAAA,EAEJ,SAAS,gBAAgB,CAAC,OAAO;AAAA,IAC7B,MAAM,QAAQ,CAAC;AAAA,IACf,SAAS,OAAO,OAAO,KAAK,KAAK,EAAE,KAAK,GAAG;AAAA,MACvC,MAAM,QAAQ,MAAM;AAAA,MACpB,MAAM,cAAc,UAAU,GAAG;AAAA,MACjC,IAAI,MAAM,QAAQ,KAAK,GAAG;AAAA,QACtB,SAAS,IAAI,GAAG,OAAO,MAAM,OAAQ,IAAI,MAAM,KAAK;AAAA,UAChD,MAAM,KAAK,GAAG,OAAO,cAAc,UAAU,MAAM,EAAE,GAAG;AAAA,QAC5D;AAAA,MACJ,EACK;AAAA,QACD,IAAI,UAAU;AAAA,QACd,IAAI,SAAS,OAAO,UAAU,UAAU;AAAA,UACpC,WAAW,IAAI,cAAc,UAAU,KAAK;AAAA,QAChD;AAAA,QACA,MAAM,KAAK,OAAO;AAAA;AAAA,IAE1B;AAAA,IACA,OAAO,MAAM,KAAK,GAAG;AAAA;AAAA,EAGjB,2BAAmB;AAAA;",
+  "debugId": "63683FA4315917B564756E2164756E21",
+  "names": []
+}

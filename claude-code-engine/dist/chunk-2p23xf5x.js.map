@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/config/config.tsx"],
+  "sourcesContent": [
+    "import { Settings } from '../../components/Settings/Settings.js';\nimport type { LocalJSXCommandCall } from '../../types/command.js';\n\nexport const call: LocalJSXCommandCall = async (onDone, context) => {\n  return <Settings onClose={onDone} context={context} defaultTab=\"Config\" />;\n};\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;iBAGa,OAA4B,OAAO,QAAQ,YAAY;AAAA,EAClE,uBAAO,gBAAC,UAAD;AAAA,IAAU,SAAS;AAAA,IAAQ;AAAA,IAAkB,YAAW;AAAA,GAAS;AAAA;AAAA;AAAA,EAJ1E;AAAA;AAAA;",
+  "debugId": "6189F705D9FD489264756E2164756E21",
+  "names": []
+}

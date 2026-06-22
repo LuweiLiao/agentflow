@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/utils/eventLoopStallDetector.ts"],
+  "sourcesContent": [
+    "// Auto-generated stub — replace with real implementation\nexport {}\nexport const startEventLoopStallDetector: () => void = () => {}\n"
+  ],
+  "mappings": ";;;;AAEO,IAAM,8BAA0C,MAAM;",
+  "debugId": "118DDEF1B8780B1964756E2164756E21",
+  "names": []
+}

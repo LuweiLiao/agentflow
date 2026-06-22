@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/extra-usage/extra-usage.tsx"],
+  "sourcesContent": [
+    "import React from 'react';\nimport type { LocalJSXCommandContext } from '../../commands.js';\nimport type { LocalJSXCommandOnDone } from '../../types/command.js';\nimport { Login } from '../login/login.js';\nimport { runExtraUsage } from './extra-usage-core.js';\n\nexport async function call(\n  onDone: LocalJSXCommandOnDone,\n  context: LocalJSXCommandContext,\n): Promise<React.ReactNode | null> {\n  const result = await runExtraUsage();\n\n  if (result.type === 'message') {\n    onDone(result.value);\n    return null;\n  }\n\n  return (\n    <Login\n      startingMessage={'Starting new login following /extra-usage. Exit with Ctrl-C to use existing account.'}\n      onDone={success => {\n        context.onChangeAPIKey();\n        onDone(success ? 'Login successful' : 'Login interrupted');\n      }}\n    />\n  );\n}\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;;;AAMA,eAAsB,IAAI,CACxB,QACA,SACiC;AAAA,EACjC,MAAM,SAAS,MAAM,cAAc;AAAA,EAEnC,IAAI,OAAO,SAAS,WAAW;AAAA,IAC7B,OAAO,OAAO,KAAK;AAAA,IACnB,OAAO;AAAA,EACT;AAAA,EAEA,uBACE,gBAAC,OAAD;AAAA,IACE,iBAAiB;AAAA,IACjB,QAAQ,aAAW;AAAA,MACjB,QAAQ,eAAe;AAAA,MACvB,OAAO,UAAU,qBAAqB,mBAAmB;AAAA;AAAA,GAE7D;AAAA;AAAA;AAAA;AAAA,EArBJ;AAAA,EACA;AAAA;AAAA;",
+  "debugId": "EDF22FB442F6FA8764756E2164756E21",
+  "names": []
+}

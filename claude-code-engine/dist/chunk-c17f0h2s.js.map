@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../node_modules/.bun/@opentelemetry+resources@2.7.0+e40b0dfdd726a224/node_modules/@opentelemetry/resources/build/src/detectors/platform/node/machine-id/execAsync.js"],
+  "sourcesContent": [
+    "\"use strict\";\n/*\n * Copyright The OpenTelemetry Authors\n * SPDX-License-Identifier: Apache-2.0\n */\nObject.defineProperty(exports, \"__esModule\", { value: true });\nexports.execAsync = void 0;\nconst child_process = require(\"child_process\");\nconst util = require(\"util\");\nexports.execAsync = util.promisify(child_process.exec);\n//# sourceMappingURL=execAsync.js.map"
+  ],
+  "mappings": ";;;;;;;;EAKA,OAAO,eAAe,SAAS,cAAc,EAAE,OAAO,KAAK,CAAC;AAAA,EACpD,oBAAiB;AAAA,EACzB,IAAM;AAAA,EACN,IAAM;AAAA,EACE,oBAAY,KAAK,UAAU,cAAc,IAAI;AAAA;",
+  "debugId": "8AA6468B401EE6E564756E2164756E21",
+  "names": []
+}

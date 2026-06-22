@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/services/providerUsage/store.ts"],
+  "sourcesContent": [
+    "import type {\n  ProviderBalance,\n  ProviderUsage,\n  ProviderUsageBucket,\n} from './types.js'\n\ntype Listener = (snapshot: ProviderUsage) => void\n\nlet current: ProviderUsage = {\n  providerId: 'unknown',\n  buckets: [],\n}\n\nconst listeners: Set<Listener> = new Set()\n\nexport function getProviderUsage(): ProviderUsage {\n  return current\n}\n\n/**\n * Replace buckets for a provider. Passing an empty array is valid — it records\n * that the latest response carried no usable quota header.\n */\nexport function updateProviderBuckets(\n  providerId: string,\n  buckets: ProviderUsageBucket[],\n): void {\n  current = {\n    ...current,\n    providerId,\n    buckets,\n  }\n  emit()\n}\n\nexport function setProviderBalance(\n  providerId: string,\n  balance: ProviderBalance | null,\n): void {\n  current = {\n    ...current,\n    providerId,\n    ...(balance === null ? { balance: undefined } : { balance }),\n  }\n  emit()\n}\n\nexport function subscribeProviderUsage(listener: Listener): () => void {\n  listeners.add(listener)\n  return () => {\n    listeners.delete(listener)\n  }\n}\n\nexport function resetProviderUsage(): void {\n  current = { providerId: 'unknown', buckets: [] }\n  emit()\n}\n\nfunction emit(): void {\n  for (const listener of listeners) {\n    try {\n      listener(current)\n    } catch {\n      // Listener errors must not break the publish loop.\n    }\n  }\n}\n"
+  ],
+  "mappings": ";;;;;;AAuBO,SAAS,qBAAqB,CACnC,YACA,SACM;AAAA,EACN,UAAU;AAAA,OACL;AAAA,IACH;AAAA,IACA;AAAA,EACF;AAAA,EACA,KAAK;AAAA;AAGA,SAAS,kBAAkB,CAChC,YACA,SACM;AAAA,EACN,UAAU;AAAA,OACL;AAAA,IACH;AAAA,OACI,YAAY,OAAO,EAAE,SAAS,UAAU,IAAI,EAAE,QAAQ;AAAA,EAC5D;AAAA,EACA,KAAK;AAAA;AAeP,SAAS,IAAI,GAAS;AAAA,EACpB,WAAW,YAAY,WAAW;AAAA,IAChC,IAAI;AAAA,MACF,SAAS,OAAO;AAAA,MAChB,MAAM;AAAA,EAGV;AAAA;AAAA,IA1DE,SAKE;AAAA;AAAA,EALF,UAAyB;AAAA,IAC3B,YAAY;AAAA,IACZ,SAAS,CAAC;AAAA,EACZ;AAAA,EAEM,YAA2B,IAAI;AAAA;",
+  "debugId": "54588344A69BCEB164756E2164756E21",
+  "names": []
+}

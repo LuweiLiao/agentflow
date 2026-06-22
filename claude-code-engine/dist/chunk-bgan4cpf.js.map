@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/utils/lazySchema.ts"],
+  "sourcesContent": [
+    "/**\n * Returns a memoized factory function that constructs the value on first call.\n * Used to defer Zod schema construction from module init time to first access.\n */\nexport function lazySchema<T>(factory: () => T): () => T {\n  let cached: T | undefined\n  return () => (cached ??= factory())\n}\n"
+  ],
+  "mappings": ";;;;;;AAIO,SAAS,UAAa,CAAC,SAA2B;AAAA,EACvD,IAAI;AAAA,EACJ,OAAO,MAAO,WAAW,QAAQ;AAAA;AAAA;",
+  "debugId": "56FA46C6D02ED16264756E2164756E21",
+  "names": []
+}

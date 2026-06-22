@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/utils/bundledMode.ts"],
+  "sourcesContent": [
+    "/**\n * Detects if the current runtime is Bun.\n * Returns true when:\n * - Running a JS file via the `bun` command\n * - Running a Bun-compiled standalone executable\n */\nexport function isRunningWithBun(): boolean {\n  // https://bun.com/guides/util/detect-bun\n  return process.versions.bun !== undefined\n}\n\n/**\n * Detects if running as a Bun-compiled standalone executable.\n * This checks for embedded files which are present in compiled binaries.\n */\nexport function isInBundledMode(): boolean {\n  return (\n    typeof Bun !== 'undefined' &&\n    Array.isArray(Bun.embeddedFiles) &&\n    Bun.embeddedFiles.length > 0\n  )\n}\n"
+  ],
+  "mappings": ";;;;;;AAMO,SAAS,gBAAgB,GAAY;AAAA,EAE1C,OAAO,QAAQ,SAAS,QAAQ;AAAA;AAO3B,SAAS,eAAe,GAAY;AAAA,EACzC,OACE,OAAO,QAAQ,eACf,MAAM,QAAQ,IAAI,aAAa,KAC/B,IAAI,cAAc,SAAS;AAAA;AAAA;",
+  "debugId": "1A03BAEA297F6BCA64756E2164756E21",
+  "names": []
+}

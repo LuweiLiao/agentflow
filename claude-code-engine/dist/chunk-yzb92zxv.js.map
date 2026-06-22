@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/utils/sdkHeapDumpMonitor.ts"],
+  "sourcesContent": [
+    "// Auto-generated stub — replace with real implementation\nexport {}\nexport const startSdkMemoryMonitor: () => void = () => {}\n"
+  ],
+  "mappings": ";;;;AAEO,IAAM,wBAAoC,MAAM;",
+  "debugId": "383CF065E9ACF09C64756E2164756E21",
+  "names": []
+}

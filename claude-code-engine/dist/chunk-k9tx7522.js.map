@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/services/api/openai/openaiShared.ts"],
+  "sourcesContent": [
+    "/**\n * Shared utilities for OpenAI-compatible API paths.\n *\n * Both the OpenAI path (queryModelOpenAI) and Grok path (queryModelGrok) use\n * the same adapters (openaiStreamAdapter, openaiConvertMessages), so the event\n * processing logic should be shared rather than duplicated.\n */\n\n/**\n * Merge a delta usage into the accumulated usage, preserving cache-related\n * fields from previous values when the delta carries explicit zeroes or\n * undefined values.\n *\n * Mirrors updateUsage() in claude.ts: a future adapter change that omits\n * cache fields from certain streaming events should not silently zero the\n * accumulated counters.\n */\nexport function updateOpenAIUsage(\n  current: {\n    input_tokens: number\n    output_tokens: number\n    cache_creation_input_tokens: number\n    cache_read_input_tokens: number\n  },\n  delta: {\n    input_tokens?: number\n    output_tokens?: number\n    cache_creation_input_tokens?: number\n    cache_read_input_tokens?: number\n  },\n): typeof current {\n  return {\n    input_tokens: delta.input_tokens ?? current.input_tokens,\n    output_tokens: delta.output_tokens ?? current.output_tokens,\n    cache_creation_input_tokens:\n      delta.cache_creation_input_tokens !== undefined &&\n      delta.cache_creation_input_tokens > 0\n        ? delta.cache_creation_input_tokens\n        : current.cache_creation_input_tokens,\n    cache_read_input_tokens:\n      delta.cache_read_input_tokens !== undefined &&\n      delta.cache_read_input_tokens > 0\n        ? delta.cache_read_input_tokens\n        : current.cache_read_input_tokens,\n  }\n}\n"
+  ],
+  "mappings": ";;;;;;AAiBO,SAAS,iBAAiB,CAC/B,SAMA,OAMgB;AAAA,EAChB,OAAO;AAAA,IACL,cAAc,MAAM,gBAAgB,QAAQ;AAAA,IAC5C,eAAe,MAAM,iBAAiB,QAAQ;AAAA,IAC9C,6BACE,MAAM,gCAAgC,aACtC,MAAM,8BAA8B,IAChC,MAAM,8BACN,QAAQ;AAAA,IACd,yBACE,MAAM,4BAA4B,aAClC,MAAM,0BAA0B,IAC5B,MAAM,0BACN,QAAQ;AAAA,EAChB;AAAA;AAAA;",
+  "debugId": "466942ADBAF8460D64756E2164756E21",
+  "names": []
+}

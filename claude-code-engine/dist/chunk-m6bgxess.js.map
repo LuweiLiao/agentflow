@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/server/backends/dangerousBackend.ts"],
+  "sourcesContent": [
+    "// Auto-generated stub — replace with real implementation\nexport {}\nexport const DangerousBackend: new (\n  ...args: unknown[]\n) => Record<string, unknown> = class {} as never\n"
+  ],
+  "mappings": ";;;;AAEO,IAAM,mBAEkB,MAAM;AAAC;",
+  "debugId": "812D9E063BC62EEF64756E2164756E21",
+  "names": []
+}

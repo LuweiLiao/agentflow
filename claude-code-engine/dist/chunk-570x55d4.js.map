@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/utils/ccshareResume.ts"],
+  "sourcesContent": [
+    "// Auto-generated stub — replace with real implementation\nimport type { LogOption } from 'src/types/logs.js'\nexport const parseCcshareId: (resume: string) => string | null = () => null\nexport const loadCcshare: (ccshareId: string) => Promise<LogOption> =\n  async () => {\n    throw new Error('ccshare not implemented')\n  }\n"
+  ],
+  "mappings": ";;;;AAEO,IAAM,iBAAoD,MAAM;AAChE,IAAM,cACX,YAAY;AAAA,EACV,MAAM,IAAI,MAAM,yBAAyB;AAAA;",
+  "debugId": "4CB7F8A3834B6A9C64756E2164756E21",
+  "names": []
+}

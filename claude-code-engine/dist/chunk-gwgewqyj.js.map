@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/context/fpsMetrics.tsx"],
+  "sourcesContent": [
+    "import React, { createContext, useContext } from 'react';\nimport type { FpsMetrics } from '../utils/fpsTracker.js';\n\ntype FpsMetricsGetter = () => FpsMetrics | undefined;\n\nconst FpsMetricsContext = createContext<FpsMetricsGetter | undefined>(undefined);\n\ntype Props = {\n  getFpsMetrics: FpsMetricsGetter;\n  children: React.ReactNode;\n};\n\nexport function FpsMetricsProvider({ getFpsMetrics, children }: Props): React.ReactNode {\n  return <FpsMetricsContext.Provider value={getFpsMetrics}>{children}</FpsMetricsContext.Provider>;\n}\n\nexport function useFpsMetrics(): FpsMetricsGetter | undefined {\n  return useContext(FpsMetricsContext);\n}\n"
+  ],
+  "mappings": ";;;;;;;;;;;;AAAA;AAAA;AAKA,IAAM,oBAAoB,2BAA4C,SAAS;AAOxE,SAAS,kBAAkB,GAAG,eAAe,YAAoC;AAAA,EACtF,uBAAO,gBAA8D,kBAAkB,UAAhF;AAAA,IAA4B,OAAO;AAAA,IAAnC;AAAA,GAA8D;AAAA;AAGhE,SAAS,aAAa,GAAiC;AAAA,EAC5D,OAAO,wBAAW,iBAAiB;AAAA;",
+  "debugId": "E9E38583C2CFACAF64756E2164756E21",
+  "names": []
+}

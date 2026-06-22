@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/utils/postCommitAttribution.ts"],
+  "sourcesContent": [
+    "// Auto-generated stub — replace with real implementation\nexport {}\nexport const installPrepareCommitMsgHook: (\n  worktreePath: string,\n  worktreeHooksDir?: string,\n) => Promise<void> = async () => {}\n"
+  ],
+  "mappings": ";;;;;;IAEa,8BAGQ,YAAY;AAAA;",
+  "debugId": "5DFDBC094FCD57E464756E2164756E21",
+  "names": []
+}

@@ -1,0 +1,11 @@
+{
+  "version": 3,
+  "sources": ["../node_modules/.bun/react@19.2.5/node_modules/react/cjs/react-jsx-runtime.production.js", "../node_modules/.bun/react@19.2.5/node_modules/react/jsx-runtime.js"],
+  "sourcesContent": [
+    "/**\n * @license React\n * react-jsx-runtime.production.js\n *\n * Copyright (c) Meta Platforms, Inc. and affiliates.\n *\n * This source code is licensed under the MIT license found in the\n * LICENSE file in the root directory of this source tree.\n */\n\n\"use strict\";\nvar REACT_ELEMENT_TYPE = Symbol.for(\"react.transitional.element\"),\n  REACT_FRAGMENT_TYPE = Symbol.for(\"react.fragment\");\nfunction jsxProd(type, config, maybeKey) {\n  var key = null;\n  void 0 !== maybeKey && (key = \"\" + maybeKey);\n  void 0 !== config.key && (key = \"\" + config.key);\n  if (\"key\" in config) {\n    maybeKey = {};\n    for (var propName in config)\n      \"key\" !== propName && (maybeKey[propName] = config[propName]);\n  } else maybeKey = config;\n  config = maybeKey.ref;\n  return {\n    $$typeof: REACT_ELEMENT_TYPE,\n    type: type,\n    key: key,\n    ref: void 0 !== config ? config : null,\n    props: maybeKey\n  };\n}\nexports.Fragment = REACT_FRAGMENT_TYPE;\nexports.jsx = jsxProd;\nexports.jsxs = jsxProd;\n",
+    "'use strict';\n\nif (process.env.NODE_ENV === 'production') {\n  module.exports = require('./cjs/react-jsx-runtime.production.js');\n} else {\n  module.exports = require('./cjs/react-jsx-runtime.development.js');\n}\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;AAaA,SAAS,OAAO,CAAC,MAAM,QAAQ,UAAU;AAAA,EACvC,IAAI,MAAM;AAAA,EACC,aAAN,cAAmB,MAAM,KAAK;AAAA,EACxB,OAAO,QAAb,cAAqB,MAAM,KAAK,OAAO;AAAA,EAC5C,IAAI,SAAS,QAAQ;AAAA,IACnB,WAAW,CAAC;AAAA,IACZ,SAAS,YAAY;AAAA,MACT,aAAV,UAAuB,SAAS,YAAY,OAAO;AAAA,EACvD,EAAO;AAAA,eAAW;AAAA,EAClB,SAAS,SAAS;AAAA,EAClB,OAAO;AAAA,IACL,UAAU;AAAA,IACV;AAAA,IACA;AAAA,IACA,KAAgB,WAAN,YAAe,SAAS;AAAA,IAClC,OAAO;AAAA,EACT;AAAA;AAAA,IAlBE,oBACF,qBAmBM,WACA,MACA;AAAA;AAAA,EAtBJ,qBAAqB,OAAO,IAAI,4BAA4B;AAAA,EAC9D,sBAAsB,OAAO,IAAI,gBAAgB;AAAA,EAmB3C,YAAW;AAAA,EACX,OAAM;AAAA,EACN,QAAO;AAAA;;;;EC9BY;AAAA,EAD3B,IAAI,MAAuC;AAAA,IACzC,OAAO,UAAkB;AAAA,EAC3B;AAAA;",
+  "debugId": "39B91B185EB3761764756E2164756E21",
+  "names": []
+}

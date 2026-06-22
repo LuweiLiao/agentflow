@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/assistant/sessionDiscovery.ts"],
+  "sourcesContent": [
+    "import { logForDebugging } from '../utils/debug.js'\n\n/**\n * Minimal session type for assistant discovery.\n * Only `id` is consumed by main.tsx (L4757); other fields are for chooser display.\n * ID format is `session_*` (compat prefix) — viewer endpoints use /v1/sessions/*.\n */\nexport type AssistantSession = {\n  id: string\n  title: string\n  status: string\n  created_at: string\n}\n\n/**\n * Discover assistant sessions on Anthropic CCR.\n *\n * Reuses the existing fetchCodeSessionsFromSessionsAPI() which calls\n * GET /v1/sessions with proper OAuth + anthropic-beta headers.\n *\n * Throws on failure — main.tsx L4720-4725 catch displays the error.\n * Does NOT return [] on error (that would silently redirect to install wizard).\n */\nexport async function discoverAssistantSessions(): Promise<AssistantSession[]> {\n  const { fetchCodeSessionsFromSessionsAPI } = await import(\n    '../utils/teleport/api.js'\n  )\n\n  let allSessions\n  try {\n    allSessions = await fetchCodeSessionsFromSessionsAPI()\n  } catch (err) {\n    logForDebugging(\n      `[assistant:discovery] fetchCodeSessionsFromSessionsAPI failed: ${err}`,\n    )\n    throw err\n  }\n\n  // Filter to active/working sessions only — completed/archived are not attachable\n  return allSessions\n    .filter(\n      s =>\n        s.status === 'idle' || s.status === 'working' || s.status === 'waiting',\n    )\n    .map(s => ({\n      id: s.id,\n      title: s.title || 'Untitled',\n      status: s.status,\n      created_at: s.created_at ?? '',\n    }))\n}\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;;;AAAA;AAuBA,eAAsB,yBAAyB,GAAgC;AAAA,EAC7E,QAAQ,qCAAqC,MAC3C;AAAA,EAGF,IAAI;AAAA,EACJ,IAAI;AAAA,IACF,cAAc,MAAM,iCAAiC;AAAA,IACrD,OAAO,KAAK;AAAA,IACZ,gBACE,kEAAkE,KACpE;AAAA,IACA,MAAM;AAAA;AAAA,EAIR,OAAO,YACJ,OACC,OACE,EAAE,WAAW,UAAU,EAAE,WAAW,aAAa,EAAE,WAAW,SAClE,EACC,IAAI,QAAM;AAAA,IACT,IAAI,EAAE;AAAA,IACN,OAAO,EAAE,SAAS;AAAA,IAClB,QAAQ,EAAE;AAAA,IACV,YAAY,EAAE,cAAc;AAAA,EAC9B,EAAE;AAAA;",
+  "debugId": "95DE6CD054638F5F64756E2164756E21",
+  "names": []
+}

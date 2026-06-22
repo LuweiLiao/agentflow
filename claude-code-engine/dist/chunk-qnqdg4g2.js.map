@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/keybindings/useKeybinding.ts"],
+  "sourcesContent": [
+    "// Re-export from @anthropic/ink keybindings module\nexport { useKeybinding, useKeybindings } from '@anthropic/ink'\n"
+  ],
+  "mappings": ";;;;;;;;;;EACA;AAAA;",
+  "debugId": "DE788CA89FA5331264756E2164756E21",
+  "names": []
+}

@@ -1,0 +1,13 @@
+{
+  "version": 3,
+  "sources": ["../node_modules/.bun/@opentelemetry+exporter-logs-otlp-http@0.215.0+e40b0dfdd726a224/node_modules/@opentelemetry/exporter-logs-otlp-http/build/esm/platform/node/OTLPLogExporter.js", "../node_modules/.bun/@opentelemetry+exporter-logs-otlp-http@0.215.0+e40b0dfdd726a224/node_modules/@opentelemetry/exporter-logs-otlp-http/build/esm/platform/node/index.js", "../node_modules/.bun/@opentelemetry+exporter-logs-otlp-http@0.215.0+e40b0dfdd726a224/node_modules/@opentelemetry/exporter-logs-otlp-http/build/esm/platform/index.js", "../node_modules/.bun/@opentelemetry+exporter-logs-otlp-http@0.215.0+e40b0dfdd726a224/node_modules/@opentelemetry/exporter-logs-otlp-http/build/esm/index.js"],
+  "sourcesContent": [
+    "/*\n * Copyright The OpenTelemetry Authors\n * SPDX-License-Identifier: Apache-2.0\n */\nimport { OTLPExporterBase } from '@opentelemetry/otlp-exporter-base';\nimport { JsonLogsSerializer } from '@opentelemetry/otlp-transformer';\nimport { convertLegacyHttpOptions, createOtlpHttpExportDelegate, } from '@opentelemetry/otlp-exporter-base/node-http';\n/**\n * Collector Logs Exporter for Node\n */\nexport class OTLPLogExporter extends OTLPExporterBase {\n    constructor(config = {}) {\n        super(createOtlpHttpExportDelegate(convertLegacyHttpOptions(config, 'LOGS', 'v1/logs', {\n            'Content-Type': 'application/json',\n        }), JsonLogsSerializer));\n    }\n}\n//# sourceMappingURL=OTLPLogExporter.js.map",
+    "/*\n * Copyright The OpenTelemetry Authors\n * SPDX-License-Identifier: Apache-2.0\n */\nexport { OTLPLogExporter } from './OTLPLogExporter';\n//# sourceMappingURL=index.js.map",
+    "/*\n * Copyright The OpenTelemetry Authors\n * SPDX-License-Identifier: Apache-2.0\n */\nexport { OTLPLogExporter } from './node';\n//# sourceMappingURL=index.js.map",
+    "/*\n * Copyright The OpenTelemetry Authors\n * SPDX-License-Identifier: Apache-2.0\n */\nexport { OTLPLogExporter } from './platform';\n//# sourceMappingURL=index.js.map"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;IAIA,2BACA,yBACA,kBAIa;AAAA;AAAA,EANb;AAAA,EACA;AAAA,EACA;AAAA,EAIa,kBAAN,MAAM,wBAAwB,2CAAiB;AAAA,IAClD,WAAW,CAAC,SAAS,CAAC,GAAG;AAAA,MACrB,MAAM,8CAA6B,0CAAyB,QAAQ,QAAQ,WAAW;AAAA,QACnF,gBAAgB;AAAA,MACpB,CAAC,GAAG,0CAAkB,CAAC;AAAA;AAAA,EAE/B;AAAA;;;;ECZA;AAAA;;;;ECAA;AAAA;;;;ECAA;AAAA;",
+  "debugId": "11003075CFD1EC5B64756E2164756E21",
+  "names": []
+}

@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/server/serverLog.ts"],
+  "sourcesContent": [
+    "// Auto-generated stub — replace with real implementation\nexport {}\nexport const createServerLogger: () => Record<string, unknown> = () => ({})\n"
+  ],
+  "mappings": ";;;;AAEO,IAAM,qBAAoD,OAAO,CAAC;",
+  "debugId": "820E8E57A5B1308D64756E2164756E21",
+  "names": []
+}

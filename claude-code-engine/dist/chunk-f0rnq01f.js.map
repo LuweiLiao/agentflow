@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/commands/job/job.tsx"],
+  "sourcesContent": [
+    "import type { LocalJSXCommandOnDone, LocalJSXCommandContext } from '../../types/command.js';\n\n/**\n * /job slash command — manages template jobs from inside the REPL.\n *\n * Subcommands: list | new <template> [args] | reply <id> <text> | status <id>\n * Default (no args): list\n */\nexport async function call(\n  onDone: LocalJSXCommandOnDone,\n  _context: LocalJSXCommandContext,\n  args: string,\n): Promise<React.ReactNode> {\n  const parts = args ? args.trim().split(/\\s+/) : [];\n  const sub = parts[0] || 'list';\n\n  // Capture console output so we can return it as onDone text\n  const lines: string[] = [];\n  const origLog = console.log;\n  const origError = console.error;\n  console.log = (...a: unknown[]) => lines.push(a.map(String).join(' '));\n  console.error = (...a: unknown[]) => lines.push(a.map(String).join(' '));\n\n  try {\n    const { templatesMain } = await import('../../cli/handlers/templateJobs.js');\n    await templatesMain([sub, ...parts.slice(1)]);\n  } finally {\n    console.log = origLog;\n    console.error = origError;\n  }\n\n  onDone(lines.join('\\n') || 'Done.', { display: 'system' });\n  return null;\n}\n"
+  ],
+  "mappings": ";;;;;;;AAQA,eAAsB,IAAI,CACxB,QACA,UACA,MAC0B;AAAA,EAC1B,MAAM,QAAQ,OAAO,KAAK,KAAK,EAAE,MAAM,KAAK,IAAI,CAAC;AAAA,EACjD,MAAM,MAAM,MAAM,MAAM;AAAA,EAGxB,MAAM,QAAkB,CAAC;AAAA,EACzB,MAAM,UAAU,QAAQ;AAAA,EACxB,MAAM,YAAY,QAAQ;AAAA,EAC1B,QAAQ,MAAM,IAAI,MAAiB,MAAM,KAAK,EAAE,IAAI,MAAM,EAAE,KAAK,GAAG,CAAC;AAAA,EACrE,QAAQ,QAAQ,IAAI,MAAiB,MAAM,KAAK,EAAE,IAAI,MAAM,EAAE,KAAK,GAAG,CAAC;AAAA,EAEvE,IAAI;AAAA,IACF,QAAQ,kBAAkB,MAAa;AAAA,IACvC,MAAM,cAAc,CAAC,KAAK,GAAG,MAAM,MAAM,CAAC,CAAC,CAAC;AAAA,YAC5C;AAAA,IACA,QAAQ,MAAM;AAAA,IACd,QAAQ,QAAQ;AAAA;AAAA,EAGlB,OAAO,MAAM,KAAK;AAAA,CAAI,KAAK,SAAS,EAAE,SAAS,SAAS,CAAC;AAAA,EACzD,OAAO;AAAA;AAAA;",
+  "debugId": "4FBE03521547563B64756E2164756E21",
+  "names": []
+}

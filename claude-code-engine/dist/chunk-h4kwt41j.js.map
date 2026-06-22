@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/utils/language.ts"],
+  "sourcesContent": [
+    "import { getGlobalConfig } from './config.js'\nimport { getSystemLocaleLanguage } from './intl.js'\n\nexport type PreferredLanguage = 'auto' | 'en' | 'zh'\nexport type ResolvedLanguage = 'en' | 'zh'\n\n/**\n * Resolve the effective display language.\n * Priority: GlobalConfig.preferredLanguage → system locale → default 'en'.\n */\nexport function getResolvedLanguage(): ResolvedLanguage {\n  const pref = getGlobalConfig().preferredLanguage ?? 'auto'\n  if (pref === 'en' || pref === 'zh') return pref\n  const sysLang = getSystemLocaleLanguage()\n  return sysLang === 'zh' ? 'zh' : 'en'\n}\n\nconst DISPLAY_NAMES: Record<string, string> = {\n  auto: 'Auto (follow system)',\n  en: 'English',\n  zh: '中文',\n}\n\nexport function getLanguageDisplayName(lang: string): string {\n  return DISPLAY_NAMES[lang] ?? lang\n}\n"
+  ],
+  "mappings": ";;;;;;;;;;;;;;AAUO,SAAS,mBAAmB,GAAqB;AAAA,EACtD,MAAM,OAAO,gBAAgB,EAAE,qBAAqB;AAAA,EACpD,IAAI,SAAS,QAAQ,SAAS;AAAA,IAAM,OAAO;AAAA,EAC3C,MAAM,UAAU,wBAAwB;AAAA,EACxC,OAAO,YAAY,OAAO,OAAO;AAAA;AAS5B,SAAS,sBAAsB,CAAC,MAAsB;AAAA,EAC3D,OAAO,cAAc,SAAS;AAAA;AAAA,IAP1B;AAAA;AAAA,EAjBN;AAAA,EACA;AAAA,EAgBM,gBAAwC;AAAA,IAC5C,MAAM;AAAA,IACN,IAAI;AAAA,IACJ,IAAI;AAAA,EACN;AAAA;",
+  "debugId": "9881EDEEA9634E2264756E2164756E21",
+  "names": []
+}

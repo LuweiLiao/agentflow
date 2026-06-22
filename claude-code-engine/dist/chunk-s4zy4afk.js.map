@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/utils/statusNoticeHelpers.ts"],
+  "sourcesContent": [
+    "import { roughTokenCountEstimation } from '../services/tokenEstimation.js'\nimport type { AgentDefinitionsResult } from '@claude-code-best/builtin-tools/tools/AgentTool/loadAgentsDir.js'\n\nexport const AGENT_DESCRIPTIONS_THRESHOLD = 15_000\n\n/**\n * Calculate cumulative token estimate for agent descriptions\n */\nexport function getAgentDescriptionsTotalTokens(\n  agentDefinitions?: AgentDefinitionsResult,\n): number {\n  if (!agentDefinitions) return 0\n\n  return agentDefinitions.activeAgents\n    .filter(a => a.source !== 'built-in')\n    .reduce((total, agent) => {\n      const description = `${agent.agentType}: ${agent.whenToUse}`\n      return total + roughTokenCountEstimation(description)\n    }, 0)\n}\n"
+  ],
+  "mappings": ";;;;;;;;;;AAQO,SAAS,+BAA+B,CAC7C,kBACQ;AAAA,EACR,IAAI,CAAC;AAAA,IAAkB,OAAO;AAAA,EAE9B,OAAO,iBAAiB,aACrB,OAAO,OAAK,EAAE,WAAW,UAAU,EACnC,OAAO,CAAC,OAAO,UAAU;AAAA,IACxB,MAAM,cAAc,GAAG,MAAM,cAAc,MAAM;AAAA,IACjD,OAAO,QAAQ,0BAA0B,WAAW;AAAA,KACnD,CAAC;AAAA;AAAA,IAfK,+BAA+B;AAAA;AAAA,EAH5C;AAAA;",
+  "debugId": "7007F81692AAA34C64756E2164756E21",
+  "names": []
+}

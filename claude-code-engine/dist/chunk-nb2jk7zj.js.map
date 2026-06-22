@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/utils/attributionHooks.ts"],
+  "sourcesContent": [
+    "// Auto-generated stub — replace with real implementation\nexport const clearAttributionCaches: () => void = () => {}\nexport const sweepFileContentCache: () => void = () => {}\nexport const registerAttributionHooks: () => void = () => {}\n"
+  ],
+  "mappings": ";;;;;;IACa,yBAAqC,MAAM,IAC3C,wBAAoC,MAAM,IAC1C,2BAAuC,MAAM;AAAA;",
+  "debugId": "94DBA21B014C470564756E2164756E21",
+  "names": []
+}

@@ -1,0 +1,13 @@
+{
+  "version": 3,
+  "sources": ["../node_modules/.bun/@opentelemetry+exporter-metrics-otlp-proto@0.215.0+e40b0dfdd726a224/node_modules/@opentelemetry/exporter-metrics-otlp-proto/build/esm/platform/node/OTLPMetricExporter.js", "../node_modules/.bun/@opentelemetry+exporter-metrics-otlp-proto@0.215.0+e40b0dfdd726a224/node_modules/@opentelemetry/exporter-metrics-otlp-proto/build/esm/platform/node/index.js", "../node_modules/.bun/@opentelemetry+exporter-metrics-otlp-proto@0.215.0+e40b0dfdd726a224/node_modules/@opentelemetry/exporter-metrics-otlp-proto/build/esm/platform/index.js", "../node_modules/.bun/@opentelemetry+exporter-metrics-otlp-proto@0.215.0+e40b0dfdd726a224/node_modules/@opentelemetry/exporter-metrics-otlp-proto/build/esm/index.js"],
+  "sourcesContent": [
+    "/*\n * Copyright The OpenTelemetry Authors\n * SPDX-License-Identifier: Apache-2.0\n */\nimport { OTLPMetricExporterBase } from '@opentelemetry/exporter-metrics-otlp-http';\nimport { ProtobufMetricsSerializer } from '@opentelemetry/otlp-transformer';\nimport { convertLegacyHttpOptions, createOtlpHttpExportDelegate, } from '@opentelemetry/otlp-exporter-base/node-http';\nexport class OTLPMetricExporter extends OTLPMetricExporterBase {\n    constructor(config) {\n        super(createOtlpHttpExportDelegate(convertLegacyHttpOptions(config ?? {}, 'METRICS', 'v1/metrics', {\n            'Content-Type': 'application/x-protobuf',\n        }), ProtobufMetricsSerializer), config);\n    }\n}\n//# sourceMappingURL=OTLPMetricExporter.js.map",
+    "/*\n * Copyright The OpenTelemetry Authors\n * SPDX-License-Identifier: Apache-2.0\n */\nexport { OTLPMetricExporter } from './OTLPMetricExporter';\n//# sourceMappingURL=index.js.map",
+    "/*\n * Copyright The OpenTelemetry Authors\n * SPDX-License-Identifier: Apache-2.0\n */\nexport { OTLPMetricExporter } from './node';\n//# sourceMappingURL=index.js.map",
+    "/*\n * Copyright The OpenTelemetry Authors\n * SPDX-License-Identifier: Apache-2.0\n */\nexport { OTLPMetricExporter } from './platform';\n//# sourceMappingURL=index.js.map"
+  ],
+  "mappings": ";;;;;;;;;;;;;;;;;;IAIA,mCACA,yBACA,kBACa;AAAA;AAAA,EAHb;AAAA,EACA;AAAA,EACA;AAAA,EACa,qBAAN,MAAM,2BAA2B,yDAAuB;AAAA,IAC3D,WAAW,CAAC,QAAQ;AAAA,MAChB,MAAM,8CAA6B,0CAAyB,UAAU,CAAC,GAAG,WAAW,cAAc;AAAA,QAC/F,gBAAgB;AAAA,MACpB,CAAC,GAAG,iDAAyB,GAAG,MAAM;AAAA;AAAA,EAE9C;AAAA;;;;ECTA;AAAA;;;;ECAA;AAAA;;;;ECAA;AAAA;",
+  "debugId": "6B65FC152E312C0364756E2164756E21",
+  "names": []
+}

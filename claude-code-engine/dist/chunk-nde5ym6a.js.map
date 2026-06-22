@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/services/skillLearning/featureCheck.ts"],
+  "sourcesContent": [
+    "import { feature } from 'bun:bundle'\n\n/**\n * Build-time presence check: is the `/skill-learning` slash command\n * compiled into this build? Used by the command registry's `isEnabled` so\n * the command appears in the menu whenever it is buildable. Operators\n * activate the subsystem itself via `/skill-learning start`, which flips\n * `SKILL_LEARNING_ENABLED=1` and turns the runtime observers on (see\n * `isSkillLearningEnabled`).\n */\nexport function isSkillLearningCompiledIn(): boolean {\n  if (feature('SKILL_LEARNING')) return true\n  return false\n}\n\n/**\n * Runtime activation check: is the skill-learning subsystem actively\n * running (toolEvent, runtime, session observers attached, persisting\n * observations to disk)? Off by default — the operator must run\n * `/skill-learning start` (which sets `SKILL_LEARNING_ENABLED=1`).\n *\n * Legacy `FEATURE_SKILL_LEARNING=1` is also accepted for backward\n * compatibility with operators who set it before the slash-command UX\n * landed.\n *\n * Build-flag gating is intentionally NOT performed here: the command\n * registry already gates command compilation on the build flag, and this\n * function is only reached from code paths that the build flag has\n * already let through. Decoupling keeps the test surface clean (tests\n * exercise the env-var contract without needing to mock `bun:bundle`).\n */\nexport function isSkillLearningEnabled(): boolean {\n  if (process.env.SKILL_LEARNING_ENABLED === '1') return true\n  if (process.env.FEATURE_SKILL_LEARNING === '1') return true\n  return false\n}\n"
+  ],
+  "mappings": ";;;;;;AAUO,SAAS,yBAAyB,GAAY;AAAA,EACnD,IAAI;AAAA,IAA2B;AAAA,EAC/B,OAAO;AAAA;AAmBF,SAAS,sBAAsB,GAAY;AAAA,EAChD,IAAI,QAAQ,IAAI,2BAA2B;AAAA,IAAK,OAAO;AAAA,EACvD,IAAI,QAAQ,IAAI,2BAA2B;AAAA,IAAK,OAAO;AAAA,EACvD,OAAO;AAAA;AAAA;",
+  "debugId": "75390CE74710737664756E2164756E21",
+  "names": []
+}

@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/components/SearchBox.tsx"],
+  "sourcesContent": [
+    "// Re-export from @anthropic/ink theme module\nexport { SearchBox } from '@anthropic/ink';\n"
+  ],
+  "mappings": ";;;;;;;;;;EACA;AAAA;",
+  "debugId": "EFF4173F02C0CE3264756E2164756E21",
+  "names": []
+}

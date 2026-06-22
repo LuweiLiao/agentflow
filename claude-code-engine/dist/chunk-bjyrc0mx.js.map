@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../src/server/connectHeadless.ts"],
+  "sourcesContent": [
+    "// Auto-generated stub — replace with real implementation\nexport {}\nexport const runConnectHeadless: (...args: unknown[]) => Promise<void> = () =>\n  Promise.resolve()\n"
+  ],
+  "mappings": ";;;;AAEO,IAAM,qBAA4D,MACvE,QAAQ,QAAQ;",
+  "debugId": "D3EE4A5E8C9C0CD964756E2164756E21",
+  "names": []
+}
