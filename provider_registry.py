@@ -352,8 +352,8 @@ def find_available_model(preferred: str = None) -> str:
         if p.models:
             return p.models[0]
 
-    # 都没有就用默认的
-    return os.environ.get("AGENT_MODEL", "deepseek-v4-flash")
+    # 都没有就用默认的 (FIX #49: prefer CC_AGENT_MODEL, fall back to AGENT_MODEL)
+    return os.environ.get("CC_AGENT_MODEL") or os.environ.get("AGENT_MODEL", "deepseek-v4-flash")
 
 
 def estimate_cost(model: str, input_tokens: int = 0,

@@ -42,7 +42,7 @@ class CCAgentRunner:
         self._adapter = ClaudeCodeAdapter()
         self._bus = AgentMessageBus()
         self._max_budget = max_budget_usd
-        self._model = model or os.environ.get("CC_AGENT_MODEL", "deepseek-v4-flash")
+        self._model = model or os.environ.get("CC_AGENT_MODEL") or os.environ.get("AGENT_MODEL", "deepseek-v4-flash")
 
     def execute(self, prompt: str, work_dir: str = None,
                 profile: str = "dev", tools_enabled: bool = True,
@@ -60,7 +60,7 @@ class CCAgentRunner:
                 system_prompt_append=self._get_system_prompt(profile),
                 max_budget_usd=self._max_budget,
                 timeout=timeout,
-                cwd=None,  # Always use engine dir for runtime; work_dir is context only
+                cwd=work_dir,  # Run in the actual workspace, not the engine dir
             )
         except Exception as e:
             duration = int((time.time() - start) * 1000)
@@ -96,13 +96,24 @@ class CCAgentRunner:
                        profile: str = "dev", tools_enabled: bool = True,
                        max_turns: int = 10, timeout: int = 180,
                        start_time: float = None):
-        """流式执行 — 模拟 event 序列（向后兼容）。"""
+        """流式执行 — 模拟 event 序列（向后兼容）。
+
+        NOTE (#41): This is *simulated* streaming, NOT true incremental token
+        streaming. The full prompt is run to completion via self.execute() and
+        then split into chunks that are yielded one at a time. Callers should
+        not expect sub-second latency on the first content delta. The initial
+        'thinking...' event below gives the UI instant feedback that work has
+        begun while execute() is still in flight.
+        """
         if start_time is None:
             start_time = time.time()
-        
+
         # 先 yield 一个开始事件
         yield {"type": "node_start", "payload": {"prompt": prompt[:200]}}
-        
+        # Instant feedback (#41): emit a 'thinking...' delta immediately so
+        # users see activity before the full execute() call returns.
+        yield {"type": "node_delta", "payload": {"content": "thinking...\n\n"}}
+
         # 执行
         result = self.execute(
             prompt=prompt, work_dir=work_dir, profile=profile,

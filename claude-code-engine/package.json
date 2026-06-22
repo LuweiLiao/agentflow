@@ -1,16 +1,16 @@
 {
-  "name": "claude-code-best",
-  "version": "2.7.0",
-  "description": "Reverse-engineered Anthropic Claude Code CLI — interactive AI coding assistant in the terminal",
+  "name": "agentflow-code",
+  "version": "5.0.0",
+  "description": "AgentFlow-Code — interactive AI coding assistant CLI for the terminal (powering AgentFlow multi-agent workflows)",
   "type": "module",
-  "author": "claude-code-best <claude-code-best@proton.me>",
+  "author": "AgentFlow <noreply@agentflow.dev>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/claude-code-best/claude-code.git"
+    "url": "git+https://github.com/LuweiLiao/agentflow.git"
   },
-  "homepage": "https://github.com/claude-code-best/claude-code#readme",
+  "homepage": "https://github.com/LuweiLiao/agentflow#readme",
   "bugs": {
-    "url": "https://github.com/claude-code-best/claude-code/issues"
+    "url": "https://github.com/LuweiLiao/agentflow/issues"
   },
   "keywords": [
     "claude",
@@ -25,14 +25,13 @@
     "bun": ">=1.3.0"
   },
   "bin": {
-    "ccb": "dist/cli-node.js",
-    "ccb-bun": "dist/cli-bun.js",
-    "claude-code-best": "dist/cli-node.js"
+    "agentflow-code": "dist/cli-node.js",
+    "agentflow-code-bun": "dist/cli-bun.js",
+    "afc": "dist/cli-node.js"
   },
   "workspaces": [
     "packages/*",
-    "packages/@ant/*",
-    "packages/@anthropic-ai/*"
+    "packages/@ant/*"
   ],
   "files": [
     "dist",
@@ -100,6 +99,7 @@
     "@claude-code-best/builtin-tools": "workspace:*",
     "@claude-code-best/mcp-client": "workspace:*",
     "@claude-code-best/weixin": "workspace:*",
+    "@claude-code-best/workflow-engine": "workspace:*",
     "@commander-js/extra-typings": "^14.0.0",
     "@growthbook/growthbook": "^1.6.5",
     "@langfuse/otel": "^5.1.0",

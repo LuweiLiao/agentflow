@@ -127,7 +127,7 @@ class TestRunToolExecuteCommand:
             result = runner._run_tool("execute_command",
                                        {"command": "rm -rf /"}, td)
             assert "error" in result
-            assert "沙箱拦截" in result["error"]
+            assert "沙箱拦截" in result["error"] or "Path outside workspace" in result["error"]
 
     def test_empty_command_returns_error(self):
         """Empty command string should return an error."""
@@ -171,7 +171,7 @@ class TestRunToolReadFile:
             result = runner._run_tool("read_file",
                                        {"path": "../etc/passwd"}, td)
             assert "error" in result
-            assert "沙箱拦截" in result["error"]
+            assert "沙箱拦截" in result["error"] or "Path outside workspace" in result["error"]
 
     def test_absolute_path_outside_blocked(self):
         """Reading an absolute path outside work_dir should be blocked."""
@@ -180,7 +180,7 @@ class TestRunToolReadFile:
             result = runner._run_tool("read_file",
                                        {"path": "/etc/passwd"}, td)
             assert "error" in result
-            assert "沙箱拦截" in result["error"]
+            assert "沙箱拦截" in result["error"] or "Path outside workspace" in result["error"]
 
     def test_file_not_found(self):
         """Reading a non-existent file should return a file-not-found error."""
@@ -217,7 +217,7 @@ class TestRunToolWriteFile:
             result = runner._run_tool("write_file",
                                        {"path": "../evil.txt", "content": "malicious"}, td)
             assert "error" in result
-            assert "沙箱拦截" in result["error"]
+            assert "沙箱拦截" in result["error"] or "Path outside workspace" in result["error"]
 
     def test_absolute_path_outside_blocked(self):
         """Writing to an absolute path outside work_dir should be blocked."""
@@ -226,7 +226,7 @@ class TestRunToolWriteFile:
             result = runner._run_tool("write_file",
                                        {"path": "/tmp/outside.txt", "content": "test"}, td)
             assert "error" in result
-            assert "沙箱拦截" in result["error"]
+            assert "沙箱拦截" in result["error"] or "Path outside workspace" in result["error"]
 
     def test_creates_subdirectories(self):
         """Writing to a nested path should create parent directories."""

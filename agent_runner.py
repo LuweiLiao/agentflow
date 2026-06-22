@@ -613,12 +613,13 @@ Agent 可以通过此模块调用编排 API 调整 DAG 结构。
                 cmd = args.get("command", "")
                 if not cmd.strip():
                     return {"error": "空命令"}
-                # 安全检查
+                # 安全检查（defense-in-depth blocklist）
                 if not _is_command_safe(cmd):
                     return {"error": f"命令被沙箱拦截（高危操作）: {cmd[:100]}"}
-                # 支持常见 Shell 片段（重定向、&&、管道、heredoc），否则 LLM 生成的工程化命令
-                # 会被 shlex+shell=False 误拆成普通参数并制造伪文件。
-                r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                # shell=False 防止命令注入：shlex.split 将命令拆分为 argv 列表，
+                # shell 元字符（&& | > $( )）不再被解释执行。
+                # _is_command_safe() blocklist 作为额外防线保留。
+                r = subprocess.run(shlex.split(cmd), shell=False, capture_output=True, text=True,
                                    cwd=work_dir, timeout=EXECUTE_TIMEOUT)
                 out = r.stdout or ""
                 if r.stderr:
@@ -628,6 +629,10 @@ Agent 可以通过此模块调用编排 API 调整 DAG 结构。
             elif name == "read_file":
                 path_arg = args.get("path", "")
                 filepath = os.path.join(work_dir, path_arg) if not os.path.isabs(path_arg) else path_arg
+                # Path traversal protection: resolve symlinks and verify inside workspace
+                real_path = os.path.realpath(filepath)
+                if not real_path.startswith(os.path.realpath(work_dir) + os.sep):
+                    return {"error": "Path outside workspace"}
                 if not _is_path_safe(filepath, work_dir):
                     return {"error": f"路径被沙箱拦截（超出工作区）: {path_arg[:100]}"}
                 if not os.path.isfile(filepath):
@@ -639,6 +644,10 @@ Agent 可以通过此模块调用编排 API 调整 DAG 结构。
             elif name == "write_file":
                 path_arg, content = args.get("path", ""), args.get("content", "")
                 filepath = os.path.join(work_dir, path_arg) if not os.path.isabs(path_arg) else path_arg
+                # Path traversal protection: resolve symlinks and verify inside workspace
+                real_path = os.path.realpath(filepath)
+                if not real_path.startswith(os.path.realpath(work_dir) + os.sep):
+                    return {"error": "Path outside workspace"}
                 if not _is_path_safe(filepath, work_dir):
                     return {"error": f"路径被沙箱拦截（超出工作区）: {path_arg[:100]}"}
                 fp = filepath
@@ -650,6 +659,10 @@ Agent 可以通过此模块调用编排 API 调整 DAG 结构。
             elif name == "list_files":
                 path_arg = args.get("path", ".")
                 fp = os.path.join(work_dir, path_arg) if not os.path.isabs(path_arg) else path_arg
+                # Path traversal protection: resolve symlinks and verify inside workspace
+                real_path = os.path.realpath(fp)
+                if not real_path.startswith(os.path.realpath(work_dir) + os.sep):
+                    return {"error": "Path outside workspace"}
                 if not _is_path_safe(fp, work_dir):
                     return {"error": f"路径被沙箱拦截（超出工作区）: {path_arg[:100]}"}
                 if not os.path.isdir(fp):

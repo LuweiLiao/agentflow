@@ -46,7 +46,7 @@ TEMPLATE_DIR = os.environ.get("AGENTFLOW_TEMPLATE_DIR",
 DEFAULT_AGENT_MODEL = os.environ.get("AGENT_MODEL", "deepseek-v4-flash")
 
 # 服务监听地址
-HOST = os.environ.get("AGENTFLOW_HOST", "127.0.0.1")
+HOST = os.environ.get("AGENTFLOW_HOST", "0.0.0.0")
 
 # R3-P0-7: 在模块加载时一次性设置 Agent 所需的环境变量（只写一次，
 #          消除并发 setdefault 竞态）。Agent 进程内通过 os.environ.get 读取。
@@ -56,6 +56,26 @@ os.environ.setdefault("AGENTFLOW_API_URL", f"http://{HOST}:{PORT}")
 MAX_CONCURRENT_AGENTS = int(os.environ.get("AGENTFLOW_MAX_CONCURRENT", "10"))
 MAX_BODY_SIZE = int(os.environ.get("AGENTFLOW_MAX_BODY_SIZE", str(512 * 1024)))
 _global_semaphore = threading.Semaphore(MAX_CONCURRENT_AGENTS)
+
+# #50 [M] FIX: 简单 per-IP rate limiter — 滑动窗口计数。
+RATE_LIMIT_RPM = int(os.environ.get("AGENTFLOW_RATE_LIMIT_RPM", "120"))
+_rate_limit_lock = threading.Lock()
+_rate_limit_buckets: dict[str, list[float]] = {}
+
+def _check_rate_limit(client_ip: str) -> bool:
+    """检查 per-IP 请求频率，超过 RATE_LIMIT_RPM/分钟则拒绝。"""
+    now = time.time()
+    window = 60.0
+    with _rate_limit_lock:
+        bucket = _rate_limit_buckets.setdefault(client_ip, [])
+        # 清理过期条目
+        cutoff = now - window
+        while bucket and bucket[0] < cutoff:
+            bucket.pop(0)
+        if len(bucket) >= RATE_LIMIT_RPM:
+            return False
+        bucket.append(now)
+    return True
 
 # Bug #12 FIX: 进程启动时间戳，用于 /health 的 uptime 计算。
 _PROCESS_START_TIME = time.time()
@@ -413,7 +433,7 @@ def _cleanup_old_workspaces(max_age_seconds: int = 86400):
                 except OSError:
                     continue
                 if (now - mtime) > max_age_seconds:
-                    shutil.rmtree(dpath, ignore_errors=True)
+                    shutil.rmtree(dpath, ignore_errors=False)
         except OSError:
             pass
 
@@ -1487,6 +1507,13 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             self.request_id = incoming
         else:
             self.request_id = uuid.uuid4().hex[:16]
+        # #50 [M] FIX: per-IP rate limiting（排除健康检查端点）。
+        client_ip = self.client_address[0] if self.client_address else "unknown"
+        path = getattr(self, 'path', '')
+        if not path.startswith('/health') and not _check_rate_limit(client_ip):
+            self._send_error(429, "RATE_LIMITED",
+                             message=f"Too many requests from {client_ip} (limit: {RATE_LIMIT_RPM}/min)")
+            self._rate_limited = True
 
     def _handle_uncaught(self, exc: Exception):
         """全局异常兜底：返回结构化 500 响应而非裸堆栈。
@@ -1665,6 +1692,24 @@ class AgentFlowHandler(http.server.BaseHTTPRequestHandler):
             # Bug #12 FIX: 增强 health endpoint，返回运维指标供 Docker/k8s 探针
             # 和监控面板使用（active_runs/queue_depth/db_size/uptime）。
             self._send_json(200, _health_payload())
+            return
+        if path == "/health/cc-engine":
+            # #27 [M] FIX: CC 引擎健康检查端点 — 验证 bun 二进制和引擎入口文件存在。
+            bun_path = os.environ.get("BUN_PATH", "/usr/local/bin/bun")
+            engine_dir = os.environ.get("AGENTFLOW_CC_ENGINE_DIR", "/opt/claude-code-engine")
+            cli_entry = os.path.join(engine_dir, "dist", "cli-bun.js")
+            bun_ok = os.path.isfile(bun_path) and os.access(bun_path, os.X_OK)
+            entry_ok = os.path.isfile(cli_entry)
+            engine_ok = bun_ok and entry_ok
+            payload = {
+                "cc_engine": "ok" if engine_ok else "degraded",
+                "bun_path": bun_path,
+                "bun_executable": bun_ok,
+                "engine_dir": engine_dir,
+                "cli_entry": cli_entry,
+                "cli_entry_exists": entry_ok,
+            }
+            self._send_json(200 if engine_ok else 503, payload)
             return
         if path == "/api/docs":
             # P3 FIX: OpenAPI 3.1 spec endpoint.

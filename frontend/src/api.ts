@@ -231,7 +231,7 @@ export class ApiClient {
         // F47 FIX: auto-reconnect on unexpected disconnect (non-terminal, non-aborted)
         if (!isTerminal && !controller.signal.aborted && reconnectAttempts < MAX_RECONNECT) {
           reconnectAttempts++;
-          const delay = Math.min(1000 * reconnectAttempts, 5000); // 1s, 2s, 3s, 4s, 5s backoff
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 30000); // exponential: 1s, 2s, 4s, 8s, 16s (max 30s)
           setTimeout(() => connect(), delay);
         }
       } catch (err: unknown) {
@@ -239,7 +239,7 @@ export class ApiClient {
           // F47 FIX: reconnect on network error
           if (!isTerminal && reconnectAttempts < MAX_RECONNECT) {
             reconnectAttempts++;
-            const delay = Math.min(1000 * reconnectAttempts, 5000);
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 30000);
             setTimeout(() => connect(), delay);
           } else {
             callbacks.onError?.(err);

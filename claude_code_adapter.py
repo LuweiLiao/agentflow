@@ -1,7 +1,7 @@
 """
 AgentFlow-Code Engine Adapter — Low-level bridge to AgentFlow-Code engine subprocess.
 
-Spawns the CC engine (bun run src/entrypoints/cli.tsx -p) as a subprocess,
+Spawns the CC engine (bun dist/cli-bun.js -p) as a subprocess,
 communicates via stdin/stdout JSON protocol.
 
 Usage:
@@ -14,6 +14,16 @@ Usage:
     )
     print(result.text)  # The text result
     print(result.cost)  # Cost in USD
+
+Unified LLM API:
+    adapter = ClaudeCodeAdapter.from_provider_registry()
+    # or explicitly:
+    adapter = ClaudeCodeAdapter(llm_config={
+        "provider": "openai",
+        "api_key": "sk-...",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o",
+    })
 """
 
 import json
@@ -22,7 +32,6 @@ import signal
 import subprocess
 import sys
 import time
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -59,36 +68,149 @@ class AgentMessage:
 class ClaudeCodeAdapter:
     """
     Low-level adapter for the CC engine subprocess.
-    
-    - Spawns `bun run src/entrypoints/cli.tsx -p` 
+
+    - Spawns `bun dist/cli-bun.js -p` (pre-built bundle, self-contained)
     - Feeds prompt via stdin
     - Parses JSON output from stdout
     """
 
     # ── 引擎配置 ──
     ENGINE_DIR = Path(os.environ.get("AGENTFLOW_CC_ENGINE_DIR", "/opt/claude-code-engine"))
-    CLI_ENTRY = "src/entrypoints/cli.tsx"
+    # FIX #1: Use pre-built bundle (dist/cli-bun.js), not raw .tsx source.
+    # The pre-built bundle is self-contained and does not require the TS toolchain.
+    CLI_ENTRY = "dist/cli-bun.js"
     BUN_PATH = os.environ.get("BUN_PATH", "/usr/local/bin/bun")
 
-    def __init__(self, engine_dir: Optional[str] = None):
+    def __init__(self, engine_dir: Optional[str] = None,
+                 llm_config: Optional[dict] = None):
+        """
+        Construct the adapter.
+
+        Args:
+            engine_dir: Path to the CC engine installation. Defaults to
+                AGENTFLOW_CC_ENGINE_DIR env var or /opt/claude-code-engine.
+            llm_config: Optional unified LLM provider config dict with keys:
+                {provider, api_key, base_url, model}.
+                When provided, the adapter injects OpenAI-compatible env vars
+                (CLAUDE_CODE_USE_OPENAI, OPENAI_API_KEY, OPENAI_BASE_URL,
+                OPENAI_MODEL) into the engine subprocess.
+        """
         self.engine_dir = Path(engine_dir) if engine_dir else Path(self.ENGINE_DIR)
         if not self.engine_dir.exists():
             raise FileNotFoundError(f"CC engine not found at {self.engine_dir}")
-        self._session_id: Optional[str] = None
+        # FIX #1 (absolute path): CLI entry resolved against engine_dir.
+        self.cli_entry_path = str(self.engine_dir / self.CLI_ENTRY)
+        # Unified LLM API (#11): store optional provider config.
+        self.llm_config = llm_config or None
 
-    def _build_cmd(self, append_system_prompt: str = "", 
+    @classmethod
+    def from_provider_registry(cls, engine_dir: Optional[str] = None) -> "ClaudeCodeAdapter":
+        """
+        Construct an adapter reading the unified LLM provider config from the
+        process environment.
+
+        Recognized env vars (any subset may be set):
+            AGENTFLOW_LLM_PROVIDER   – e.g. "openai", "azure", "anthropic-via-openai"
+            AGENTFLOW_LLM_API_KEY    – API key for the provider
+            AGENTFLOW_LLM_BASE_URL   – OpenAI-compatible base URL
+            AGENTFLOW_LLM_MODEL      – model name to use
+
+        Returns:
+            ClaudeCodeAdapter with llm_config populated if any provider env
+            vars were present, otherwise a plain adapter.
+        """
+        provider = os.environ.get("AGENTFLOW_LLM_PROVIDER")
+        api_key = os.environ.get("AGENTFLOW_LLM_API_KEY")
+        base_url = os.environ.get("AGENTFLOW_LLM_BASE_URL")
+        model = os.environ.get("AGENTFLOW_LLM_MODEL")
+
+        llm_config = None
+        if any([provider, api_key, base_url, model]):
+            llm_config = {
+                "provider": provider or "openai",
+                "api_key": api_key or "",
+                "base_url": base_url or "",
+                "model": model or "",
+            }
+        return cls(engine_dir=engine_dir, llm_config=llm_config)
+
+    # ── Unified LLM API helpers ──
+
+    def _llm_env(self) -> dict:
+        """
+        Build env-var overrides for the unified LLM API (#12).
+
+        When self.llm_config is set, returns a dict containing:
+            CLAUDE_CODE_USE_OPENAI=1
+            OPENAI_API_KEY     (from config)
+            OPENAI_BASE_URL    (from config)
+            OPENAI_MODEL       (from config)
+        Only non-empty values are included so we don't clobber existing env.
+        """
+        if not self.llm_config:
+            return {}
+        env: dict = {"CLAUDE_CODE_USE_OPENAI": "1"}
+        cfg = self.llm_config
+        if cfg.get("api_key"):
+            env["OPENAI_API_KEY"] = cfg["api_key"]
+        if cfg.get("base_url"):
+            env["OPENAI_BASE_URL"] = cfg["base_url"]
+        if cfg.get("model"):
+            env["OPENAI_MODEL"] = cfg["model"]
+        return env
+
+    def _build_env(self) -> dict:
+        """
+        Construct a minimal, sanitized environment for the engine subprocess
+        (FIX #5).
+
+        Starts from a curated allowlist (PATH, HOME, USER, LANG, LC_*, TERM)
+        plus any API keys the engine may need. Provider config from
+        self.llm_config is layered on top via _llm_env().
+        """
+        # Curated allowlist — avoids leaking arbitrary host secrets into the
+        # engine subprocess.
+        allow_prefixes = ("LC_",)
+        allow_exact = {
+            "PATH", "HOME", "USER", "LANG", "TERM",
+            "NODE_ENV",
+            # API keys the engine itself may consult (passed through only if set).
+            "ANTHROPIC_API_KEY",
+        }
+        env: dict = {}
+        for k, v in os.environ.items():
+            if k in allow_exact or any(k.startswith(p) for p in allow_prefixes):
+                env[k] = v
+        # Ensure PATH/HOME always present even if host omitted them.
+        env.setdefault("PATH", "/usr/local/bin:/usr/bin:/bin")
+        env.setdefault("HOME", os.path.expanduser("~"))
+        # Layer unified LLM API env vars on top.
+        env.update(self._llm_env())
+        return env
+
+    def _build_cmd(self, append_system_prompt: str = "",
                     max_budget_usd: float = 0.5,
                     output_format: str = "json") -> list:
         """Build the CC engine CLI command."""
+        # FIX #6: Validate budget before spawn — guard against misconfiguration
+        # that would produce an instant over-budget failure or a no-op run.
+        if not isinstance(max_budget_usd, (int, float)) or max_budget_usd <= 0:
+            raise ValueError(
+                f"max_budget_usd must be a positive number, got {max_budget_usd!r}"
+            )
+
+        # FIX #2: `bun dist/cli-bun.js` — no "run", pre-built bundle.
+        # FIX #1: absolute path to the bundle.
         cmd = [
-            self.BUN_PATH, "run", str(self.CLI_ENTRY),
+            self.BUN_PATH, self.cli_entry_path,
             "-p",  # pipe mode
             f"--output-format={output_format}",
             f"--max-budget-usd={max_budget_usd}",
             "--bare",  # skip hooks, enable simple mode
-            # R3-P0-6: 不再传 --permission-mode bypassPermissions，避免 Agent
-            #          在宿主机上无审批执行任意文件系统/Shell 操作。改用默认
-            #          权限模式（需调用方显式审批或预置细粒度允许列表）。
+            # FIX #8: headless tool use requires skipping interactive permission
+            # prompts; otherwise the engine cannot execute any tools in a
+            # non-interactive (subprocess) context.
+            "--dangerously-skip-permissions",
         ]
         if append_system_prompt:
             cmd.append(f"--append-system-prompt={append_system_prompt}")
@@ -98,31 +220,46 @@ class ClaudeCodeAdapter:
             system_prompt_append: str = "",
             max_budget_usd: float = 0.5,
             timeout: int = 180,
-            cwd: Optional[str] = None) -> CCEngineResult:
+            cwd: Optional[str] = None,
+            llm_config: Optional[dict] = None) -> CCEngineResult:
         """
         Run the CC engine with the given prompt.
-        
+
         Args:
             prompt: The main user prompt to send
             system_prompt_append: Extra system context to inject
-            max_budget_usd: Maximum API cost for this run
+            max_budget_usd: Maximum API cost for this run (must be > 0)
             timeout: Max seconds to wait for completion
             cwd: Working directory (defaults to engine dir)
-            
+            llm_config: Optional per-call override of the unified LLM provider
+                config ({provider, api_key, base_url, model}). When provided,
+                takes precedence over the constructor's llm_config.
+
         Returns:
             CCEngineResult with parsed JSON result
         """
+        # Unified LLM API (#11): per-call override.
+        if llm_config is not None:
+            self.llm_config = llm_config
+
         cmd = self._build_cmd(
             append_system_prompt=system_prompt_append,
             max_budget_usd=max_budget_usd,
         )
-        
+
+        # FIX #5: pass a minimal, sanitized env to the subprocess.
+        proc_env = self._build_env()
+
+        # FIX #10: capture actual wall-clock duration with time.monotonic().
+        start_ts = time.monotonic()
+
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=str(cwd or self.engine_dir),
+            env=proc_env,
             text=True,
             # R3-P0-2: 以独立进程组启动，确保 kill 时可杀死整个进程树
             #          （bun → node → 子工作进程），避免孤儿/僵尸进程残留。
@@ -134,12 +271,18 @@ class ClaudeCodeAdapter:
         except subprocess.TimeoutExpired:
             # R3-P0-2: 用 SIGTERM → 等待 → SIGKILL 杀死整个进程组。
             self._kill_process_group(proc)
-            stdout, stderr = proc.communicate()
+            # FIX #3: communicate() again to reap pipes, with a hard cap so we
+            # never block forever if the process refuses to die after kill.
+            try:
+                stdout, stderr = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                stdout, stderr = "", ""
+            elapsed_ms = int((time.monotonic() - start_ts) * 1000)
             return CCEngineResult(
                 text=f"Timed out after {timeout}s",
-                raw={"error": "timeout"},
+                raw={"error": "timeout", "stdout": stdout, "stderr": stderr},
                 is_error=True,
-                duration_ms=timeout * 1000,
+                duration_ms=elapsed_ms,
                 cost_usd=0.0,
                 session_id="",
                 num_turns=0,
@@ -149,12 +292,14 @@ class ClaudeCodeAdapter:
                 stop_reason="timeout",
             )
 
+        elapsed_ms = int((time.monotonic() - start_ts) * 1000)
+
         if proc.returncode != 0:
             return CCEngineResult(
                 text=f"CC engine exited with code {proc.returncode}",
                 raw={"error": stderr or "unknown error"},
                 is_error=True,
-                duration_ms=0,
+                duration_ms=elapsed_ms,
                 cost_usd=0.0,
                 session_id="",
                 num_turns=0,
@@ -164,13 +309,22 @@ class ClaudeCodeAdapter:
                 stop_reason="error",
             )
 
-        return self._parse_output(stdout)
+        result = self._parse_output(stdout)
+        # If the parser couldn't find a result envelope, surface actual timing.
+        if not result.duration_ms:
+            result.duration_ms = elapsed_ms
+        return result
 
     @staticmethod
     def _kill_process_group(proc: subprocess.Popen):
         """R3-P0-2: 终止整个进程组，先 SIGTERM 再 SIGKILL。
 
         需与 Popen(start_new_session=True) 配合使用。
+
+        FIX #44: Use proc.wait(timeout=2) to give the process a graceful
+        shutdown window before escalating to SIGKILL, instead of a blind
+        time.sleep(0.5) that always blocks half a second regardless of
+        whether the process already exited.
         """
         try:
             pgid = os.getpgid(proc.pid)
@@ -178,13 +332,12 @@ class ClaudeCodeAdapter:
             return
         try:
             os.killpg(pgid, signal.SIGTERM)
-            time.sleep(0.5)
-            os.killpg(pgid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass  # 进程组已退出
-        except OSError:
-            # killpg 失败时回退到直接 kill
-            proc.kill()
+            proc.wait(timeout=2)  # graceful shutdown window
+        except (subprocess.TimeoutExpired, ProcessLookupError):
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
 
     def _parse_output(self, stdout: str) -> CCEngineResult:
         """Parse the JSON output from CC engine stdout.
@@ -224,33 +377,36 @@ class ClaudeCodeAdapter:
                     stop_reason=data.get("stop_reason", ""),
                 )
 
-        # Fallback: return raw text
+        # FIX #7: Fallback when no parseable result envelope was found.
+        # This is an error condition, not a silent success.
         return CCEngineResult(
             text=stdout.strip(),
             raw={"raw_output": stdout.strip()},
-            is_error=False,
+            is_error=True,
             duration_ms=0,
             cost_usd=0.0,
             session_id="",
             num_turns=0,
             usage={},
             model_usage={},
-            errors=[],
-            stop_reason="unknown",
+            errors=["Failed to parse any result envelope from engine output"],
+            stop_reason="unparseable",
         )
 
     def run_with_files(self, prompt: str, files: dict[str, str], *,
                         system_prompt_append: str = "",
                         max_budget_usd: float = 0.5,
-                        timeout: int = 180) -> CCEngineResult:
+                        timeout: int = 180,
+                        llm_config: Optional[dict] = None) -> CCEngineResult:
         """
         Run CC engine with workspace files injected as context.
-        
+
         Args:
             prompt: The main prompt
             files: Dict of {filename: content} to inject into context
             system_prompt_append: Extra system context
-            
+            llm_config: Optional per-call unified LLM provider config override.
+
         Returns:
             CCEngineResult
         """
@@ -258,43 +414,134 @@ class ClaudeCodeAdapter:
         context_parts = []
         for fname, fcontent in files.items():
             context_parts.append(f"=== FILE: {fname} ===\n{fcontent}\n=== END FILE ===")
-        
+
         full_prompt = "\n\n".join(context_parts) + "\n\n" + prompt if context_parts else prompt
-        
+
         append = system_prompt_append
         if files:
             file_list = ", ".join(files.keys())
             append = (append + "\n" if append else "") + \
                      f"The following files are available in the workspace: {file_list}"
 
-        return self.run(full_prompt, 
+        return self.run(full_prompt,
                         system_prompt_append=append,
                         max_budget_usd=max_budget_usd,
-                        timeout=timeout)
+                        timeout=timeout,
+                        llm_config=llm_config)
 
 
 class AgentMessageBus:
     """
     In-memory message bus for agent-to-agent communication.
-    
+
     Supports:
     - Send message: one agent sends to another
     - Poll messages: agent reads its inbox
     - Thread history: conversation history between agents
     - Structured messages: artifact handoff, review, prompt suggestions
+
+    Persistence (#42): send() also appends each message to an append-only
+    JSONL log at ~/.agentflow/message_bus.jsonl. load_from_file() rebuilds
+    a bus from such a file.
     """
 
-    def __init__(self):
+    DEFAULT_LOG_PATH = Path.home() / ".agentflow" / "message_bus.jsonl"
+
+    def __init__(self, log_path: Optional[str] = None):
         self._messages: list[AgentMessage] = []
         self._inboxes: dict[str, list[AgentMessage]] = {}
+        self._log_path = Path(log_path) if log_path else self.DEFAULT_LOG_PATH
 
-    def send(self, msg: AgentMessage):
-        """Send a message to an agent's inbox."""
+    def _persist(self, msg: AgentMessage) -> None:
+        """Append a single message to the JSONL log file (#42).
+
+        Best-effort: IO errors are swallowed so send() never fails on a
+        persistence problem.
+        """
+        try:
+            self._log_path.parent.mkdir(parents=True, exist_ok=True)
+            record = {
+                "protocol": msg.protocol,
+                "from_agent": msg.from_agent,
+                "to_agent": msg.to_agent,
+                "msg_type": msg.msg_type,
+                "payload": msg.payload,
+                "timestamp": msg.timestamp,
+                "thread_id": msg.thread_id,
+            }
+            with open(self._log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
+
+    @classmethod
+    def load_from_file(cls, path: Optional[str] = None) -> "AgentMessageBus":
+        """Rebuild a bus from a JSONL log written by send() (#42).
+
+        Each line is a JSON record matching the AgentMessage fields. The
+        returned bus has its in-memory _messages and _inboxes populated, and
+        its _log_path set so subsequent send() calls continue to append.
+        """
+        log_path = Path(path) if path else cls.DEFAULT_LOG_PATH
+        bus = cls(log_path=str(log_path))
+        if not log_path.exists():
+            return bus
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    msg = AgentMessage(**record)
+                    bus._messages.append(msg)
+                    bus._inboxes.setdefault(msg.to_agent, []).append(msg)
+        except OSError:
+            pass
+        return bus
+
+    def send(self, msg=None, **kwargs) -> AgentMessage:
+        """
+        Send a message to an agent's inbox.
+
+        FIX #4: Accepts EITHER an AgentMessage instance OR keyword arguments
+        matching the AgentMessage fields. This makes the bus flexible for
+        callers that construct messages inline.
+
+        Examples:
+            bus.send(existing_msg)
+            bus.send(from_agent="a", to_agent="b", msg_type="coordination",
+                     payload={"k": "v"})
+        """
+        if msg is None:
+            msg = AgentMessage(**kwargs)
+        elif kwargs:
+            # Allow partial overrides on an existing message.
+            for k, v in kwargs.items():
+                if hasattr(msg, k):
+                    setattr(msg, k, v)
+        elif not isinstance(msg, AgentMessage):
+            raise TypeError(
+                f"send() expected AgentMessage or kwargs, got {type(msg).__name__}"
+            )
         self._messages.append(msg)
         if msg.to_agent not in self._inboxes:
             self._inboxes[msg.to_agent] = []
         self._inboxes[msg.to_agent].append(msg)
+        self._persist(msg)  # append-only JSONL persistence (#42)
         return msg
+
+    def send_raw(self, **kwargs) -> AgentMessage:
+        """
+        Send a message constructed from raw keyword arguments (FIX #4
+        convenience method).
+
+        All kwargs are forwarded to the AgentMessage constructor.
+        """
+        return self.send(AgentMessage(**kwargs))
 
     def send_artifact_handoff(self, from_agent: str, to_agent: str,
                                message: str, artifacts: list[str] = None,
@@ -382,13 +629,13 @@ class AgentMessageBus:
 class PromptOptimizer:
     """
     Analyzes workflow execution and optimizes agent prompts.
-    
+
     After a workflow run, collects:
     - Test pass/fail rates
     - Code quality issues found during review
     - Agent interaction patterns
     - Specific prompt deficiencies
-    
+
     Generates optimized prompts for future runs.
     """
 
@@ -396,7 +643,7 @@ class PromptOptimizer:
         self._prompt_history: dict[str, list[dict]] = {}
         self._optimization_log: list[dict] = []
 
-    def record_execution(self, agent_id: str, prompt: str, 
+    def record_execution(self, agent_id: str, prompt: str,
                           result: CCEngineResult,
                           test_results: dict = None,
                           review_issues: list[dict] = None):
@@ -416,7 +663,7 @@ class PromptOptimizer:
     def analyze_and_optimize(self, agent_id: str) -> list[str]:
         """
         Analyze execution history and suggest prompt optimizations.
-        
+
         Returns list of optimization suggestions.
         """
         history = self._prompt_history.get(agent_id, [])
@@ -462,3 +709,41 @@ class PromptOptimizer:
         hints = "\n\n## Optimization Hints (from previous runs)\n" + \
                 "\n".join(f"- {s}" for s in suggestions)
         return base_prompt + hints
+
+    # ── Persistence (#43) ──────────────────────────────
+
+    DEFAULT_HISTORY_PATH = Path.home() / ".agentflow" / "prompt_history.json"
+
+    def save_to_file(self, path: Optional[str] = None) -> str:
+        """Serialize _prompt_history to a JSON file (#43).
+
+        Args:
+            path: Output path. Defaults to ~/.agentflow/prompt_history.json.
+
+        Returns:
+            The path written to.
+        """
+        out_path = Path(path) if path else self.DEFAULT_HISTORY_PATH
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(self._prompt_history, f, ensure_ascii=False, indent=2)
+        return str(out_path)
+
+    @classmethod
+    def load_from_file(cls, path: Optional[str] = None) -> "PromptOptimizer":
+        """Rebuild a PromptOptimizer from a JSON file written by
+        save_to_file() (#43).
+
+        If the file does not exist or is unreadable, returns a fresh empty
+        optimizer (history preserved if readable, otherwise untouched).
+        """
+        opt = cls()
+        in_path = Path(path) if path else cls.DEFAULT_HISTORY_PATH
+        if not in_path.exists():
+            return opt
+        try:
+            with open(in_path, "r", encoding="utf-8") as f:
+                opt._prompt_history = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            pass
+        return opt
