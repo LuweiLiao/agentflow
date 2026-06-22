@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════
-# AgentFlow — 智能启动脚本
+# AgentFlow Code — 智能启动脚本
 #
 # 自动检测：
 #   - CC 引擎可用性（验证 bun + 入口文件）
@@ -38,7 +38,7 @@ DIST_DIR="${FRONTEND_DIR}/dist"
 
 echo ""
 echo -e "${CYAN}╔════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║         AgentFlow v5.0 — 启动诊断          ║${NC}"
+echo -e "${CYAN}║         AgentFlow Code v5.0 — 启动诊断          ║${NC}"
 echo -e "${CYAN}╚════════════════════════════════════════════════╝${NC}"
 echo ""
 

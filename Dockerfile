@@ -40,8 +40,8 @@ RUN bun install --production --frozen-lockfile
 # ═══════════════════════════════════════════════════════════
 FROM python:3.12-slim
 
-LABEL org.opencontainers.image.title="AgentFlow"
-LABEL org.opencontainers.image.description="AI multi-agent workflow orchestration with built-in Claude Code engine"
+LABEL org.opencontainers.image.title="AgentFlow Code"
+LABEL org.opencontainers.image.description="AgentFlow Code — multi-agent workflow with built-in Claude Code executor"
 LABEL org.opencontainers.image.version="5.0"
 
 WORKDIR /app

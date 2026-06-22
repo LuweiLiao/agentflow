@@ -1,4 +1,4 @@
-# AgentFlow — Agent 编排平台
+# AgentFlow Code — Agent 工作流编排平台（内置 Claude Code 执行引擎）
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
