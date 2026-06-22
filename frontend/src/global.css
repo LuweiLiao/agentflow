@@ -526,6 +526,31 @@ html {
   fill: var(--color-text-primary);
   font-size: 10px;
 }
+/* ── Responsive breakpoints ────────────────────────────────────── */
+/* P0-2: keep the toolbar / panels usable on tablet, laptop, and mobile. */
+
+/* Tablet / narrow laptop: <1280px — compact toolbar, smaller panels */
+@media (max-width: 1279px) {
+  .af-canvas .react-flow__node {
+    font-size: 11px !important;
+  }
+  /* Reduce log panel height */
+  .af-log-panel { min-height: 80px !important; }
+}
+
+/* Small screens: <1024px — hide block library labels, compact mode */
+@media (max-width: 1023px) {
+  .af-toolbar-status { font-size: 11px !important; }
+  .af-block-library-item-desc { display: none; }
+}
+
+/* Mobile: <768px — minimal mode */
+@media (max-width: 767px) {
+  .af-toolbar-status { display: none !important; }
+  .af-block-library-item-desc { display: none !important; }
+  .af-inspector-panel { width: 100vw !important; }
+}
+
 .react-flow__edge .react-flow__edge-textbg {
   fill: var(--color-bg-4);
 }

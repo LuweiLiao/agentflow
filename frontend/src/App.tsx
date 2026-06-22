@@ -21,6 +21,7 @@ import InspectorPanel from "./InspectorPanel";
 import LogPanel from "./LogPanel";
 import EvolutionPanel from "./EvolutionPanel";
 import BlockLibrary, { BLOCK_LIBRARY, DRAG_MIME } from "./BlockLibrary";
+import { useMediaQuery } from "./useMediaQuery";  // P0-2: responsive breakpoints
 import { api } from "./api";
 import {
   PROFILE_COLORS,
@@ -1188,6 +1189,9 @@ function CanvasInner() {
   const [isDragOver, setIsDragOver] = useState(false);
   const isDragOverRef = useRef(false);
   isDragOverRef.current = isDragOver;
+
+  // P0-2: auto-collapse the block library sidebar on narrow screens (<1024px).
+  const isNarrowScreen = useMediaQuery("(max-width: 1023px)");
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
@@ -1478,6 +1482,7 @@ function CanvasInner() {
 
         {/* B6 — status bar (P1-#5: bumped font to 12px for legibility) */}
         <div
+          className="af-toolbar-status"
           style={{ ...toolbarStatusBarStyle, fontSize: 12 }}
           aria-live="polite"
           aria-atomic="true"
@@ -1544,8 +1549,8 @@ function CanvasInner() {
 
       {/* ── Main Canvas + Inspector ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        {/* Simulink-style block library sidebar */}
-        <BlockLibrary onAddNode={handleAddFromLibrary} />
+        {/* Simulink-style block library sidebar (P0-2: auto-collapses on narrow screens) */}
+        <BlockLibrary onAddNode={handleAddFromLibrary} forceCollapsed={isNarrowScreen} />
 
         <div
           ref={canvasRef}

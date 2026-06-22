@@ -128,6 +128,7 @@ export default function LogPanel({ logs, onClear, errorCount = 0 }: LogPanelProp
 
   return (
     <div
+      className="af-log-panel"
       style={{
         flexShrink: 0,
         background: colors.bg[1],

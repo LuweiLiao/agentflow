@@ -63,6 +63,8 @@ export const toolbarRowStyle: CSSProperties = {
   gap: spacing[8],
   padding: `${spacing[8]}px ${spacing[12]}px`,
   minWidth: 0,
+  flexWrap: "wrap",  // P0-2: safety net — let toolbar buttons wrap on narrow screens instead of clipping
+  rowGap: spacing[4],
 };
 
 export const toolbarLeftStyle: CSSProperties = {

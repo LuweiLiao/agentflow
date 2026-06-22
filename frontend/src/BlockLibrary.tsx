@@ -44,6 +44,13 @@ const COLLAPSE_KEY = "agentflow:blockLibraryCollapsed";
 interface BlockLibraryProps {
   /** Called when the user requests a node be created from the palette. */
   onAddNode?: (profile: string) => void;
+  /**
+   * P0-2: when true the sidebar renders collapsed regardless of the user's
+   * persisted preference. Used by App to auto-collapse on narrow screens
+   * (<1024px). The internal toggle still flips localStorage so the user's
+   * last choice is restored once the viewport widens again.
+   */
+  forceCollapsed?: boolean;
 }
 
 /**
@@ -51,7 +58,7 @@ interface BlockLibraryProps {
  * Cards are draggable (HTML5 drag-and-drop); the ReactFlow canvas handles
  * the drop to instantiate a new node. Collapse state is persisted.
  */
-export default function BlockLibrary({ onAddNode }: BlockLibraryProps) {
+export default function BlockLibrary({ onAddNode, forceCollapsed = false }: BlockLibraryProps) {
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem(COLLAPSE_KEY) === "1";
@@ -80,7 +87,10 @@ export default function BlockLibrary({ onAddNode }: BlockLibraryProps) {
     );
   }, [query]);
 
-  const width = collapsed ? BLOCK_LIBRARY_WIDTH_COLLAPSED : BLOCK_LIBRARY_WIDTH_OPEN;
+  // P0-2: auto-collapse on narrow screens; the user's persisted preference
+  // is still honoured once the viewport widens again.
+  const effectiveCollapsed = collapsed || forceCollapsed;
+  const width = effectiveCollapsed ? BLOCK_LIBRARY_WIDTH_COLLAPSED : BLOCK_LIBRARY_WIDTH_OPEN;
 
   return (
     <aside
@@ -102,9 +112,9 @@ export default function BlockLibrary({ onAddNode }: BlockLibraryProps) {
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
-        aria-label={collapsed ? "展开模块库" : "折叠模块库"}
-        aria-expanded={!collapsed}
-        title={collapsed ? "展开模块库" : "折叠模块库"}
+        aria-label={effectiveCollapsed ? "展开模块库" : "折叠模块库"}
+        aria-expanded={!effectiveCollapsed}
+        title={effectiveCollapsed ? "展开模块库" : "折叠模块库"}
         style={{
           display: "flex",
           alignItems: "center",
@@ -120,10 +130,10 @@ export default function BlockLibrary({ onAddNode }: BlockLibraryProps) {
           transition: `color ${transition.fast}, background ${transition.fast}`,
         }}
       >
-        {collapsed ? "▶" : "◀ 模块库"}
+        {effectiveCollapsed ? "▶" : "◀ 模块库"}
       </button>
 
-      {!collapsed && (
+      {!effectiveCollapsed && (
         <>
           {/* Search / filter */}
           <div style={{ padding: `${spacing[8]}px ${spacing[8]}px`, borderBottom: `1px solid ${colors.border.subtle}` }}>
@@ -248,6 +258,7 @@ function BlockCard({ block }: { block: BlockDef }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <h3 style={{ fontSize: 12, fontWeight: 600, color: colors.text.primary, margin: 0 }}>{block.label}</h3>
         <div
+          className="af-block-library-item-desc"
           style={{
             fontSize: 11,
             color: colors.text.secondary,
