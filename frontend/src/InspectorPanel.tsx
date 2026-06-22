@@ -431,7 +431,7 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
               }
             >
               <option value="standard">standard</option>
-              <option value="claude-code">claude-code</option>
+              <option value="claude-code">AgentFlow-Code</option>
             </select>
           </div>
         </CollapsibleSection>

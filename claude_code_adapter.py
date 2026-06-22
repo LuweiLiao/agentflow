@@ -1,5 +1,5 @@
 """
-Claude Code Engine Adapter — Low-level bridge to CC engine subprocess.
+AgentFlow-Code Engine Adapter — Low-level bridge to AgentFlow-Code engine subprocess.
 
 Spawns the CC engine (bun run src/entrypoints/cli.tsx -p) as a subprocess,
 communicates via stdin/stdout JSON protocol.

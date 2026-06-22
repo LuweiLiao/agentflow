@@ -1,7 +1,7 @@
 {
   "name": "agentflow",
   "version": "1.0.0",
-  "description": "AgentFlow Code — AI multi-agent workflow with built-in Claude Code engine",
+  "description": "AgentFlow — AI-generated multi-agent workflow canvas",
   "type": "module",
   "scripts": {
     "build": "vite build",

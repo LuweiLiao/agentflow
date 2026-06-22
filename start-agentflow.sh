@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════
-# AgentFlow Code — 智能启动脚本
+# AgentFlow — 智能启动脚本
 #
 # 自动检测：
 #   - CC 引擎可用性（验证 bun + 入口文件）
@@ -38,12 +38,12 @@ DIST_DIR="${FRONTEND_DIR}/dist"
 
 echo ""
 echo -e "${CYAN}╔════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║         AgentFlow Code v5.0 — 启动诊断          ║${NC}"
+echo -e "${CYAN}║         AgentFlow v5.0 — 启动诊断          ║${NC}"
 echo -e "${CYAN}╚════════════════════════════════════════════════╝${NC}"
 echo ""
 
 # ── 1. 检测 CC 引擎 ──
-echo -e "${CYAN}── ① Claude Code 引擎 ──${NC}"
+echo -e "${CYAN}── ① AgentFlow-Code 引擎 ──${NC}"
 if [ -d "$CC_ENGINE_DIR" ]; then
     ENTRY="${CC_ENGINE_DIR}/src/entrypoints/cli.tsx"
     if [ -f "$ENTRY" ]; then
@@ -51,12 +51,12 @@ if [ -d "$CC_ENGINE_DIR" ]; then
         ok "入口文件: ${ENTRY}"
     else
         warn "引擎目录存在但缺少入口文件: ${ENTRY}"
-        warn "Agent 类型 'claude-code' 不可用，将回退到 LLM API"
+        warn "AgentFlow-Code 引擎不可用，将回退到 LLM API"
         CC_ENGINE_DIR=""
     fi
 else
     warn "未找到引擎目录: ${CC_ENGINE_DIR}"
-    warn "Agent 类型 'claude-code' 不可用，将回退到 LLM API"
+    warn "AgentFlow-Code 引擎不可用，将回退到 LLM API"
     CC_ENGINE_DIR=""
 fi
 
@@ -114,7 +114,7 @@ echo -e "${CYAN}── ④ 启动后端 ──${NC}"
 # 确保数据目录存在
 mkdir -p "${SCRIPT_DIR}/.agentflow"
 
-# 设置 CC 引擎环境变量（供 claude_code_adapter.py 读取）
+# 设置 AgentFlow-Code 引擎环境变量（供 claude_code_adapter.py 读取）
 export AGENTFLOW_CC_ENGINE_DIR="${CC_ENGINE_DIR}"
 export BUN_PATH="${BUN}"
 

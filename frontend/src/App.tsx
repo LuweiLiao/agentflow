@@ -143,7 +143,7 @@ function CanvasInner() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(saved.edges);
   const [requirement, setRequirement] = useState("");
   const [selectedNode, setSelectedNode] = useState<Node<AgentNodeData> | null>(null);
-  const [logs, setLogs] = useState<string[]>([`[${new Date().toLocaleTimeString()}] AgentFlow Code 已启动`]);
+  const [logs, setLogs] = useState<string[]>([`[${new Date().toLocaleTimeString()}] AgentFlow 已启动`]);
   const [isRunning, setIsRunning] = useState(false);
   const [isDecomposing, setIsDecomposing] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -888,7 +888,7 @@ function CanvasInner() {
     setEdges([]);
     setSelectedNode(null);
     setRequirement("");
-    setLogs([`[${new Date().toLocaleTimeString()}] AgentFlow Code 已启动`]);
+    setLogs([`[${new Date().toLocaleTimeString()}] AgentFlow 已启动`]);
     setCurrentRunId("");
     setSavedWorkflowId(null);
     if (sseController.current) {
@@ -1060,7 +1060,7 @@ function CanvasInner() {
         <div style={toolbarRowStyle}>
           {/* Left section */}
           <div style={toolbarLeftStyle}>
-            <h1 style={logoStyle}>🧬 AgentFlow Code</h1>
+            <h1 style={logoStyle}>🧬 AgentFlow</h1>
             <span style={toolbarDividerStyle} />
             <AutoGrowTextarea
               value={requirement}

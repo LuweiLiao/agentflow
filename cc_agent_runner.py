@@ -1,5 +1,5 @@
 """
-Claude Code Agent Runner — 实现与 AgentRunner 相同的 execute() 接口，
+AgentFlow-Code Agent Runner — 实现与 AgentRunner 相同的 execute() 接口，
 但使用 CC 引擎作为后端（而非 LLM API 调用）。
 
 用法:
@@ -29,10 +29,10 @@ except ImportError:
 
 class CCAgentRunner:
     """
-    Claude Code Agent Runner — 基于 CC 引擎的 Agent。
+    AgentFlow-Code Agent Runner — 基于 CC 引擎的 Agent。
     
     实现与 AgentRunner.execute() 相同的返回接口，
-    但使用 Claude Code 引擎源码作为推理后端。
+    但使用 AgentFlow-Code 引擎源码作为推理后端。
     """
 
     def __init__(self, max_budget_usd: float = 0.5, 

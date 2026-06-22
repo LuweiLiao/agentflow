@@ -1,6 +1,6 @@
-# AgentFlow + Claude Code Engine — 一体化 Docker 构建
+# AgentFlow + AgentFlow-Code Engine — 一体化 Docker 构建
 #
-# CC 引擎源码已内置于项目 claude-code-engine/ 目录。
+# AgentFlow-Code 引擎源码已内置于项目 claude-code-engine/ 目录。
 # git clone 后直接 docker compose build 即可，无需外部依赖。
 #
 # Stage 1: 前端构建 (Node.js 22)
@@ -40,8 +40,8 @@ RUN bun install --production --frozen-lockfile
 # ═══════════════════════════════════════════════════════════
 FROM python:3.12-slim
 
-LABEL org.opencontainers.image.title="AgentFlow Code"
-LABEL org.opencontainers.image.description="AgentFlow Code — multi-agent workflow with built-in Claude Code executor"
+LABEL org.opencontainers.image.title="AgentFlow"
+LABEL org.opencontainers.image.description="AgentFlow — multi-agent workflow with built-in AgentFlow-Code executor"
 LABEL org.opencontainers.image.version="5.0"
 
 WORKDIR /app
