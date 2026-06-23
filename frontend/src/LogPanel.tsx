@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { colors, radius, spacing, transition } from "./theme";
+import { IconSearch, IconTrash } from "./icons";
 
 interface LogPanelProps {
   logs: string[];
@@ -165,7 +166,7 @@ export default function LogPanel({ logs, onClear, errorCount = 0 }: LogPanelProp
       >
         <span style={{ fontSize: 11, color: colors.text.tertiary }}>▾</span>  {/* #12: was 10 — too small */}
         <h2 style={{ fontSize: 11, fontWeight: 600, color: colors.text.secondary, margin: 0 }}>
-          📜 日志
+          日志
         </h2>
         <span style={{ fontSize: 10, color: colors.text.tertiary }}>
           ({visibleLogs.length}/{logs.length})
@@ -219,7 +220,7 @@ export default function LogPanel({ logs, onClear, errorCount = 0 }: LogPanelProp
             }}
             className="af-log-clear-btn"
           >
-            🗑
+            <IconTrash size={14} />
           </button>
         )}
         <span style={{ fontSize: 11, color: colors.text.secondary }}>  {/* R2-#10: was tertiary */}
@@ -240,24 +241,29 @@ export default function LogPanel({ logs, onClear, errorCount = 0 }: LogPanelProp
             }}
           >
             {/* E1 — search input */}
-            <input
-              type="text"
-              aria-label="搜索日志"
-              placeholder="🔍 搜索日志..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              style={{
-                flex: 1,
-                maxWidth: 240,
-                padding: "3px 8px",
-                background: colors.bg[2],
-                border: `1px solid ${colors.border.default}`,
-                borderRadius: radius.md,
-                color: colors.text.primary,
-                fontSize: 11,
-                fontFamily: "inherit",
-              }}
-            />
+            <div style={{ position: "relative", flex: 1, maxWidth: 240 }}>
+              <span style={{ position: "absolute", left: 7, top: "50%", transform: "translateY(-50%)", color: colors.text.tertiary, pointerEvents: "none", display: "inline-flex" }}>
+                <IconSearch size={12} />
+              </span>
+              <input
+                type="text"
+                aria-label="搜索日志"
+                placeholder="搜索日志..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  padding: "3px 8px 3px 22px",
+                  background: colors.bg[2],
+                  border: `1px solid ${colors.border.default}`,
+                  borderRadius: radius.md,
+                  color: colors.text.primary,
+                  fontSize: 11,
+                  fontFamily: "inherit",
+                }}
+              />
+            </div>
             {/* E4 — level filter buttons as radio group */}
             <div style={{ display: "flex", gap: 2 }} role="radiogroup" aria-label="日志级别过滤">
               {LEVEL_BUTTONS.map((b) => {
@@ -315,7 +321,7 @@ export default function LogPanel({ logs, onClear, errorCount = 0 }: LogPanelProp
               {visibleLogs.length === 0 ? (
                 <div style={{ color: colors.text.tertiary, padding: "8px 0", textAlign: "center" }}>
                   {logs.length === 0
-                    ? "📝 执行工作流后将在此显示运行日志"
+                    ? "执行工作流后将在此显示运行日志"
                     : "没有匹配的日志"}
                 </div>
               ) : (
@@ -327,7 +333,7 @@ export default function LogPanel({ logs, onClear, errorCount = 0 }: LogPanelProp
                     {renderSlice.map((line, i) => {
                       const lv = levelOf(line);
                       return (
-                        <div key={line.slice(0, 32)} style={{ color: colorForLevel(lv), height: ITEM_HEIGHT, overflow: "hidden", whiteSpace: "pre" }}>
+                        <div key={line.slice(0, 32)} className="af-log-entry" style={{ color: colorForLevel(lv), height: ITEM_HEIGHT, overflow: "hidden", whiteSpace: "pre" }}>
                           {line}
                         </div>
                       );

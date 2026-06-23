@@ -54,7 +54,8 @@ import {
   runGroupStopBtn,
   layoutBtnStyle,
 } from "./styles";
-import { colors, fontSize, profileColor, radius, shadow, spacing, transition, zIndex, formatCost } from "./theme";  // #2: added radius
+import { colors, fontSize, profileColor, radius, shadow, spacing, transition, zIndex, formatCost } from "./theme";
+import { IconAI, IconPlay, IconStop, IconDownload, IconUpload, IconSave, IconUndo, IconRedo, IconLayout, IconReset, IconEvolution, IconSearch, IconClose, IconChevronDown, IconTrash, IconPlus, IconAgentFlow, IconSettings } from "./icons";
 import type { WorkflowNode, NodeStatus } from "./types";
 
 const MAX_REQUIREMENT_LEN = 2000;
@@ -1290,7 +1291,7 @@ function CanvasInner() {
         <div style={toolbarRowStyle}>
           {/* Left section */}
           <div style={toolbarLeftStyle}>
-            <h1 style={logoStyle}>🧬 AgentFlow</h1>
+            <h1 style={logoStyle}><IconAgentFlow size={18} /> AgentFlow</h1>
             <span style={toolbarDividerStyle} />
             <AutoGrowTextarea
               value={requirement}
@@ -1307,7 +1308,7 @@ function CanvasInner() {
             >
               {/* #6: CSS spinner (`.af-spinner` in global.css) replaces the
                    simple disabled look while the supervisor is running. */}
-              {isDecomposing ? (<><span className="af-spinner" /> 编排中...</>) : "🤖 AI 编排"}
+              {isDecomposing ? (<><span className="af-spinner" /> 编排中...</>) : <><IconAI size={16} /> <span style={{marginLeft: 6}}>AI 编排</span></>}
             </button>
 
             {/* Simulink-style transport controls: Run / Pause / Stop */}
@@ -1325,7 +1326,7 @@ function CanvasInner() {
                 title="执行当前工作流"
               >
                 {/* #6: CSS spinner conveys active execution instead of a static emoji. */}
-                {isRunning ? (<><span className="af-spinner" /> 执行中</>) : "▶ 执行"}
+                {isRunning ? (<><span className="af-spinner" /> 执行中</>) : <><IconPlay size={14} /> 执行</>}
               </button>
               {isRunning && (
                 <button
@@ -1334,7 +1335,7 @@ function CanvasInner() {
                   onClick={isPaused ? handleResume : handlePause}
                   title={isPaused ? "继续执行" : "暂停执行"}
                 >
-                  {isPaused ? "▶ 继续" : "⏸ 暂停"}
+                  {isPaused ? <><IconPlay size={14} /> 继续</> : <><IconStop size={14} /> 暂停</>}
                 </button>
               )}
               {isRunning && (
@@ -1344,7 +1345,7 @@ function CanvasInner() {
                   onClick={handleStop}
                   title="停止执行"
                 >
-                  ⏹ 停止
+                  <><IconStop size={14} /> 停止</>
                 </button>
               )}
             </div>
@@ -1357,6 +1358,7 @@ function CanvasInner() {
               value=""
               onChange={handleExample}
               style={selectMiniStyle}
+              className="af-custom-select"
               aria-label="选择示例需求"
               title="示例需求"
             >
@@ -1378,7 +1380,7 @@ function CanvasInner() {
               title="导出工作流为 JSON"
               disabled={nodes.length === 0}
             >
-              📤
+              <IconDownload size={16} />
             </button>
             <button
               type="button"
@@ -1388,7 +1390,7 @@ function CanvasInner() {
               aria-label="导入 JSON"
               title="从 JSON 导入工作流"
             >
-              📥
+              <IconUpload size={16} />
             </button>
 
             {/* P3: save to / restore from backend server */}
@@ -1409,7 +1411,7 @@ function CanvasInner() {
                   : "💾 保存工作流到服务器"
               }
             >
-              {isSaving ? "⏳" : "💾"}
+              {isSaving ? <span style={{fontSize: 13}}>⏳</span> : <IconSave size={16} />}
             </button>
 
             <span style={toolbarDividerStyle} />
@@ -1424,7 +1426,7 @@ function CanvasInner() {
               aria-label="撤销"
               title="撤销 (Ctrl+Z)"
             >
-              ↩️
+              <IconUndo size={16} />
             </button>
             <button
               type="button"
@@ -1435,7 +1437,7 @@ function CanvasInner() {
               aria-label="重做"
               title="重做 (Ctrl+Shift+Z / Ctrl+Y)"
             >
-              ↪️
+              <IconRedo size={16} />
             </button>
 
             <span style={toolbarDividerStyle} />
@@ -1449,7 +1451,7 @@ function CanvasInner() {
               title="📐 自动布局（按依赖深度左→右排列）"
               disabled={nodes.length === 0}
             >
-              📐
+              <IconLayout size={16} />
             </button>
             <button
               type="button"
@@ -1459,7 +1461,7 @@ function CanvasInner() {
               aria-label="重置画布"
               title="重置画布"
             >
-              🔄
+              <IconReset size={16} />
             </button>
             <button
               type="button"
@@ -1475,7 +1477,7 @@ function CanvasInner() {
               title="自我进化面板"
               aria-pressed={showEvolution}
             >
-              🧬
+              <IconEvolution size={16} />
             </button>
           </div>
         </div>
@@ -1494,6 +1496,7 @@ function CanvasInner() {
           >
             <span
               aria-hidden
+              className={`af-status-dot ${backendOnline === null ? "pending" : backendOnline ? "online" : "offline"}`}
               style={{
                 width: 8,
                 height: 8,
@@ -1514,8 +1517,8 @@ function CanvasInner() {
             />
             {backendOnline === null ? "连接中" : backendOnline ? "在线" : "离线"}
           </span>
-          <span>🧩 节点: <strong style={{ color: colors.text.secondary }}>{nodeCount}</strong></span>
-          <span>🔗 连线: <strong style={{ color: colors.text.secondary }}>{edgeCount}</strong></span>
+          <span>节点: <strong style={{ color: colors.text.secondary }}>{nodeCount}</strong></span>
+          <span>连线: <strong style={{ color: colors.text.secondary }}>{edgeCount}</strong></span>
           <span>
             状态:{" "}
             <strong style={{ color: isRunning ? colors.status.running : colors.text.secondary }}>
@@ -1550,12 +1553,14 @@ function CanvasInner() {
       {/* ── Main Canvas + Inspector ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* Simulink-style block library sidebar (P0-2: auto-collapses on narrow screens) */}
-        <BlockLibrary onAddNode={handleAddFromLibrary} forceCollapsed={isNarrowScreen} />
+        <div className="af-panel-left">
+          <BlockLibrary onAddNode={handleAddFromLibrary} forceCollapsed={isNarrowScreen} />
+        </div>
 
         <div
           ref={canvasRef}
           id="main-canvas"
-          className={`af-canvas${isDragOver ? " af-canvas--dragover" : ""}`}
+          className={`af-canvas${isDragOver ? " af-canvas--dragover" : ""} af-canvas-grid`}
           style={{ flex: 1, position: "relative", outline: "none" }}
           tabIndex={0}
           onDrop={onDrop}
@@ -1564,6 +1569,7 @@ function CanvasInner() {
         >
           {nodes.length === 0 && (
             <div
+              className="af-fade-in"
               style={{
                 position: "absolute", inset: 0, display: "flex",
                 flexDirection: "column", alignItems: "center", justifyContent: "center",
@@ -1773,7 +1779,7 @@ function CanvasInner() {
           </ReactFlow>
         </div>
 
-        <div ref={inspectorWrapRef} tabIndex={-1} style={{ outline: "none" }}>
+        <div ref={inspectorWrapRef} tabIndex={-1} className="af-panel-right" style={{ outline: "none" }}>
           <InspectorPanel
             node={selectedNode ? rfNodeToWorkflowNode(selectedNode) : null}
             onUpdate={handleNodeUpdate}

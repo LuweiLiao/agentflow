@@ -554,3 +554,119 @@ html {
 .react-flow__edge .react-flow__edge-textbg {
   fill: var(--color-bg-4);
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Phase 1 Visual Overhaul: Brand, Icons, Grid, Shadows & Transitions
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Canvas dot grid ──────────────────────────────────────────── */
+.af-canvas-grid {
+  background-image: radial-gradient(circle, rgba(255,255,255,0.04) 0.8px, transparent 0.8px);
+  background-size: 24px 24px;
+}
+
+/* ── Node shadows ─────────────────────────────────────────────── */
+.af-node {
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 2px 4px rgba(0,0,0,0.15);
+}
+.af-node:hover {
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.1), 0 4px 12px rgba(0,0,0,0.25);
+  transform: translateY(-1px);
+}
+.af-node.selected {
+  box-shadow: 0 0 0 2px var(--color-accent-blue), 0 0 12px rgba(96,165,250,0.2);
+}
+
+/* ── Panel separation ─────────────────────────────────────────── */
+.af-panel-left {
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+.af-panel-right {
+  border-left: 1px solid rgba(255,255,255,0.06);
+}
+
+/* ── Smooth transitions ───────────────────────────────────────── */
+.af-transition {
+  transition: all 0.15s ease;
+}
+.af-fade-in {
+  animation: afFadeIn 0.2s ease-out;
+}
+@keyframes afFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Edge hover enhancement ───────────────────────────────────── */
+.react-flow__edge-path {
+  transition: stroke-width 0.15s ease, stroke-opacity 0.15s ease;
+}
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke-width: 3px !important;
+}
+
+/* ── Custom select styling ────────────────────────────────────── */
+.af-custom-select {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  padding: 4px 28px 4px 10px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 20 20'%3E%3Cpath fill='%238b96ac' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  min-width: 140px;
+  transition: border-color 0.15s ease;
+}
+.af-custom-select:hover {
+  border-color: var(--color-border-bright);
+}
+.af-custom-select:focus {
+  outline: none;
+  border-color: var(--color-accent-blue);
+}
+
+/* ── Status indicator dot ─────────────────────────────────────── */
+.af-status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.af-status-dot.online {
+  background: #34d399;
+  box-shadow: 0 0 6px rgba(52,211,153,0.4);
+}
+.af-status-dot.offline {
+  background: #f87171;
+}
+
+/* ── Toolbar divider ──────────────────────────────────────────── */
+.af-toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255,255,255,0.08);
+  margin: 0 4px;
+}
+
+/* ── Log using monospace font ─────────────────────────────────── */
+.af-log-entry {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ── Disabled button styling ──────────────────────────────────── */
+.af-btn:disabled,
+.af-btn[aria-disabled="true"] {
+  opacity: 0.3;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}

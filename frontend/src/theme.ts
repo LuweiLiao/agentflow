@@ -125,6 +125,16 @@ export const transition = {
   slow: "0.3s cubic-bezier(0.4,0,0.2,1)",
 } as const;
 
+/* ── Brand palette ───────────────────────────────────────────────── */
+
+export const brand = {
+  primary: "#5e6ad2",      // Linear-style indigo for CTAs
+  accent: "#7170ff",       // Brighter variant for interactive
+  hover: "#828fff",        // Hover state
+  muted: "rgba(94,106,210,0.15)",  // Subtle backgrounds
+  gradient: "linear-gradient(135deg, #5e6ad2, #8b5cf6)", // Brand gradient
+} as const;
+
 /* ── Z-index layers ─────────────────────────────────────────────── */
 
 export const zIndex = {

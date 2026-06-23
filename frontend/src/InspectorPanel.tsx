@@ -3,6 +3,7 @@ import type { WorkflowNode, Profile, NodeStatus, NodeParams } from "./types";
 import { STATUS_LABELS } from "./types";
 import { colors, radius, shadow, spacing, transition, formatCost, formatDuration } from "./theme";
 import { PROFILE_CONFIG, statusMeta } from "./utils";  // #3/#4: unified maps
+import { IconSettings, IconTrash } from "./icons";
 
 type InspectorPanelProps = {
   node: WorkflowNode | null;
@@ -107,34 +108,46 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
 
   if (!node) {
     return (
-      <div style={panelStyle}>
-        <div style={headerStyle}>📋 检查器</div>
+      <div style={panelStyle} className="af-panel-right">
+        <div style={headerStyle}><IconSettings size={16} /> 检查器</div>
         {/* #5/#29/#30 — Rich empty state with guidance */}
-        <div style={{
+        <div className="af-fade-in" style={{
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: 12,
-          marginTop: 40,
+          gap: 16,
+          marginTop: 48,
           color: colors.text.tertiary,
           textAlign: "center",
         }}>
-          <div style={{ fontSize: 32, opacity: 0.4 }}>👆</div>
-          <h2 style={{ fontSize: 13, fontWeight: 500, color: colors.text.secondary, margin: 0 }}>
-            点击节点查看属性
+          <div style={{
+            width: 48,
+            height: 48,
+            borderRadius: "50%",
+            background: "rgba(255,255,255,0.04)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: colors.text.tertiary,
+            opacity: 0.6,
+          }}>
+            <IconSettings size={24} />
+          </div>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: colors.text.secondary, margin: 0 }}>
+            未选中节点
           </h2>
-          <div style={{ fontSize: 11, lineHeight: 1.7, maxWidth: 200, color: colors.text.secondary }}>
-            在画布中选中任意节点后，<br />这里将显示详细信息和编辑面板
+          <div style={{ fontSize: 12, lineHeight: 1.7, maxWidth: 200, color: colors.text.tertiary }}>
+            在画布中点击任意节点，<br />此处将显示详细信息和编辑面板
           </div>
         </div>
         {/* #30 — workflow summary in footer */}
         <div style={{ ...footerStatStyle, marginTop: "auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>🧩 节点</span>
+            <span>节点</span>
             <strong style={{ color: colors.text.secondary }}>{graphInfo.nodes}</strong>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>🔗 连线</span>
+            <span>连线</span>
             <strong style={{ color: colors.text.secondary }}>{graphInfo.edges}</strong>
           </div>
           {graphInfo.nodes > 0 && (
@@ -506,7 +519,7 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
               transition: `background ${transition.fast}, border-color ${transition.fast}`,
             }}
           >
-            🗑 删除节点
+            <IconTrash size={14} /> 删除节点
           </button>
         ) : (
           <div

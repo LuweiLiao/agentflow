@@ -38,8 +38,9 @@ export const containerStyle: CSSProperties = {
   background: colors.bg[0],
   color: colors.text.primary,
   fontFamily:
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif',
+    '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif',
   overflow: "hidden",
+  border: "1px solid rgba(255,255,255,0.06)",
 };
 
 /* ── Toolbar ───────────────────────────────────────────────────── */
@@ -119,6 +120,25 @@ export const reqInputStyle: CSSProperties = {
 };
 
 /* ── Buttons ───────────────────────────────────────────────────── */
+
+/** Unified base style that all buttons extend. */
+export const btnBaseStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: spacing[4],
+  height: 30,
+  padding: `0 ${spacing[10]}px`,
+  fontSize: fontSize.base,
+  fontWeight: 500,
+  borderRadius: radius.md,
+  border: `1px solid ${colors.border.subtle}`,
+  background: "rgba(255,255,255,0.03)",
+  color: colors.text.secondary,
+  cursor: "pointer",
+  transition: "all 0.15s ease",
+  whiteSpace: "nowrap",
+};
 
 export const btnStyle: CSSProperties = {
   padding: `${spacing[8]}px ${spacing[16]}px`,

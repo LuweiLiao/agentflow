@@ -50,7 +50,9 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
 
   const cardClass = [
     "agentflow-node-card",
+    "af-node",
     isRunning ? "agentflow-node--running" : "",
+    selected ? "selected" : "",
   ]
     .filter(Boolean)
     .join(" ");

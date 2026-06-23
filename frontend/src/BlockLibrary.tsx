@@ -12,6 +12,7 @@ import {
   BLOCK_LIBRARY_WIDTH_COLLAPSED,
 } from "./theme";
 import { PROFILE_CONFIG } from "./utils";  // #4: single source of profile metadata
+import { IconAnalysis, IconDesign, IconDevelop, IconTest, IconDoc, IconDeploy, IconSearch, IconChevronRight } from "./icons";
 
 /** Profile types a user can drag onto the canvas. */
 export interface BlockDef {
@@ -130,24 +131,27 @@ export default function BlockLibrary({ onAddNode, forceCollapsed = false }: Bloc
           transition: `color ${transition.fast}, background ${transition.fast}`,
         }}
       >
-        {effectiveCollapsed ? "▶" : "◀ 模块库"}
+        {effectiveCollapsed ? <IconChevronRight size={14} /> : <><span style={{display: "inline-flex", transform: "rotate(180deg)"}}><IconChevronRight size={14} /></span> 模块库</>}
       </button>
 
       {!effectiveCollapsed && (
         <>
           {/* Search / filter */}
-          <div style={{ padding: `${spacing[8]}px ${spacing[8]}px`, borderBottom: `1px solid ${colors.border.subtle}` }}>
+          <div style={{ padding: `${spacing[8]}px ${spacing[8]}px`, borderBottom: `1px solid ${colors.border.subtle}`, position: "relative" }}>
+            <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: colors.text.tertiary, pointerEvents: "none", display: "inline-flex" }}>
+              <IconSearch size={14} />
+            </span>
             <input
               type="text"
               className="af-search-input"
               aria-label="搜索模块"
-              placeholder="🔍 搜索..."
+              placeholder="搜索..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               style={{
                 width: "100%",
                 boxSizing: "border-box",
-                padding: `6px ${spacing[8]}px`,  // #5: was 4px → 6px vertical padding for taller input
+                padding: `6px ${spacing[8]}px 6px 28px`,  // #5: was 4px → 6px vertical, left padding for icon
                 background: colors.bg[1],
                 border: `1px solid ${colors.border.default}`,
                 borderRadius: radius.md,
@@ -211,6 +215,16 @@ function BlockCard({ block }: { block: BlockDef }) {
     }
   }, []);
 
+  const profileIcons: Record<string, React.ReactNode> = {
+    analysis: <IconAnalysis size={16} />,
+    design: <IconDesign size={16} />,
+    dev: <IconDevelop size={16} />,
+    test: <IconTest size={16} />,
+    doc: <IconDoc size={16} />,
+    deploy: <IconDeploy size={16} />,
+  };
+  const iconNode = profileIcons[block.profile] || <span style={{ fontSize: 16, lineHeight: 1 }}>{block.icon}</span>;
+
   return (
     <div
       className="af-block-card"
@@ -254,7 +268,7 @@ function BlockCard({ block }: { block: BlockDef }) {
           background: block.color,
         }}
       />
-      <span style={{ fontSize: 16, lineHeight: 1 }}>{block.icon}</span>
+      <span style={{ display: "inline-flex", alignItems: "center", lineHeight: 1, color: block.color }}>{iconNode}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <h3 style={{ fontSize: 12, fontWeight: 600, color: colors.text.primary, margin: 0 }}>{block.label}</h3>
         <div
