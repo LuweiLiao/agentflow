@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import type { CSSProperties } from "react";
 import {
   colors,
+  fontSize,
   radius,
   shadow,
   spacing,
@@ -151,14 +152,14 @@ export default function BlockLibrary({ onAddNode, forceCollapsed = false }: Bloc
               style={{
                 width: "100%",
                 boxSizing: "border-box",
-                padding: `6px ${spacing[8]}px 6px 28px`,  // #5: was 4px → 6px vertical, left padding for icon
+                padding: `7px ${spacing[8]}px 7px 30px`,  // P2: increased padding for 13px font
                 background: colors.bg[1],
                 border: `1px solid ${colors.border.default}`,
                 borderRadius: radius.md,
                 color: colors.text.primary,
-                fontSize: 12,
+                fontSize: fontSize.base,  // P2: was 12 — now 13px for better readability
                 fontFamily: "inherit",
-                minHeight: 28,  // #5: ensure at least 28px height
+                minHeight: 32,  // P2: was 28 — accommodate larger font
               }}
             />
           </div>

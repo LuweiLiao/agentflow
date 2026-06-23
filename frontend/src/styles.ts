@@ -141,13 +141,14 @@ export const btnBaseStyle: CSSProperties = {
 };
 
 export const btnStyle: CSSProperties = {
-  padding: `${spacing[8]}px ${spacing[16]}px`,
+  padding: `0 ${spacing[12]}px`,  // P2: was 8px 16px — now 0 12px for text buttons
+  height: 30,  // P2: explicit height for consistency
   background: "rgba(59,130,246,0.14)",
   border: "1px solid rgba(59,130,246,0.35)",
   borderRadius: radius.md,
   color: colors.accent.blue,
   fontSize: fontSize.base,  // #10: token-driven (base=13)
-  fontWeight: 600,
+  fontWeight: 500,  // P2: was 600 — now consistent 500
   // R2-#10: cursor handled by CSS — inline cursor was overriding :disabled state
   whiteSpace: "nowrap",
   transition: `transform ${transition.fast}, box-shadow ${transition.fast}, background ${transition.fast}, opacity ${transition.fast}`,
@@ -157,12 +158,14 @@ export const btnStyle: CSSProperties = {
 // dedicated `runGroupRunBtn` token (part of the transport control group).
 
 export const btnMiniStyle: CSSProperties = {
-  padding: `${spacing[8]}px ${spacing[10]}px`,  // #1: was hardcoded 10px — now uses spacing[10]
+  padding: `0 ${spacing[10]}px`,  // P2: was 8px 10px with vertical padding — now 0 10px for consistent height
+  height: 30,  // P2: explicit height for consistency
   background: "transparent",
   border: `1px solid ${colors.border.default}`,
   borderRadius: radius.md,
   color: colors.text.secondary,
   fontSize: fontSize.md,  // #10: token-driven (md=14)
+  fontWeight: 500,  // P2: consistent 500 weight
   // R2-#10: cursor handled by CSS — inline cursor was overriding :disabled state
   lineHeight: 1,
   transition: `background ${transition.fast}, border-color ${transition.fast}, color ${transition.fast}`,

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { WorkflowNode, Profile, NodeStatus, NodeParams } from "./types";
 import { STATUS_LABELS } from "./types";
-import { colors, radius, shadow, spacing, transition, formatCost, formatDuration } from "./theme";
+import { colors, fontSize, radius, shadow, spacing, transition, formatCost, formatDuration } from "./theme";
 import { PROFILE_CONFIG, statusMeta } from "./utils";  // #3/#4: unified maps
 import { IconSettings, IconTrash } from "./icons";
 
@@ -136,7 +136,7 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
           <h2 style={{ fontSize: 14, fontWeight: 600, color: colors.text.secondary, margin: 0 }}>
             未选中节点
           </h2>
-          <div style={{ fontSize: 12, lineHeight: 1.7, maxWidth: 200, color: colors.text.tertiary }}>
+          <div style={{ fontSize: fontSize.base, lineHeight: 1.7, maxWidth: 200, color: colors.text.tertiary }}>
             在画布中点击任意节点，<br />此处将显示详细信息和编辑面板
           </div>
         </div>
@@ -760,7 +760,7 @@ const inputStyle: React.CSSProperties = {
   border: `1px solid ${colors.border.default}`,
   borderRadius: radius.md,
   color: colors.text.primary,
-  fontSize: 12,
+  fontSize: fontSize.base,  // P2: was 12 — now 13px
   boxSizing: "border-box",
   fontFamily: "inherit",
   transition: `border-color ${transition.fast}`,

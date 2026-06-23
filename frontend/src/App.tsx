@@ -1326,7 +1326,7 @@ function CanvasInner() {
                 title="执行当前工作流"
               >
                 {/* #6: CSS spinner conveys active execution instead of a static emoji. */}
-                {isRunning ? (<><span className="af-spinner" /> 执行中</>) : <><IconPlay size={14} /> 执行</>}
+                {isRunning ? (<><span className="af-spinner" /> <span>执行中...</span></>) : <><IconPlay size={14} /> 执行</>}
               </button>
               {isRunning && (
                 <button
@@ -1362,7 +1362,7 @@ function CanvasInner() {
               aria-label="选择示例需求"
               title="示例需求"
             >
-              <option value="">示例 📂</option>
+              <option value="">示例</option>
               {EXAMPLES.map((ex) => (
                 <option key={ex.text} value={ex.text}>
                   {ex.text.slice(0, 30)}... {ex.icon}
@@ -1585,12 +1585,10 @@ function CanvasInner() {
             >
               {/* ── Hero ── */}
               <div style={{
-                fontSize: 56,
-                opacity: 0.9,
                 marginBottom: spacing[12],
                 filter: "drop-shadow(0 4px 12px rgba(96,165,250,0.35))",
               }}>
-                🧬
+                <IconAgentFlow size={48} />
               </div>
               <h2 style={{
                 fontSize: fontSize.xxl,
@@ -1653,7 +1651,7 @@ function CanvasInner() {
                     e.currentTarget.style.boxShadow = `0 6px 20px ${colors.accent.blue}40`;
                   }}
                 >
-                  🤖 试试 AI 编排
+                  <IconAI size={16} /> 试试 AI 编排
                 </button>
                 <button
                   type="button"
@@ -1670,7 +1668,7 @@ function CanvasInner() {
                     fontSize: fontSize.md,
                   }}
                 >
-                  📋 从空白开始
+                  <IconPlus size={16} /> 从空白开始
                 </button>
               </div>
 
@@ -1686,52 +1684,18 @@ function CanvasInner() {
                   <button
                     key={ex.text}
                     type="button"
+                    className="af-welcome-card"
                     onClick={() => {
                       updateRequirement(ex.text);
-                      addToast("info", "已填入示例需求，点击「🤖 AI 编排」生成");
+                      addToast("info", "已填入示例需求，点击「AI 编排」生成");
                       setTimeout(() => {
                         const el = document.querySelector<HTMLTextAreaElement>(".af-req-input");
                         el?.focus();
                       }, 0);
                     }}
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "flex-start",
-                      gap: spacing[6],
-                      width: 230,
-                      padding: spacing[12],
-                      background: colors.bg[3],
-                      border: `1px solid ${colors.border.default}`,
-                      borderRadius: radius.lg,
-                      color: colors.text.primary,
-                      cursor: "pointer",
-                      textAlign: "left",
-                      transition: `transform ${transition.fast}, border-color ${transition.fast}, background ${transition.fast}`,
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = "translateY(-3px)";
-                      e.currentTarget.style.borderColor = colors.border.bright;
-                      e.currentTarget.style.background = colors.bg[4];
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.borderColor = colors.border.default;
-                      e.currentTarget.style.background = colors.bg[3];
-                    }}
                   >
-                    <span style={{ fontSize: 24, lineHeight: 1 }}>{ex.icon}</span>
-                    <span style={{
-                      fontSize: fontSize.sm,
-                      fontWeight: 600,
-                      color: "rgba(232,237,245,0.85)",
-                      lineHeight: 1.4,
-                      // Two-line clamp keeps cards equal height.
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
-                    }}>
+                    <span className="af-welcome-card-icon">{ex.icon}</span>
+                    <span className="af-welcome-card-text">
                       {ex.text}
                     </span>
                   </button>
@@ -1768,13 +1732,25 @@ function CanvasInner() {
               }}
             />
             <MiniMap
-              nodeColor={miniMapNodeColor}
-              maskColor="rgba(0,0,0,0.6)"
-              style={{
-                background: colors.bg[3],
-                border: `1px solid ${colors.border.default}`,
-                borderRadius: radius.lg,  // #2: was hardcoded 8 — now uses token
+              nodeStrokeColor={(node: Node) => {
+                const d = node.data as AgentNodeData | undefined;
+                return d?.color || "#64748b";
               }}
+              nodeColor={(node: Node) => {
+                const d = node.data as AgentNodeData | undefined;
+                const c = d?.color;
+                return c ? c + "40" : "#64748b40";
+              }}
+              nodeBorderRadius={4}
+              maskColor="rgba(0,0,0,0.5)"
+              style={{
+                background: "rgba(15,17,23,0.9)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: 6,
+              }}
+              className="af-minimap"
+              pannable
+              zoomable
             />
           </ReactFlow>
         </div>

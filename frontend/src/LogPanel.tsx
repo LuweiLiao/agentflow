@@ -1,7 +1,7 @@
 /* AgentFlow — 日志面板组件 (E1–E5) */
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { colors, radius, spacing, transition } from "./theme";
+import { colors, fontSize, radius, spacing, transition } from "./theme";
 import { IconSearch, IconTrash } from "./icons";
 
 interface LogPanelProps {
@@ -254,13 +254,14 @@ export default function LogPanel({ logs, onClear, errorCount = 0 }: LogPanelProp
                 style={{
                   width: "100%",
                   boxSizing: "border-box",
-                  padding: "3px 8px 3px 22px",
+                  padding: "5px 8px 5px 24px",  // P2: increased padding for 13px font
                   background: colors.bg[2],
                   border: `1px solid ${colors.border.default}`,
                   borderRadius: radius.md,
                   color: colors.text.primary,
-                  fontSize: 11,
+                  fontSize: fontSize.base,  // P2: was 11 — now 13px
                   fontFamily: "inherit",
+                  minHeight: 30,  // P2: ensure comfortable height
                 }}
               />
             </div>
