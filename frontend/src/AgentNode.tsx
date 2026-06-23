@@ -1,8 +1,9 @@
-import { memo } from "react";
+import { memo, type FC } from "react";
 import { Handle, Position, NodeProps, Node } from "@xyflow/react";
 import { colors, fontSize, shadow, radius, spacing, transition, formatCost, formatDuration } from "./theme";  // #36: added radius
 import { statusMeta, profileMeta } from "./utils";  // #3/#4: unified maps
 import type { NodeParams } from "./types";
+import { IconAnalysis, IconDesign, IconDevelop, IconTest, IconDoc, IconDeploy, IconAI, IconChevronDown } from "./icons";
 
 export type AgentNodeData = {
   icon: string;
@@ -47,6 +48,17 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
   const profileLabel = profileMeta(data.profile).label;  // #4: unified profile lookup
   const accent = data.color || colors.accent.purple;
   const isRunning = (data.status || "pending") === "running";
+
+  // P3: Map profile → SVG icon instead of rendering the backend emoji string.
+  const profileIcons: Record<string, FC<{ size?: number }>> = {
+    analysis: IconAnalysis,
+    design: IconDesign,
+    dev: IconDevelop,
+    test: IconTest,
+    doc: IconDoc,
+    deploy: IconDeploy,
+  };
+  const ProfileIcon = profileIcons[data.profile] || IconAI;
 
   const cardClass = [
     "agentflow-node-card",
@@ -130,7 +142,7 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
               {data.index}
             </span>
           )}
-          <span style={{ fontSize: fontSize.base, lineHeight: 1, flexShrink: 0 }}>{data.icon || "🤖"}</span>
+          <span style={{ fontSize: fontSize.base, lineHeight: 1, flexShrink: 0, color: accent, display: "inline-flex", alignItems: "center" }}><ProfileIcon size={14} /></span>
           <span
             style={{
               fontSize: fontSize.sm,
@@ -140,6 +152,7 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
               overflow: "hidden",
               textOverflow: "ellipsis",
               minWidth: 0,
+              fontFeatureSettings: '"cv01"',
             }}
           >
             {data.label || "未命名"}
@@ -228,7 +241,7 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
               gap: 4,
             }}
           >
-            <span>🔽</span>
+            <IconChevronDown size={12} />
             <span>子工作流</span>
           </div>
         )}
@@ -266,10 +279,10 @@ function AgentNode({ data, selected }: NodeProps<Node<AgentNodeData>>) {
               color: colors.text.tertiary,
             }}
           >
-            {data.model && <span>🧠 {data.model}</span>}
-            {data.cost !== undefined && <span>💰 {formatCost(data.cost)}</span>}
+            {data.model && <span>{data.model}</span>}
+            {data.cost !== undefined && <span>{formatCost(data.cost)}</span>}
             {data.duration_ms !== undefined && (
-              <span>⏱ {formatDuration(data.duration_ms)}</span>
+              <span>{formatDuration(data.duration_ms)}</span>
             )}
           </div>
         )}

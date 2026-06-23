@@ -55,7 +55,9 @@ import {
   layoutBtnStyle,
 } from "./styles";
 import { colors, fontSize, profileColor, radius, shadow, spacing, transition, zIndex, formatCost } from "./theme";
-import { IconAI, IconPlay, IconStop, IconDownload, IconUpload, IconSave, IconUndo, IconRedo, IconLayout, IconReset, IconEvolution, IconSearch, IconClose, IconChevronDown, IconTrash, IconPlus, IconAgentFlow, IconSettings } from "./icons";
+import { IconAI, IconPlay, IconStop, IconDownload, IconUpload, IconSave, IconUndo, IconRedo, IconLayout, IconReset, IconEvolution, IconSearch, IconClose, IconChevronDown, IconTrash, IconPlus, IconAgentFlow, IconSettings, IconDevelop, IconTest, IconDeploy } from "./icons";
+
+const exampleIconMap: Record<string, React.FC<{ size?: number }>> = { dev: IconDevelop, test: IconTest, deploy: IconDeploy };
 import type { WorkflowNode, NodeStatus } from "./types";
 
 const MAX_REQUIREMENT_LEN = 2000;
@@ -76,9 +78,9 @@ const miniMapNodeColor = (node: Node) => {
 
 // ── 示例需求 ──
 const EXAMPLES = [
-  { icon: "🔌", text: "用 PyQt5 实现一个串口调试助手，支持端口扫描、波特率设置、HEX/ASCII 收发" },
-  { icon: "✅", text: "用 Flask + SQLite 开发一个 Todo 网页应用，含用户登录、CRUD、标签分类" },
-  { icon: "🚁", text: "在 MATLAB/Simulink 中设计并仿真四旋翼无人机 ADRC 控制器" },
+  { icon: "dev", text: "用 PyQt5 实现一个串口调试助手，支持端口扫描、波特率设置、HEX/ASCII 收发" },
+  { icon: "test", text: "用 Flask + SQLite 开发一个 Todo 网页应用，含用户登录、CRUD、标签分类" },
+  { icon: "deploy", text: "在 MATLAB/Simulink 中设计并仿真四旋翼无人机 ADRC 控制器" },
 ];
 
 /* ── P0-3: Toast notification system ────────────────────────────
@@ -1365,7 +1367,7 @@ function CanvasInner() {
               <option value="">示例</option>
               {EXAMPLES.map((ex) => (
                 <option key={ex.text} value={ex.text}>
-                  {ex.text.slice(0, 30)}... {ex.icon}
+                  {ex.text.slice(0, 30)}...
                 </option>
               ))}
             </select>
@@ -1694,7 +1696,7 @@ function CanvasInner() {
                       }, 0);
                     }}
                   >
-                    <span className="af-welcome-card-icon">{ex.icon}</span>
+                    <span className="af-welcome-card-icon">{(() => { const EI = exampleIconMap[ex.icon] || IconAI; return <EI size={16} />; })()}</span>
                     <span className="af-welcome-card-text">
                       {ex.text}
                     </span>
@@ -1714,7 +1716,7 @@ function CanvasInner() {
             onNodeClick={onNodeClick}
             onPaneClick={onPaneClick}
             nodeTypes={nodeTypes}
-            defaultEdgeOptions={{ type: "smoothstep" }}
+            defaultEdgeOptions={{ type: "smoothstep", style: { strokeWidth: 2 } }}
             fitView
             fitViewOptions={{ padding: 0.15, maxZoom: 1.2 }}
             deleteKeyCode={["Backspace", "Delete"]}

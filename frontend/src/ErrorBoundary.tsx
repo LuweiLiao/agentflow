@@ -6,6 +6,7 @@
  */
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { radius } from "./theme";  // #2: token-driven borderRadius
+import { IconClose, IconReset } from "./icons";
 
 interface Props {
   children: ReactNode;
@@ -52,7 +53,7 @@ export default class ErrorBoundary extends Component<Props, State> {
             textAlign: "center",
           }}
         >
-          <div style={{ fontSize: 48 }}>💥</div>
+          <div style={{ color: "#f87171" }}><IconClose size={48} /></div>
           <h1 style={{ margin: 0, fontSize: 18 }}>应用遇到错误</h1>
           <p
             style={{
@@ -79,7 +80,7 @@ export default class ErrorBoundary extends Component<Props, State> {
               fontWeight: 600,
             }}
           >
-            🔄 重试
+            <IconReset size={16} /> 重试
           </button>
         </div>
       );

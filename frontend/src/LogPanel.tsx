@@ -38,6 +38,16 @@ function colorForLevel(level: Exclude<Level, "all">): string {
   }
 }
 
+/** P3: left border color bar per log level for visual scanning. */
+function borderForLevel(level: Exclude<Level, "all">): string {
+  switch (level) {
+    case "error": return "3px solid #f87171";
+    case "success": return "3px solid #34d399";
+    case "warning": return "3px solid #fbbf24";
+    default: return "3px solid transparent";
+  }
+}
+
 const COLLAPSE_KEY = "agentflow:logCollapsed";
 
 export default function LogPanel({ logs, onClear, errorCount = 0 }: LogPanelProps) {
@@ -334,8 +344,37 @@ export default function LogPanel({ logs, onClear, errorCount = 0 }: LogPanelProp
                     {renderSlice.map((line, i) => {
                       const lv = levelOf(line);
                       return (
-                        <div key={line.slice(0, 32)} className="af-log-entry" style={{ color: colorForLevel(lv), height: ITEM_HEIGHT, overflow: "hidden", whiteSpace: "pre" }}>
-                          {line}
+                        <div
+                          key={`${startIndex + i}-${line.slice(0, 24)}`}
+                          className="af-log-entry"
+                          style={{
+                            color: colorForLevel(lv),
+                            height: ITEM_HEIGHT,
+                            overflow: "hidden",
+                            display: "flex",
+                            alignItems: "center",
+                            borderLeft: borderForLevel(lv),
+                            paddingLeft: 6,
+                          }}
+                        >
+                          {/* P3: line number column (light gray, right-aligned, 30px) */}
+                          <span
+                            style={{
+                              width: 30,
+                              flexShrink: 0,
+                              textAlign: "right",
+                              paddingRight: 8,
+                              color: colors.text.tertiary,
+                              opacity: 0.5,
+                              userSelect: "none",
+                              fontSize: 10,
+                            }}
+                          >
+                            {startIndex + i + 1}
+                          </span>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {line}
+                          </span>
                         </div>
                       );
                     })}

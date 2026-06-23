@@ -3,7 +3,7 @@ import type { WorkflowNode, Profile, NodeStatus, NodeParams } from "./types";
 import { STATUS_LABELS } from "./types";
 import { colors, fontSize, radius, shadow, spacing, transition, formatCost, formatDuration } from "./theme";
 import { PROFILE_CONFIG, statusMeta } from "./utils";  // #3/#4: unified maps
-import { IconSettings, IconTrash } from "./icons";
+import { IconSettings, IconTrash, IconChevronRight, IconAnalysis, IconDesign, IconDevelop, IconTest, IconDoc, IconDeploy, IconAI } from "./icons";
 
 type InspectorPanelProps = {
   node: WorkflowNode | null;
@@ -11,6 +11,8 @@ type InspectorPanelProps = {
   onDelete: (id: string) => void;
   graphInfo: { nodes: number; edges: number };
 };
+
+const COLLAPSE_KEY = "agentflow:inspectorCollapsed";
 
 /**
  * Build the profile picker options from the unified `PROFILE_CONFIG` (#4).
@@ -23,6 +25,25 @@ const PROFILE_OPTIONS: { value: Profile; label: string; color: string }[] = (
   label: `${PROFILE_CONFIG[value].icon} ${PROFILE_CONFIG[value].label}`,
   color: PROFILE_CONFIG[value].color,
 }));
+
+/**
+ * Map each profile to its dedicated SVG icon (no emoji). Falls back to
+ * `IconAI` (the generic sparkle) when no node.icon override is set.
+ */
+const PROFILE_ICON_MAP: Record<Profile, React.FC<{ size?: number }>> = {
+  analysis: IconAnalysis,
+  design: IconDesign,
+  dev: IconDevelop,
+  test: IconTest,
+  doc: IconDoc,
+  deploy: IconDeploy,
+};
+
+/** Render a profile-appropriate SVG icon, defaulting to IconAI. */
+function ProfileIcon({ profile }: { profile?: Profile }) {
+  const Icon = (profile && PROFILE_ICON_MAP[profile]) || IconAI;
+  return <Icon size={16} />;
+}
 
 /* D1 — a small debounced field that syncs local state to the parent.
  * R3-P3: now also exposes a `dirty` flag (true while local has unflushed
@@ -76,6 +97,16 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showFade, setShowFade] = useState(false);
 
+  // P3: collapsible inspector — persists to localStorage, mirrors BlockLibrary.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem(COLLAPSE_KEY) === "1"; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0"); }
+    catch { /* ignore */ }
+  }, [collapsed]);
+
   // D3 — detect overflow to toggle the bottom gradient fade.
   useEffect(() => {
     const el = scrollRef.current;
@@ -106,10 +137,67 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
     (v) => node && onUpdate(node.id, { params: { validation_commands: v } })
   );
 
+  if (collapsed) {
+    return (
+      <div
+        style={{ ...panelStyle, width: 36, padding: 0 }}
+        className="af-panel-right"
+      >
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          aria-label="展开检查器"
+          aria-expanded={false}
+          title="展开检查器"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "100%",
+            height: 36,
+            background: "transparent",
+            border: "none",
+            borderBottom: `1px solid ${colors.border.subtle}`,
+            color: colors.text.tertiary,
+            cursor: "pointer",
+          }}
+        >
+          <IconSettings size={16} />
+        </button>
+      </div>
+    );
+  }
+
   if (!node) {
     return (
       <div style={panelStyle} className="af-panel-right">
-        <div style={headerStyle}><IconSettings size={16} /> 检查器</div>
+        <div style={{ ...headerStyle, justifyContent: "space-between" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <IconSettings size={16} /> 检查器
+          </span>
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            aria-label="折叠检查器"
+            title="折叠检查器"
+            className="af-panel-close-btn"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 24,
+              height: 24,
+              background: "transparent",
+              border: "none",
+              color: colors.text.tertiary,
+              cursor: "pointer",
+              borderRadius: radius.sm,
+              transition: `color ${transition.fast}`,
+            }}
+          >
+            <IconChevronRight size={14} />
+          </button>
+        </div>
         {/* #5/#29/#30 — Rich empty state with guidance */}
         <div className="af-fade-in" style={{
           display: "flex",
@@ -158,7 +246,7 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
               fontSize: 11,  // R2-#10: was 10 — improve readability
               color: graphInfo.edges >= graphInfo.nodes - 1 ? colors.status.completed : colors.status.timed_out,
             }}>
-              {graphInfo.edges >= graphInfo.nodes - 1 ? "✓ 工作流连通" : "⚠ 部分节点未连接"}
+              {graphInfo.edges >= graphInfo.nodes - 1 ? "✓ 工作流连通" : "部分节点未连接"}
             </div>
           )}
         </div>
@@ -195,10 +283,34 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
     <div style={{ ...panelStyle, position: "relative" }}>
       <div ref={scrollRef} style={{ height: "100%", overflowY: "auto", paddingRight: 2 }}>
         <h2 style={headerStyle}>
-          <span>{node.icon || "🤖"}</span> {node.label || "未命名"}
+          <span>{node.icon || <ProfileIcon profile={node.profile} />}</span> {node.label || "未命名"}
           <span style={{ fontSize: 10, color: colors.text.tertiary, fontWeight: 400, marginLeft: 4 }}>
             #{node.id.slice(-6)}
           </span>
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            aria-label="折叠检查器"
+            title="折叠检查器"
+            className="af-panel-close-btn"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 24,
+              height: 24,
+              marginLeft: "auto",
+              background: "transparent",
+              border: "none",
+              color: colors.text.tertiary,
+              cursor: "pointer",
+              borderRadius: radius.sm,
+              transition: `color ${transition.fast}`,
+              flexShrink: 0,
+            }}
+          >
+            <IconChevronRight size={14} />
+          </button>
         </h2>
 
         {/* D7 — 基本信息 */}
@@ -467,7 +579,7 @@ export default function InspectorPanel({ node, onUpdate, onDelete, graphInfo }: 
           </div>
           {(node.cost !== undefined || node.duration_ms !== undefined) && (
             <div style={{ marginTop: 6, fontSize: 11, color: colors.text.tertiary }}>
-              {node.cost !== undefined && <span>💰 {formatCost(node.cost)}　</span>}
+              {node.cost !== undefined && <span>{formatCost(node.cost)}　</span>}
               {node.duration_ms !== undefined && <span>⏱ {formatDuration(node.duration_ms)}</span>}
             </div>
           )}

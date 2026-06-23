@@ -12,6 +12,7 @@ import type {
   EvolutionReport,
 } from "./types";
 import { colors, fontSize, radius, shadow, spacing, transition, zIndex, TOOLBAR_HEIGHT } from "./theme";
+import { IconEvolution } from "./icons";
 
 /* ── Styles ───────────────────────────────────────────────────── */
 
@@ -226,7 +227,7 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
       >
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <h2 style={{ margin: 0, fontSize: fontSize.lg, fontWeight: 700 }}>🧬 自我进化</h2>  {/* #39: was "Self-Evolution" */}
+          <h2 style={{ margin: 0, fontSize: fontSize.lg, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6 }}><IconEvolution size={18} /> 自我进化</h2>  {/* #39: was "Self-Evolution" */}
           <button
             onClick={onClose}
             aria-label="关闭自我进化面板"
@@ -241,9 +242,9 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
         {/* Tabs */}
         <div role="tablist" style={{ display: "flex", gap: 4, marginBottom: 12 }}>
           {([
-            ["report", "📋 报告"],
-            ["upgrade", "⚡ 升级"],
-            ["global", "📊 全局"],
+            ["report", "报告"],
+            ["upgrade", "升级"],
+            ["global", "全局"],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -265,14 +266,14 @@ export default function EvolutionPanel({ runId, onClose }: EvolutionPanelProps) 
         {/* F4 — skeleton loading */}
         {loading && <LoadingSkeleton />}
 
-        {error && <div style={{ color: colors.status.failed, padding: 8 }}>⚠️ {error}</div>}
+        {error && <div style={{ color: colors.status.failed, padding: 8 }}>{error}</div>}
 
         {/* ── Report Tab ──────────────────────────────────────── */}
         {tab === "report" && !loading && (
           <div>
             {!report ? (
               <EmptyState
-                icon="🧬"
+                icon={<IconEvolution size={40} />}
                 title="暂无进化报告"
                 hint="对此运行执行进化分析以发现失败归因与改进建议"
                 action={<button onClick={runEvolve} className="af-evo-btn" style={{ ...btnStyle, background: colors.accent.purple, color: "#fff" }}>🔍 执行进化分析</button>}
@@ -555,7 +556,7 @@ function EmptyState({
   hint,
   action,
 }: {
-  icon: string;
+  icon: React.ReactNode;
   title: string;
   hint: string;
   action?: React.ReactNode;
